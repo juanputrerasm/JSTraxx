@@ -12,7 +12,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/",
+    "test": "node --test \"tests/**/*.test.ts\"",
     "vendor": "cd ../OpenPhotex && npm run build && npm run vendor -- ../JSTraxx/src/vendor/openphotex --types",
     "assets": "node scripts/traxx-ui-art.mjs && node scripts/traxx-stock-data.mjs && node scripts/traxx-help.mjs"
   },
