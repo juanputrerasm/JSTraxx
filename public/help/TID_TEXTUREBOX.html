@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Texture Box - Traxx Help</title><link rel="stylesheet" href="help.css"></head>
+<body><nav><a href="index.html">Contents</a></nav><main><h1>Texture Box</h1>
+
+<p><u><b>Textures Box.</b></u></p>
+
+<p>Access the Textures Box using <u><b>V</b></u><b>iew/</b><u><b>T</b></u><b>extures</b> in the main menu (or from the right-click menu in Texture editing mode).</p>
+
+<p>The textures shown in this box are used for the terrain and ground-boxes (textures used by BIN models are handled automatically and separately by <i><b>Traxx</b></i>).</p>
+
+<p>The main display shows all the textures currently included in the track. Textures are loaded using the <b>Load &gt;&gt;</b> button, which shows all the textures in your <b>Art</b> folder. You can scroll through the pages of textures using the buttons in the bottom-right, and then load them by double clicking on them (or use the <b>Load Page</b> button.</p>
+<p>When you have activated the <b>Load &gt;&gt;</b> section, you can apply a filter to list only those with particular names. For example, type "C8DR*" in the small "Files:" box at the top and hit <b>Refresh</b> - you will then see a listing of just the Crazy98 track textures (assuming you have extracted those, of course).</p>
+
+
+<p><u><b>Type / Grip depth.</b></u></p>
+
+<p>Each texture can be assigned a <b>Type</b>, which will affect the way that the trucks handle on those squares, the skidding sound, and the color of dirt kick-up.</p>
+<p><b>Grip depth</b> determines how far the truck's tire treads sink into the terrain, which affects the trucks handling. Typically grass textures will be set to 2-&gt;4, mud/sand to 3-&gt;5, cement to 0-&gt;1. If you set the type to "Ice" with a grip-depth of 0 you go spinning almost uncontrollably. "Water" type grip depths are often in the range 20-&gt;40 to allow trucks to go at least partially underwater.</p>
+<p>Note: "Rocks" and "Mud" are very slippery!</p>
+
+<p><b>tip:</b>&emsp;To set many textures quickly, click on the <b>Type</b> or <b>Grip Depth</b> control, so its highlighted. Then click on the textures on-by-one and use the up/down arrow keys to change the setting for each.</p>
+
+
+<p><u><b>Custom Textures.</b></u></p>
+
+<p>Custom textures are created simply by pasting images in using the <b>Paste Texture</b> and <b>Paste Composite</b> buttons. For either option, you can Copy an image from any graphics program - the image must be in 8-bit (256 color) format. In the former case, the image must be either 64x64 or 256x256 pixels in size.</p>
+
+<p>The <b>Paste Composite</b> option allows you to extract a grid of many textures automatically from a single over-size image. See <a href="TID_TEXTURECUT.html">Cut Textures from Bitmap</a>.</p>
+
+<p><b>tip:</b>&emsp;If you use custom textures, you may want to create an optimized color palette for your track so that they are displayed correctly (the palettes from the stock tracks may not include the colors that your textures need). See <a href="TID_SPECIAL.html">Special Functions</a>.</p>
+
+<p>You can use the <b>Copy</b> button (or right-click/Copy) to copy a texture for pasting into a graphics program for editing. When you do this, the texture is copied out with its original palette (ACT) so it will appear correctly (previous versions of <i><b>Traxx</b></i> copied it out with the track's master palette).</p>
+
+
+<p><u><b>Animated Textures.</b></u></p>
+
+<p>In order to animate a texture, select it and then hold <b>&lt;Ctrl&gt;</b> while clicking on the other textures in the animation sequence, <u>in order</u>. As you do this, a number will appear indicating the texture's place in the sequence. Note that the texture will not be animated on the main <i><b>Traxx</b></i> display.</p>
+<p>Having setup a sequence of textures, you can then click the <b>Animate</b> button to see a preview and adjust the frame rate. The <b>Period</b> is the amount of time each frame is shown, in milliseconds. The default is 250, which is 4 frames per second. The lower the number, the faster the animation will run.</p>
+
+
+<p><u><b>Purging Textures.</b></u></p>
+
+<p>To minimize the size of your track's POD file, the <b>Purge Unused Textures</b> option will remove all the textures that you have loaded but are not actually applied to any terrain location or ground-box. Before proceeding, it will pop up a box indicating how many (if any) textures are unused - so you can use it just to see...</p>
+<p>This is a useful option to use prior to final completion of the track, especially if its going to be downloaded by people on the 'net.</p>
+
+
+<p><u><b>Texture Rename/Delete.</b></u></p>
+
+<p>You can right-click on textures in the <b>Load &gt;&gt;</b> section to display a popup menu with <b>Rename</b> and <b>Delete</b> options. These funtions operate on the actual texture files, and should be used with care! <i><b>Traxx</b></i> won't allow you to use these on textures that you currently have loaded in the track you are working on.</p>
+<p>Note that you should click the "Refresh" button to update the display after deleting or renaming textures, since they may still be shown if you scroll away and return to that page (due to the cacheing mechanism used), even though the files aren't there anymore.</p>
+
+
+<p><i>BP 5/5/99</i></p>
+
+
+</main></body></html>

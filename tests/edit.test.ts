@@ -1,0 +1,328 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { History, group } from "../src/core/edit/history.ts";
+import { recordFields, recordGrid } from "../src/core/edit/record.ts";
+import { ObjectSelection } from "../src/core/edit/object-selection.ts";
+import { nearestOnScreen, insideRect } from "../src/core/view/screen-pick.ts";
+
+test("a grid patch undoes and redoes a rectangle, and records nothing when nothing changed", () => {
+  const grid = new Uint8Array(65536);
+  const rec = recordGrid(grid, { minX: 10, minY: 20, maxX: 12, maxY: 21 }, "Raise", (r) => ({ heights: r }));
+  grid[11 + 20 * 256] = 7;
+  grid[12 + 21 * 256] = 9;
+  const c = rec.finish()!;
+  assert.deepEqual(c.touch.heights, { minX: 10, minY: 20, maxX: 12, maxY: 21 });
+  c.undo();
+  assert.equal(grid[11 + 20 * 256], 0);
+  c.redo();
+  assert.equal(grid[12 + 21 * 256], 9);
+  assert.equal(recordGrid(grid, { minX: 0, minY: 0, maxX: 3, maxY: 3 }, "x", () => ({})).finish(), null);
+  const clr = new Uint16Array(65536);
+  const r2 = recordGrid(clr, { minX: -5, minY: 250, maxX: 300, maxY: 300 }, "Paint", (r) => ({ clr: r }));
+  clr[255 + 255 * 256] = 0x1234;
+  const c2 = r2.finish()!;
+  assert.deepEqual(c2.touch.clr, { minX: 0, minY: 250, maxX: 255, maxY: 255 }, "clamped to the grid");
+  c2.undo();
+  assert.equal(clr[255 + 255 * 256], 0);
+});
+
+test("a field snapshot puts whole collections back", () => {
+  const track = { boxes: [{ ipos: [1, 2, 3] }], course: [] as number[] };
+  const rec = recordFields(track, ["boxes"], "Move", { objects: true });
+  track.boxes[0].ipos[0] = 50;
+  track.boxes.push({ ipos: [9, 9, 9] });
+  const c = rec.finish()!;
+  c.undo();
+  assert.deepEqual(track.boxes, [{ ipos: [1, 2, 3] }]);
+  c.redo();
+  assert.equal(track.boxes.length, 2);
+  assert.equal(track.boxes[0].ipos[0], 50);
+  assert.equal(recordFields(track, ["course"], "x", {}).finish(), null);
+});
+
+test("history: undo, redo, a new change drops the redo, the save point, the limit", () => {
+  const log: string[] = [];
+  const mk = (n: string) => ({ label: n, touch: {}, undo: () => log.push(`-${n}`), redo: () => log.push(`+${n}`) });
+  const h = new History(3);
+  assert.equal(h.atSavePoint, true);
+  h.push(mk("a"));
+  h.markSaved();
+  h.push(mk("b"));
+  assert.equal(h.atSavePoint, false);
+  h.undo();
+  assert.equal(h.atSavePoint, true);
+  assert.equal(h.redoLabel, "b");
+  h.push(mk("c"));
+  assert.equal(h.canRedo, false);
+  h.push(mk("d"));
+  h.push(mk("e"));
+  assert.equal(h.undoLabel, "e");
+  while (h.undo());
+  assert.deepEqual(log, ["-b", "-e", "-d", "-c"], "only three are kept");
+  assert.equal(h.atSavePoint, true, "dropping the oldest step keeps the saved state, which was before it");
+  h.push(mk("f"));
+  h.undo();
+  h.push(mk("g"));
+  h.push(mk("h"));
+  h.push(mk("i"));
+  h.push(mk("j"));
+  assert.equal(h.atSavePoint, false);
+  while (h.undo());
+  assert.equal(h.atSavePoint, false, "once the saved state's step is dropped it cannot be reached");
+  const g = group("both", [mk("x"), mk("y")]);
+  log.length = 0;
+  g.undo();
+  g.redo();
+  assert.deepEqual(log, ["-y", "-x", "+x", "+y"]);
+});
+
+test("object selection follows Traxx's multiselect rules", () => {
+  const exists = (i: number) => i >= 0 && i < 100;
+  const s = new ObjectSelection();
+  s.select(5);
+  s.toggle(7, exists);
+  assert.deepEqual(s.collect(exists), [7, 5], "Ctrl+click makes a set of two, the newest the anchor");
+  s.toggle(9, exists);
+  assert.equal(s.anchor, 9);
+  s.toggle(9, exists);
+  assert.equal(s.anchor, 5, "taking the anchor out hands the role on");
+  assert.deepEqual(s.collect(exists), [5, 7]);
+  s.toggle(7, exists);
+  assert.equal(s.active(), false, "a set of one is a single selection again");
+  assert.equal(s.anchor, 5);
+  s.toggle(5, exists);
+  assert.equal(s.anchor, -1, "Ctrl+click on the one selected object deselects it");
+  s.select(1);
+  s.addAll([2, 3], exists);
+  assert.deepEqual(s.collect(exists), [1, 2, 3]);
+  s.select(50);
+  assert.equal(s.active(), false, "a plain selection elsewhere ends the set");
+  assert.equal(s.has(2), false);
+  s.select(1);
+  assert.equal(s.has(2), false, "and an old member cannot bring it back");
+  s.addAll([4, 6], exists);
+  s.remap((i) => (i === 4 ? -1 : i > 4 ? i - 1 : i));
+  assert.deepEqual(s.collect(exists), [1, 5]);
+});
+
+test("screen picks use Manhattan distance and Traxx's limits scaled to the view", () => {
+  const view = { width: 1280, height: 960 };
+  const pts = [{ x: 100, y: 100 }, null, { x: 130, y: 100 }, { x: -5, y: 10 }];
+  assert.equal(nearestOnScreen(pts, { x: 120, y: 100 }, 20, view), 2);
+  assert.equal(nearestOnScreen(pts, { x: 160, y: 100 }, 20, view), 2, "20 px at 480 is 40 px at 960");
+  assert.equal(nearestOnScreen(pts, { x: 200, y: 100 }, 20, view), -1);
+  assert.equal(nearestOnScreen(pts, { x: 0, y: 10 }, 128, view), 0, "points off the view are skipped");
+  assert.deepEqual(insideRect(pts, { x: 140, y: 120 }, { x: 90, y: 90 }, view), [0, 2]);
+});
+
+test("terrain brushes follow MakeEditGrid and ApplyEditGrid", async () => {
+  const { makeEditGrid, applyEditGrid, copyTerrain, pasteTerrain, adjustHeights, heightsToRgba, rgbaToHeights } = await import("../src/core/edit/terrain.ts");
+  const base = { tool: 0, width: 5, height: 5, orientation: 0, curvature: 3, altitude: 32 };
+  const raise = makeEditGrid(base);
+  assert.equal(raise.width, 5);
+  assert.ok(raise.grid.every((v) => v === 32), "Platform raises every point by the altitude");
+  const turned = makeEditGrid({ ...base, width: 9, height: 3, orientation: 2 });
+  assert.deepEqual([turned.width, turned.height], [3, 9], "a quarter turn swaps the sides");
+  const diagonal = makeEditGrid({ ...base, orientation: 1 });
+  assert.equal(diagonal.width, 7, "an eighth turn: (|10cos|*5 + |10sin|*5) / 10 = 7");
+  const hill = makeEditGrid({ ...base, tool: 1, width: 9, height: 9 });
+  assert.equal(hill.grid[4 * 9 + 4], 32, "a hill peaks at the altitude");
+  assert.ok(hill.grid[0] < hill.grid[4 * 9 + 4] && hill.grid[0] >= 0);
+  const curved = makeEditGrid({ ...base, tool: 1, width: 9, height: 9, curvature: 6 });
+  assert.ok(curved.grid[0] <= hill.grid[0], "a steeper curvature drops the flanks");
+  const wedge = makeEditGrid({ ...base, tool: 2, width: 5, height: 1 });
+  assert.deepEqual([...wedge.grid], [0, 6, 13, 19, 26], "a slope rises across the width");
+
+  const h = new Uint8Array(65536).fill(100);
+  applyEditGrid(h, raise, base, 10, 10);
+  assert.equal(h[10 + 10 * 256], 132);
+  assert.equal(h[8 + 8 * 256], 132);
+  assert.equal(h[7 + 10 * 256], 100);
+  applyEditGrid(h, makeEditGrid({ ...base, altitude: -255 }), { ...base, altitude: -255 }, 10, 10);
+  assert.equal(h[10 + 10 * 256], 2, "lowering stops at 2");
+  applyEditGrid(h, raise, { ...base, tool: 6, altitude: 77 }, 50, 50);
+  assert.equal(h[52 + 52 * 256], 77, "Plane sets the altitude");
+  applyEditGrid(h, raise, { ...base, tool: 7, altitude: 200 }, 60, 60);
+  assert.equal(h[60 + 60 * 256], 255, "Direct Edit stops at 255");
+  assert.equal(h[61 + 60 * 256], 100, "and touches one point");
+  const bumpy = new Uint8Array(65536).fill(50);
+  bumpy[30 + 30 * 256] = 90;
+  applyEditGrid(bumpy, raise, { ...base, tool: 5 }, 30, 30);
+  assert.equal(bumpy[30 + 30 * 256], 50, "Smooth averages the four neighbours");
+  assert.equal(bumpy[31 + 30 * 256], 60);
+
+  const block = copyTerrain(h, 3, 3, 10, 10);
+  const target = new Uint8Array(65536);
+  pasteTerrain(target, block, 100, 100);
+  assert.equal(target[100 + 100 * 256], 2);
+  assert.equal(target[99 + 99 * 256], h[9 + 9 * 256]);
+  const edge = copyTerrain(h, 3, 3, 0, 0);
+  assert.equal(edge.data[0], -1, "points off the map are not copied");
+
+  const flatH = new Uint8Array(65536).fill(250);
+  const box = { ipos: [6400, 6400, 260] as [number, number, number] };
+  const res = adjustHeights(flatH, { scale: false, increment: 20, factor: 1, avoidClip: true }, [box], 40);
+  assert.equal(flatH[0], 255, "avoid clipping shrinks a lift of 20 to 5");
+  assert.equal(box.ipos[2], 265, "placements move with the ground under them");
+  assert.equal(res.water4, 60);
+
+  const pic = heightsToRgba(h);
+  assert.deepEqual(rgbaToHeights(pic, 256, 256), h, "the bitmap round-trips");
+  assert.equal(pic[(10 + (255 - 10) * 256) * 4], h[10 + 10 * 256], "a DIB is bottom-up");
+  assert.equal(rgbaToHeights(pic, 128, 128), null);
+});
+
+test("texture edits follow Traxx: paint, replace, turn, mirror, paste, purge", async () => {
+  const T = await import("../src/core/edit/textures.ts");
+  const { newTrackDocument } = await import("../src/core/doc/new-track.ts");
+  const clr = new Uint16Array(65536);
+  clr[5 + 5 * 256] = 0xc003;
+  T.applyTexture(clr, { x0: 5, y0: 5, x1: 6, y1: 5 }, 7);
+  assert.equal(clr[5 + 5 * 256], 7, "painting clears rotation and mirror");
+  clr[100] = 0x5007;
+  T.floodTexture(clr, 5, 5, 9);
+  assert.equal(clr[100], 9, "Replace takes every cell of that texture, whatever its turn");
+  assert.equal(clr[7 + 5 * 256], 0);
+  T.rotateCells(clr, { x0: 5, y0: 5, x1: 5, y1: 5 });
+  assert.equal(clr[5 + 5 * 256] >> 14, 1);
+  T.mirrorCells(clr, { x0: 5, y0: 5, x1: 5, y1: 5 });
+  assert.equal(clr[5 + 5 * 256] & 0x1000, 0x1000);
+
+  const g = new Uint16Array(65536);
+  g[10 + 10 * 256] = 1; g[11 + 10 * 256] = 2; g[12 + 10 * 256] = 3;
+  const out = T.rotateArea(g, { x0: 10, y0: 10, x1: 12, y1: 10 });
+  assert.deepEqual(out, { x0: 10, y0: 10, x1: 10, y1: 12 }, "a 3 x 1 area turns into 1 x 3");
+  assert.deepEqual([g[10 + 10 * 256] & 0xfff, g[10 + 11 * 256] & 0xfff, g[10 + 12 * 256] & 0xfff], [3, 2, 1]);
+  assert.equal(g[10 + 10 * 256] >> 14, 1);
+  const m = new Uint16Array(65536);
+  m[0] = 0x9001; // mirrored, rotation 2
+  T.rotateArea(m, { x0: 0, y0: 0, x1: 0, y1: 0 });
+  assert.equal(m[0] >> 14, 1, "a mirrored cell turns back a quarter");
+  m[0] = 0x1001;
+  T.rotateArea(m, { x0: 0, y0: 0, x1: 0, y1: 0 });
+  assert.equal(m[0] >> 14, 3, "and from 0 to 3, as C's -1 % 4 does");
+  const v = new Uint16Array(65536);
+  v[0] = 1; v[256] = 2;
+  T.mirrorArea(v, { x0: 0, y0: 0, x1: 0, y1: 1 });
+  assert.deepEqual([v[0], v[256]], [0x1002, 0x1001]);
+  T.pasteArea(v, { x: 0, y: 0 }, { x0: 50, y0: 50, x1: 50, y1: 51 });
+  assert.deepEqual([v[50 + 50 * 256], v[50 + 51 * 256]], [0x1002, 0x1001]);
+
+  const doc = newTrackDocument();
+  const tex = (n: string) => ({ name: n, side: 64, indices: new Uint8Array(4096), act: null, hd: null, bad: false });
+  doc.textures = [tex("A"), tex("B"), tex("C"), tex("D")];
+  doc.track.textures = ["A", "B", "C", "D"].map((name) => ({ name, type: 0, depth: 0 }));
+  doc.track.clr.fill(0);
+  doc.track.clr[1] = 0x4003;
+  doc.track.groundBoxes = [{ x: 0, y: 0, w: 1, h: 1, lower: 0, upper: 5, faces: [2, 0, 0, 0, 0, 0] }];
+  doc.track.animations = [{ period: 4, nframes: 2, frames: [3, 1, 0, 0, 0, 0, 0, 0] }];
+  assert.deepEqual(T.unusedTextures(doc), [], "B is an animation frame, C a box face, D on the ground");
+  doc.track.animations = [{ period: 4, nframes: 1, frames: [3, 0, 0, 0, 0, 0, 0, 0] }];
+  assert.deepEqual(T.unusedTextures(doc), [1]);
+  T.purgeTextures(doc, [1]);
+  assert.deepEqual(doc.track.textures.map((t) => t.name), ["A", "C", "D"]);
+  assert.equal(doc.track.clr[1], 0x4002, "references above move down, keeping their turn");
+  assert.equal(doc.track.groundBoxes[0].faces[0], 1);
+  assert.equal(doc.track.animations[0].frames[0], 2, "an animation's first frame is renumbered too");
+});
+
+test("course edits follow Traxx", async () => {
+  const C = await import("../src/core/edit/course.ts");
+  const { newTrackDocument } = await import("../src/core/doc/new-track.ts");
+  const t = newTrackDocument().track;
+  assert.equal(C.insertSegment(t, 0, -1, null), false, "the first segment needs a ground point");
+  assert.equal(C.insertSegment(t, 0, -1, [1000, 2000, 50]), true);
+  assert.deepEqual(t.course[0].cstart, [1000, 2000, 50]);
+  assert.deepEqual(t.course[0].cend, [1040, 2000, 50]);
+  assert.equal(t.course[0].trackWidth, 16);
+  assert.deepEqual(t.trucks.map((x) => x.ipos), Array.from({ length: 9 }, (_, i) => [1040 - 80 + 20 * i, 1960, 50]), "the trucks line up behind the first segment");
+  C.insertSegment(t, 0, 1, null);
+  assert.deepEqual([t.course[1].cstart, t.course[1].cend], [[1060, 2000, 50], [1100, 2000, 50]], "after an end: 20 on, 40 long");
+  C.insertSegment(t, 0, 0, null);
+  assert.deepEqual([t.course[0].cstart, t.course[0].cend], [[940, 2000, 50], [980, 2000, 50]], "before a start");
+  assert.equal(t.course.length, 3);
+  C.reverseSegment(t, 0, 0);
+  assert.deepEqual(t.course[0].cstart, [980, 2000, 50]);
+  C.insertSegment(t, 2, -1, [5, 6, 7]);
+  assert.equal(t.extendedCourses[1]?.length, 1, "an extended course is made on its first insert");
+  assert.deepEqual(t.trucks[0].ipos, [1040 - 80, 1960, 50], "and the trucks stay put");
+  C.setSpeedLimit(t, 0, 0, 30, true);
+  assert.equal(t.course[0].speedLimit, 60, "stored as twice what is typed");
+  assert.equal(t.extendedCourses[1]![0].speedLimit, 60, "on every course with that segment");
+  C.generateFromMain(t, 3, () => 0);
+  assert.deepEqual(t.extendedCourses[2]![1].cstart, [993, 1993, 50], "jitter of -7 at rand() & 15 = 0");
+  C.moveTruck(t, 4, [10, 20, 30]);
+  assert.deepEqual(t.trucks[4].ipos, [10, 20, 34]);
+  C.deleteSegment(t, 0, 3);
+  assert.equal(t.course.length, 2);
+  C.deleteAllSegments(t, 0);
+  assert.equal(t.course.length, 0);
+});
+
+test("object edits follow Traxx", async () => {
+  const O = await import("../src/core/edit/objects.ts");
+  const { newTrackDocument } = await import("../src/core/doc/new-track.ts");
+  const t = newTrackDocument().track;
+  t.heights.fill(10);
+  const a = O.insertObject(t, [1000.7, 2000.2, 10.9])!;
+  assert.deepEqual(t.boxes[a].ipos, [1000, 2000, 10]);
+  assert.deepEqual([t.boxes[a].length, t.boxes[a].width, t.boxes[a].height], [64, 64, 20]);
+  O.raiseObjects([t.boxes[a]], t.heights, 150);
+  assert.deepEqual([t.boxes[a].heightAboveGround, t.boxes[a].fraction[2], t.boxes[a].ipos[2]], [1, 128, 11]);
+  O.moveObjects([t.boxes[a]], t.heights, 10000, -100);
+  assert.deepEqual([t.boxes[a].ipos[0], t.boxes[a].ipos[1], t.boxes[a].fraction[1]], [1010, 1999, 230]);
+  O.rotateObjects([t.boxes[a]], -100);
+  assert.ok(Math.abs(t.boxes[a].psi - (2 * Math.PI - Math.PI / 180)) < 1e-5, "turning below 0 wraps");
+  O.sizeObjects([t.boxes[a]], -100, 1, -100);
+  assert.deepEqual([t.boxes[a].width, t.boxes[a].length, t.boxes[a].height], [1, 65, 0]);
+  O.tiltObjects([t.boxes[a]], -100, 0);
+  assert.ok(Math.abs(t.boxes[a].phi - (359 * Math.PI) / 180) < 1e-5);
+
+  for (let i = 0; i < 21; i++) O.insertObject(t, [i * 100, 0, 0]);
+  const r = O.setTypeOfObjects(t, Array.from({ length: 21 }, (_, i) => i + 1), 6);
+  assert.equal(r.refused, 1, "20 checkpoints at most");
+  assert.deepEqual(t.boxes.filter((b) => b.type === 6).map((b) => b.checkpointSeq), Array.from({ length: 20 }, (_, i) => i));
+  const ramp = O.setTypeOfObjects(t, [a], O.TYPEIDX_RAMP);
+  assert.equal(t.boxes[ramp.selection[0]].type, 99);
+
+  const box = t.boxes[0];
+  box.modelName = "";
+  box.type = 0;
+  O.applyModel([box], { title: "TREE.BIN", keyframed: false, baseZ: O.modelBaseZ([100, -300, 5]) });
+  assert.equal(box.modelName, "TREE.BIN");
+  assert.deepEqual([box.heightAboveGround, box.fraction[2]], [1, 75], "basez -331: one step and 75 / 256 up");
+
+  const map = O.deleteObjects(t, [0, 2]);
+  assert.equal(t.boxes.length, 20);
+  assert.equal(map(1), 0);
+  assert.equal(map(2), -1);
+
+  const copy = structuredClone(t.boxes[0]);
+  copy.type = 99;
+  copy.heightAboveGround = 3;
+  const pasted = O.pasteObject(t, copy, [500, 600, 10]);
+  assert.deepEqual(t.boxes[pasted.index!].ipos, [500, 600, 13]);
+  assert.equal(pasted.refusal, null);
+  assert.deepEqual(O.unusedModels({ ...t, models: ["MODELS\\TREE.BIN", "MODELS\\GONE.BIN", "MODELS\\FRAME.BIN"], boxes: [{ ...copy, modelName: "TREE.BIN" }] } as typeof t, (n) => (n === "TREE.BIN" ? ["FRAME.BIN"] : [])), ["MODELS\\GONE.BIN"]);
+});
+
+test("ground-box edits follow Traxx", async () => {
+  const G = await import("../src/core/edit/ground-boxes.ts");
+  const boxes: import("../src/core/traxx/txx.ts").TxxGroundBox[] = [];
+  assert.equal(G.insertGroundBox(boxes, 4, 5, 10, 40, 7), 0);
+  assert.deepEqual(boxes[0].faces, [7, 7, 7, 7, 7, 7]);
+  assert.equal(G.insertGroundBox(boxes, 4, 5, 10, 40, 7), null, "one box a cell");
+  boxes[0].faces[4] = 0x4003;
+  G.paintGroundBox(boxes[0], 4, 1, 9);
+  assert.equal(boxes[0].faces[4], 0x4009, "painting keeps the face's turn");
+  G.paintGroundBox(boxes[0], 0, 2, 2);
+  assert.deepEqual(boxes[0].faces.slice(0, 4), [2, 2, 2, 2]);
+  G.rotateFace(boxes[0], 4);
+  assert.equal(boxes[0].faces[4] >> 14, 2);
+  G.mirrorFace(boxes[0], 5);
+  assert.equal(boxes[0].faces[5], 0x1007);
+  const clip = G.copyGroundBox(boxes[0]);
+  assert.equal(G.pasteGroundBox(boxes, clip, 6, 6), 1);
+  assert.deepEqual([boxes[1].lower, boxes[1].upper, boxes[1].faces], [10, 40, boxes[0].faces]);
+  assert.deepEqual([G.clampTop(30, 40), G.clampTop(300, 4), G.clampBottom(50, 40), G.clampBottom(-1, 9)], [41, 255, 39, 0]);
+});

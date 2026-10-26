@@ -1,0 +1,28 @@
+{
+  "name": "jstraxx",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A web track editor for Monster Truck Madness 2: a port of Traxx.",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/",
+    "vendor": "cd ../OpenPhotex && npm run build && npm run vendor -- ../JSTraxx/src/vendor/openphotex --types",
+    "assets": "node scripts/traxx-ui-art.mjs && node scripts/traxx-stock-data.mjs && node scripts/traxx-help.mjs"
+  },
+  "dependencies": {
+    "three": "0.169.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/three": "0.169.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.7"
+  }
+}

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Object Properties - Traxx Help</title><link rel="stylesheet" href="help.css"></head>
+<body><nav><a href="index.html">Contents</a></nav><main><h1>Object Properties</h1>
+
+<p><u><b>Object Properties.</b></u></p>
+
+<p>Each scenery object has a set of parameters that are modified via the <i>Object Properties</i> box, which is activated by the right-click menu on objects, or by double-clicking them.</p>
+
+
+<p><u><b>Type.</b></u></p>
+
+<p><b>Default: </b>A solid, visible object.</p>
+
+<p><b>Sign, Barricade, Tree, Cone, Vehicle: </b>Other solid objects, that will behave like the name suggests (ie making the appropriate noises when you hit them etc).</p>
+
+<p><b>Checkpoint: </b>In MTM2 these are invisible (even though you assign a model to them), and they act as "pass-through" areas which the game uses to identify the checkpoints along the course. Normally you would assign the "ckbox.bin" model to these.</p>
+
+<p><b>No collide: </b>These are visible, otherwise normal objects, but you can drive right through them. Use this to hide secret areas, and to display the checkpoint banners etc.</p>
+
+<p>Note: The following apply to MTM2 only.</p>
+
+<p><b>No collide (facing): </b>Same as above, but for the new MTM2 trees etc (flat models which will always be displayed so that they face you in the game).</p>
+
+<p><b>Collide (facing): </b>Similar to the above, but will prevent driving through if the BIN model is defined with a solid tree trunk etc. (This is "New Tree" in tracked2)</p>
+
+<p><b>Moving: </b>Like the train in the standard MTM2 tracks. The vx/vy boxes allow you to specify the speed and direction in which the model moves (mph). Specify vx as 70, for example, and the train will move from West to East at 70mph. You can combine vx/vy values to make the object move along diagonal trajectories. Note that moving objects will follow the contours of the terrain and/or ground-boxes in their path. Maximum 48 moving objects.</p>
+
+<p><b>Post: </b>Invisible object that you cannot drive through - these are used, for example, at the base of checkpoint banner structures.</p>
+
+<p><b>Ramp: </b>Wedge-shaped object that you can drive up. These are shown in yellow in <i><b>Traxx</b></i> but are invisible in the game. Commonly used in conjunction with a no-collide visual model object, giving the impression that you are driving/jumping over the object. Maximum 10 ramps.</p>
+
+<p><b>Top-Crush:</b> These are intended to show an object squishing when it is driven over. You must apply <u>two</u> models to these objects - the first one is a regular model for the unchanging part of the object, the second must be an animated BIN with 2 frames (before and after crushing - the game will automatically change from one to the other gradually the more an object is "crushed"). <i><b>Traxx</b></i> automatically detects when you are applying the regular or animated model to the object. Maximum 10. (note animated bins applied here are not detected by the "Purge" function!)</p>
+
+
+<p><u><b>Size/Model.</b></u></p>
+
+<p>If the object has been assigned a BIN model, the name of that model will be shown just below the <i>Type</i> control. Otherwise, the object is a cuboid whose width, depth and height will be displayed here. This latter form is generally used for checkpoint posts in MTM2, or static walls in MTM1. Note that in MTM2 non-BIN objects are always invisible, but are collideable.</p>
+
+
+<p><u><b>Sequence.</b></u></p>
+
+<p>This number only appears if the object has been marked as "Checkpoint" type. The first checkpoint should be numbered sequence #0, and the <u>last</u> one (ie the start/finish line) should have the <u>highest</u> sequence number.</p>
+<p>If you change the sequence number, other checkpoint objects (if any) will automatically be rearranged in sequence. For example, if you already have checkpoints 3 and 4 and you change one from 5 to 3, those other two will be changed to 4 and 5.</p>
+<p>To be sure you are adding a checkpoint to the end of the sequence, you can put in a high number (like 20), which will automatically be dropped down to the last number in the sequence.</p>
+
+
+<p><u><b>Level.</b></u></p>
+
+<p>This setting refers to the "Scenery detail level" in the game. If you set it to <i>Sparse</i> then it will always be included in the game - if you set to <i>Complex</i> it will be displayed only if the racer has his scenery detail level set to <i>Complex</i>. By default, all objects are set to <i>Sparse</i>.</p>
+<p>Does not apply to "Ramp" type objects.</p>
+
+
+<p><u><b>Settings.</b></u></p>
+
+<p>The <i>Mass</i> setting determines how the object reacts when hit by a truck. A mass of 0 (the default) means that the object is static, and will not be moved on impact.</p>
+<p>Otherwise, if the mass is set to less than 100 or so it will fly away into space on the slightest impact. A setting of between 3000 -&gt; 9000 will normally be good for fences, portapotties, signs etc - these will fall over when hit and provide some degree of resistance to the trucks.</p>
+<p>Large objects, such as camping trailers, 18-wheelers, fire-trucks etc should be set to 30000 -&gt; 90000 to provide significant impact when hit.</p>
+
+<p>The <i>Above Ground</i> value is approximately in feet, and actually refers to the center of the object (not the base) so you will see non-zero values set the objects on the ground. By default, models have this value set so that they are resting exactly on the ground. Increase the value to make the object float in the air (useful for helicopters etc, and also for making objects appear to be resting on ground-boxes above the terrain surface).</p>
+<p>This value is in units of 0.1, which allows for accurate positioning - note that if collideable objects are too low, they may "pop-up" when you approach them in the game. You can also raise/lower objects using the S/X keys in <i>Object Edit</i> mode.</p>
+
+<p>The <i>Orientation</i> angle (in degrees) specifies the compass direction in which the object is facing. You will almost certainly need to set this for checkpoints, which need to be aligned in the direction of traffic.</p>
+
+<p>The "Tilt" and "Lean" angles allow objects to be displayed non-vertically - these options set the object to lean/tilt to the left/right and/or forward/back.</p>
+
+
+<p><u><b>Sounds.</b></u></p>
+
+<p>Each object has two sounds (normally "NULL" - ie no sound): a <i>Continuous</i> (or background) sound that repeats continuously and gets louder as you get close to the object; and an <i>Impact</i> sound which is played once whenever the object is it by a truck.</p>
+<p>In both cases, you can select from stock sounds via the [#] button (MTM2 only) or load a custom WAV sound file (via the [...] button).</p>
+<p>Does not apply to "Ramp" type objects.</p>
+
+
+<p><i>BP 5/5/99</i></p>
+
+
+</main></body></html>

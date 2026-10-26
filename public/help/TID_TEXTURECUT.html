@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cut Textures - Traxx Help</title><link rel="stylesheet" href="help.css"></head>
+<body><nav><a href="index.html">Contents</a></nav><main><h1>Cut Textures</h1>
+
+<p><u><b>Cut Textures from Bitmap.</b></u></p>
+
+<p>This panel is used to extract multiple textures from a single Bitmap image, and is activated by copying an image to te clipboard from a grapics program and clicking the <b>Paste Composite</b> button in the Textures Box.</p>
+
+<p>Primarily, this feature is intended to be used for generating a set of textures which describe a road corner, or other composite terrain structure. By creating the composite as a single over-size image, consistency of coloring and alignment of features between adjacent textures is ensured.</p>
+<p>In some cases it may be beneficial to make a large image containing several corners (eg a complete circle) and/or ground transitions and then use this facility to extract them all at once.</p>
+
+
+<p><u><b>Defining the grid.</b></u></p>
+
+<p>The image display shows the original image (scaled to fit in the box) with an overlayed grid indicating where the textures will be cut. You can extract textures from a selective area of the image by moving the <b>Top Offset</b> and <b>Left Offset</b> around - these define the location (in original-image pixels) where the first texture will be cut. By default they are zero (top left of image).</p>
+<p>The number of rows and columns in the grid will be reduced automatically if the <b>Offset</b> values are increased in such a way that the grid would extend beyond the image.</p>
+<p>The <b>Rows</b> and <b>Columns</b> counts can be decreased to specify a smaller area of the original image to process.</p>
+
+<p>You can make either 64x64 or 256x256 textures, by selecting the required <b>Texture Size</b> button. The number of allowable rows and columns will of course depend on this setting, since the grid must fit within the original image dimensions.</p>
+<p>Note that if the original image is too small (eg you have a 200x200 image and select 256x256) then no textures will be created.</p>
+
+<p>The maximum grid size is 16 rows, 16 columns.</p>
+
+
+<p><u><b>MTM2 Alignment.</b></u></p>
+
+<p>For MTM2 tracks, textures should have a small border around them in order to ensure that terrain features line up (eg road markings). Its anyone's guess why they made it that way, but they did... so...</p>
+<p>The border needs to be 2 pixels around each edge of each texture, therefore the "active" area of a 64x64 texture is really 60x60 (and 252x252 for 256x256 textures). With the <b>Overlap for MTM2 Alignment</b> option checked, <i><b>Traxx</b></i> will space the textures by 60 pixels (or 252) rather than 64 (or 256) with an overlap to provide the border.</p>
+<p>No scaling or other processing of the original image is done. Therefore, <u>you need to design the original image on the basis that it will be divided into 60x60 (or 252x252) squares</u>.</p>
+
+<p>For example, if you want to create an image that contains a 3x3 grid of 64x64 textures, the image width should be 3 x 60 + 4 = 184, and NOT 3 x 64 = 192. The formula is:</p>
+
+<p><b>Image size = (ntextures x 60) + 4</b> &emsp;(for 64x64 textures), or</p>
+<p><b>Image size = (ntextures x 252) + 4</b> &emsp;(for 256x256 textures).</p>
+
+<p><b>Note:</b> it is <b>+ 4</b> and not + 2, because there must be a 2-pixel border at <u>both sides</u> of the image.</p>
+
+<p>When you are designing your image, think in units of 60, not 64. In effect, the game scales them back up to 64x64 when you race the track. A pair of textures that makes up the two lanes of a straight road section, for example, should be 120 pixels across in the original image, not 128.</p>
+
+<p>Of course, you can switch this option off, in which case <i><b>Traxx</b></i> will create textures with no overlap/border. However, in MTM2, features spanning across textures at an angle will not be aligned correctly in the game (nor, indeed, in the main <i><b>Traxx</b></i> display).</p>
+
+<p><b>Tip:</b> You can use this to convert old textures that are designed to line-up at 64x64 (eg from MTM1 tracks) using the following procedure:</p>
+<p>·&emsp;In your graphics program assemble the oversize image in a 64x64 grid, with everything lined-up (copy the textures out of <i><b>Traxx</b></i> into your graphics program). For example, if this is a corner that uses a grid of 3x3 squares the image would be 192x192 (3x64 = 192).</p>
+<p>·&emsp;Resize the image down to a multiple of 60 (you may want to convert to 16-million colors and resample then convert back to 256-colors). In our 3x3 example the new image would be 180x180 (3x60 = 180).</p>
+<p>·&emsp;Add a 2-pixel border around the image (in PSP use "Enlarge Canvas" with "Center image" checked). Our example would now be 184x184 (remember its <b>+ 4</b> because theres 2 extra pixels at both sides).</p>
+<p>·&emsp;Replicate the two pixels around the edges of the image to fill the new blank borders (copy a 2-pixel wide strip from the edge of the valid area).</p>
+<p>·&emsp;Now you can copy and paste this image into <i><b>Traxx</b></i> and the new textures should line up correctly in MTM2.</p>
+
+
+<p><u><b>Texture Names.</b></u></p>
+
+<p>You must enter a base name in the <b>Texture Base Name</b> box of up to 6 characters. All the textures created will have this name followed by two digits representing the column/row position of the texture in the grid. For example, along the top row - starting at top-left - they will be xxxxxx00.RAW, xxxxxx10.RAW, xxxxxx20.raw etc. Thus, the numbers can be seen as the x/y location of textures within the grid.</p>
+<p>Before any textures are created, a check is made that none of the resulting names are already in use, and prompts for a new name if they are.</p>
+
+
+<p><b>Tip:</b> When the textures are created, they will be loaded into the <i>Textures Box</i> <u>in grid order</u>, so you may want to paint them into the terrain right away. Then you can save the area as a <i>Pattern</i>, and never have to lay it out again. If you wait til later to load the textures "manually", they may not be listed in order so it wont be as easy to lay them out.</p>
+
+
+<p><i>BP 10/24/98</i></p>
+
+
+</main></body></html>

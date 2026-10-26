@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track Components and Procedure - Traxx Help</title><link rel="stylesheet" href="help.css"></head>
+<body><nav><a href="index.html">Contents</a></nav><main><h1>Track Components and Procedure</h1>
+
+<p><u><b>Track Components.</b></u></p>
+
+<p>For those not familiar with the elements of MTM tracks, the following is a description of the basic components - what they are, and what they do.</p>
+
+<p>Following that is a recommendation for how you should proceed in making new tracks with <i><b>Traxx</b></i> - <u><b>all users are advised to read this</b></u>, since the optimum process may be significantly different with <i><b>Traxx</b></i> than tracked...</p>
+
+
+<p><b>·</b>&emsp;<b>Terrain</b>    -&emsp;The landscape; the hills, valleys, cliffs etc, and the images drawn on the surface which give the appearance of grass, roads, mud etc. The entire world terrain comprises a uniform grid of 255 x 255 squares, each square being assigned a particular texture map, and the height of the corners of the squares defining variations in altitude.</p>
+<p><b>·</b>&emsp;<b>Textures</b> -&emsp;Square bitmap images that are mapped onto terrain squares (and also used in scenery objects, see below) which provide the appearance of real-world features. Texture bitmaps are usually 64 x 64 pixels, or 256 x 256 pixels for some scenery objects.</p>
+<p><b>·</b>&emsp;<b>Course</b>    -&emsp;A series of line segments lying on the terrain surface which represent the direction of travel as you go around the course. There is a primary course, and up to 4 "extended courses" (which are used by the computer trucks). The primary course is used by the rescue chopper, among other things.</p>
+<p><b>·</b>&emsp;<b>Scenery </b>  -&emsp;Scenery objects are the trees, signposts, fences etc which can be placed around the course. These are defined by "BIN models", and are displayed using their own texture maps. Checkpoints are also defined by BIN models.</p>
+<p><b>·</b>&emsp;<b>GroundBoxes</b> -&emsp;This feature allows you to define static structures such as overhangs, bridges and buildings which - like the terrain and scenery - are rendered using texture maps. Ground Box locations are tied to world grid-square corners, so they are less flexible than BIN models, but more efficient.</p>
+
+
+<p><u><b>Procedure for creating tracks with </b></u><u><i><b>Traxx</b></i></u><u><b>.</b></u></p>
+
+<p>You should first work with the Terrain and Texture editing modes to get the general layout of the world in place - using the <b>Random Terrain </b>menu option first, if you like. You don't have to complete this right away - because you can come back and make changes at any time, of course - but it helps to have the underlying layout more-or-less ready before you start adding course segments and scenery objects.</p>
+<p>Placement of course segments and scenery objects both use the existing terrain to define their positions relative to the terrain surface, so if you subsequently lower or raise the terrain these items may become sunken or floating (however, all you have to do to correct that is tweak them with the mouse).</p>
+
+<p>You will probably find it helpful to start with the Textures box loaded up with a set of the basic textures that you will be needing to make the track.</p>
+
+<p><b>Tip:</b>&emsp;Make one or more template track files which contain a particular texture "theme" - for example, start a new track and load up all the common "mud" textures then save the file as "Mud Template.txx". Then the next mostly-mud track you create you can load the template file and start from there with the standard textures pre-loaded.</p>
+<p>These template files can, of course, contain whatever you want - perhaps all the standard checkpoint models, or a particular terrain layout...</p>
+
+<p>To start a track using an existing terrain map, you can also use the <b>Copy/Paste as Bitmap</b> options in the context menu (Terrain edit mode). Note: you can also use this to load the terrain from old tracked tracks - use a graphics program to load DATA\&lt;trackname&gt;.RAW as a 256 x 256 greyscale bitmap, then paste into <i><b>Traxx</b></i>.</p>
+
+<p>Ground-boxes would normally be added after the underlying terrain has been designed, since they are usually aligned to terrain features. Most tracks use ground-boxes to define a small number of features such as bridges, tunnels, rock overhangs etc.</p>
+
+<p>Its probably best to insert the course segments toward the end, after you have laid all the textures, checkpoints etc - then you can easily add the course in just a couple of minutes. At first, define the entire primary course, then use <b>Generate from Main </b>to quickly create the extended courses.</p>
+<p>You will most likely need to adjust the extended courses to make sure that the computer trucks can follow them - MTM is rather picky about that. Don't forget to set the course selection for each of the 8 trucks! Its probably a good idea to tell different trucks to follow different extended courses so some will be more competitive than others. Typically tracks are made with 2 of the extended courses defined, and these are shared between the 8 trucks.</p>
+
+<p>Finally, you should set the Lighting and then make sure all items in the <b>Track Components </b>box have been setup. Make sure you enter a unique name for your track!</p>
+
+<p>When you try the <b>Write POD</b> command, the program first does a check to see if you have missed any vital elements, and will warn you if so. As the warning box says, you will still be able to create the POD file, but it may not function correctly if all the elements are not present.</p>
+
+
+<p><i>BP 6/19/98</i></p>
+
+
+</main></body></html>

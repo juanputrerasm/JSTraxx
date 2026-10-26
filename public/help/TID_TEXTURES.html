@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Texture Editing - Traxx Help</title><link rel="stylesheet" href="help.css"></head>
+<body><nav><a href="index.html">Contents</a></nav><main><h1>Texture Editing</h1>
+
+<p><u><b>Texture Editing.</b></u></p>
+
+<p>   Enter Texture Edit mode using the second button in the Editmode Toolbar.</p>
+
+<p><b>[</b>Note: this section applies to terrain surface texture editing - to work with ground-box textures, you do not need to switch to this mode (stay in ground-box mode), but the same methods as described here apply.<b>]</b></p>
+
+<p>As you move the mouse across the world suface, a red box outlines the world grid squares. Select a square by clicking. You can select a rectangular block of squares by selecting one normally, then holding down <b>&lt;shift&gt; </b>and selecting another.</p>
+<p>When a selection is made, it will be outlined in magenta. Note that texture editing is best performed with a near-vertical view angle, so you can see the selection more clearly.</p>
+
+<p>To <b>Rotate</b> or <b>Mirror</b> the textures currently selected, use the Right mouse button and select those options from the context menu. These options process each selected texture square <u>independently</u> - see below for options that operate on areas. You can also use <b>M</b> and <b>R</b> to mirror/rotate areas of textures, and the same with <b>&lt;Ctrl&gt;</b> depressed will mirror/rotate textures individually.</p>
+
+<p>To apply a new texture to the selected squares, you need to select textures from the <i>Textures Box</i>, or right-click on a terrain square with the texture you want and click <b>Select</b> from the popup menu.</p>
+
+<p>The <i>Textures Box</i> shows all the textures currently loaded into the track. Activate the <i>Textures Box</i> using <u><b>V</b></u><b>iew/</b><u><b>T</b></u><b>extures</b> (see also <a href="TID_TEXTUREBOX.html">Textures Box</a>). You can select one at a time for application by clicking on it - the currently selected texture is outlined in red.</p>
+<p>The texture is applied to the selected area of the surface using the <b>Apply</b> button, or just by clicking on the surface if you are in using <b>Paint Mode</b>.</p>
+<p> To do this, you must first select the required texture, and click the <b>Paint Mode </b>check-box in the toolbar at the right of the main display. Now when you move the mouse around the terrain you will see that the magenta selection rectangle follows the mouse around. You apply the currently selected texture to all squares within the purple box simply by clicking with the mouse.</p>
+<p>The size of the area (ie number of terrain grid squares) that the texture will be applied to is changed using the <b>Width</b> and <b>Height</b> boxes adjacent to the <b>Paint Mode </b>check box.</p>
+
+
+<p><u><b>Working with areas.</b></u></p>
+
+<p>Rectangular blocks of textures can be copied and pasted from one location to another using the <b>Copy/Paste Area </b>options in the right-click menu. This feature is probably most easily used in <b>Paint Mode </b>with a square area, but the area does not have to be square.</p>
+<p><b>Rotate Area </b>and <b>Mirror Area </b>(also <b>R</b> and <b>M</b> keys) process the current selection as a unified block. This is especially useful for copying a composite area defining a race-track corner section, then pasting and re-arranging to quickly make the other corners on the track. In this way you only need to manually "build" the corner once.</p>
+
+
+<p><u><b>Loading Textures.</b></u></p>
+
+<p>See <a href="TID_TEXTUREBOX.html">Textures Box</a>.</p>
+
+<p><u><b>Custom Textures.</b></u></p>
+
+<p>See <a href="TID_TEXTUREBOX.html">Textures Box</a> and <a href="TID_TEXTURECUT.html">Cut Textures</a>.</p>
+
+<p><u><b>Auto-apply Textures by Altitude.</b></u></p>
+
+<p>See <a href="TID_SPECIAL.html">Special Functions</a>.</p>
+
+
+<p><u><b>Texture Patterns.</b></u></p>
+
+<p>You can save rectangular areas of textures as "patterns", and then reload later when building another track. This option is also useful as an additional "copy buffer", whereby you can save an area as a pattern and then paste it from there at other locations in the track.</p>
+<p>Primarily intended for road corners and other common patterns, the facility can be used to store any area up to 16x16 grid squares.</p>
+
+<p>The <i>Patterns</i> box is accessed via <u><b>V</b></u><b>iew/</b><u><b>P</b></u><b>atterns</b> in the main menu (or via the right-click menu in Texture editing mode).</p>
+
+<p>Patterns are added to the Patterns file by copying them from the track (as described above) and then pasting them into the <i>Patterns</i> box. Similarly, you copy patterns from the <i>Patterns</i> box and paste into the track.</p>
+<p> &emsp;As soon as you paste an area in, the file is saved. You can have any number of patterns files on your computer - use the FileOpen button to select from another existing file, or create a new one.</p>
+<p>In order to place a pattern into your track, scroll to the pattern you want, then click the Copy button in the <i>Patterns Box</i> and then paste onto the terrain in the usual way (described above). Note that when you "Copy" a pattern, the width and height of the purple outline box on the terrain are adjusted automatically (Paint Mode only).</p>
+
+<p>This facility can be used to copy texture patterns from existing track POD files! Use ViewPODFile and then go to Texture editing mode and you can copy areas into your Patterns file(s).</p>
+
+
+<p><i>BP 5/5/99</i></p>
+
+
+</main></body></html>

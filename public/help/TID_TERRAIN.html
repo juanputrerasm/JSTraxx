@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terrain Editing - Traxx Help</title><link rel="stylesheet" href="help.css"></head>
+<body><nav><a href="index.html">Contents</a></nav><main><h1>Terrain Editing</h1>
+
+<p><u><b>Terrain Editing.</b></u></p>
+
+<p>   Enter Terrain Edit mode using the first button in the Editmode Toolbar.</p>
+
+<p>As you move the mouse across the world suface, a yellow grid appears to indicate the pending edit operation. The grid indicates how the terrain will change when the operation is applied. To apply the operation, just click the left mouse button or hit &lt;<i>spacebar</i>&gt;.</p>
+
+<p>In some cases you may prefer to use the <b>Wireframe</b> option to get a clearer view of how the terrain looks. Note that the <b>Wireframe</b> check button has <u>three</u> states - the third displays the textures with the wireframe overlaid.</p>
+
+<p>There are 8 options for you to specify the size/shape of the editing operation, which are selected from the toolbar in the bottom-right of the display:</p>
+
+<p>  <b>Platform</b> - this is the default operation, and indicates that a rectangular area will be raised or lowered by a fixed amount.</p>
+
+<p>  <b>Hill</b> - a symmetrical bell-shaped hill will be added to the terrain. The height of the peak can be varied, and the shape is stretched depending on the grid width and height.</p>
+
+<p>  <b>Ramp</b> - a slope is added to the terrain. Zero is added at one edge, and the height of the other can be varied.</p>
+
+<p>  <b>Mound</b> - similar to Hill, but in one dimension.</p>
+
+<p>  <b>Random noise </b>- used for adding bumpiness to the surface of variable amplitude.</p>
+
+<p>  <b>Smooth</b> - sets each point in the grid to the mean of surrounding values, having the effect of smoothing bumps and transitions.</p>
+
+<p>  <b>Plane</b> - sets the terrain to an absolute value (ie <u>not additive</u> like the others). Useful for defining flat areas such as lakes, roadways etc.</p>
+
+<p><b>  Direct keyboard</b> - allows individual terrain points to be modified directly using the keyboard. The S/X keys will modify the terrain in real-time at the point where the mouse is currently located.</p>
+
+<p>In all but the last two cases, the operation is additive - ie the function is <u>added to</u> the existing terrain. Note that the yellow grid shows <u>how the terrain will look</u> when the operation is performed.</p>
+
+<p>You can specify positive or negative values in the <b>Altitude</b> box. Specifying a negative value with the Mound function, for example, will create a cut or ditch feature.</p>
+<p>Use the S and X keys (adjacent to A and Z) or [ and ] to modify the <b>Altitude</b> value while editing. S increases it, X decreases it. You can even move the editing location around with the mouse while you change this to see how things will look.</p>
+
+<p>Altitude values are overlaid on the display, showing what the current altitude is at the edit center-point (grey) and what it will be after the operation in white. Note: in direct keyboard mode, only the current altitude is displayed (which can be useful just for looking around).</p>
+
+<p>Note that the mouse defines the location where the operation will apply based on where you are pointing on the surface of the existing terrain. A white line is drawn from this point up (or down) to the corresponding point on the yellow grid so you can see whats happening more easily. This also aids in visualising changes in the amplitude value (which is represented directly by the length of the white line).</p>
+
+<p>The <b>Orientation</b> control is useful for changing the direction of Ramps and Mounds, and for applying non-square operations in any orientation. The &lt;<i>tab</i>&gt; key can be used to cycle through the 8 orientation settings (separated by 45 degrees).</p>
+
+<p>The <b>Curvature</b> control changes the roundness or sharpness of the Hill, Ramp, Mound and Random noise tools. A high curvature setting gives more sharply-pointed features. The +/- keys can be used to change the curvature value.</p>
+
+<p>The <b>Undo</b> option undoes the last function applied.</p>
+
+<p><b>tip:</b>&emsp;Right-click and select <b>Copy/Paste Terrain Bitmap </b>and you can use any graphics program to edit the terrain.</p>
+
+<p><b>tip:</b>&emsp;You can load the terrain RAW file from an existing tracked track into a graphics program (as an 8-bit, grey-scale image) and paste it into <i><b>Traxx</b></i>.</p>
+
+<p><b>tip:</b>&emsp;Use the <u><b>S</b></u><b>pecial/</b><u><b>R</b></u><b>andom Terrain </b>option to generate an initial terrain with hills and valleys. Play with the sliders until you see something you like (see <a href="TID_SPECIAL.html">Special Functions</a>).</p>
+
+<p>Areas of terrain can be copied and pasted by right-clicking at the center of the area you want to copy. Select Copy Area from the menu and this will copy the area covered by the (yellow) terrain grid.</p>
+
+<p><b>tip:</b>&emsp;Use the Raise/Platform tool (first one) with an altitude of 0 (zero), so you can easily see the covered area that you are going to copy.</p>
+
+
+<p><u><b>Lighting.</b></u></p>
+
+<p>See <a href="TID_SPECIAL.html">Special Functions</a>.</p>
+
+
+<p><i>BP 5/5/99</i></p>
+
+
+</main></body></html>

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track Components - Traxx Help</title><link rel="stylesheet" href="help.css"></head>
+<body><nav><a href="index.html">Contents</a></nav><main><h1>Track Components</h1>
+
+<p><u><b>Track Components.</b></u></p>
+
+<p>   Access the Track Components box using the button in the toolbar.</p>
+
+
+<p><u><b>Track Name.</b></u></p>
+
+<p>You MUST enter a unique name for your track. This name is displayed when you run the game, and is also used internally to identify elements of the track's data - so try to make sure the first 8 characters of the name will be unique!</p>
+<p>The comment field is used only for your reference (its included in the POD, but not displayed anywhere in the game).</p>
+
+
+<p><u><b>Bitmaps.</b></u></p>
+
+<p>The bitmaps for your track can only be set if you have registered <i><b>Traxx</b></i>.</p>
+
+<p>Set the bitmaps using either the <b>Paste</b> or <b>Load</b> options in the right-click menu's on the images. The images must be in 256-color format (8-bit). The sizes of the bitmaps are as follows:</p>
+
+<p>MTM1:</p>
+<p>"Icon Bitmap" is actually the full-screen "map/zoom" image, and should be 640x480 pixels.</p>
+<p>The browse bitmap should be 178x126 pixels.</p>
+
+<p>MTM2:</p>
+<p>The Icon bitmap <u>must</u> be 32x24 pixels (mateallic button in the races screen track-select list).</p>
+<p>The browse bitmap should be 257x210 pixels.</p>
+
+
+<p><u><b>Backdrop.</b></u></p>
+
+<p>Each track has a backdrop, which is a special kind of BIN model that shows hills etc in the distance when you play the game. Use the [...] to browse to select one from your Models folder. Normally these are named "xxdropxx.BIN", but may have other names.</p>
+
+<p>In MTM2 only, you can alternatively include an "Arena", which is also a special kind of BIN model. These define a specific closed area of the terrain in which your track must be confined, and provide a stadium around it. To do this, go to load a backdrop (as above) but click the "Arena" box. Then load either ARENA.BIN or ARENA2.BIN.</p>
+<p>Then you can right-click the arena name in the <i>Track Components</i> box to specify the location and size of the arena area with the <b>Arena Settings</b> option.</p>
+
+<p><b>tip:</b>&emsp;You will want to have the "Show Backdrop" setting ON (<b>F9</b>) so you can see where the arena is!</p>
+
+<p>Arenas have some special behavior - firstly, their vertical position is determined by the altitude of the terrain at the lowest South-West corner of the model... the arena will rest on that point (you will see the arena go up/down if you edit the terrain altitude at that point!).</p>
+<p>Secondly, the game display will be horribly corrupted outside the arena area, so you <u>MUST</u> locate a set of high ground-boxes around the edge of the arena area! Don't worry - these ground-boxes will <u>not be displayed</u> in the game, but they need to be there to prevent you from being able to drive through!</p>
+
+<p>You can have <i><b>Traxx</b></i> display the backdrop (or arena) - see <a href="TID_SETTINGS.html">Misc. Program Settings</a>.</p>
+
+
+<p><u><b>Sound Theme (MTM2 only).</b></u></p>
+
+<p>There are several sound "themes" that are used by the stock MTM2 tracks. These are generally twittering birds, screaming eagles, howling wolves etc. Some of them have little or no sounds at all. These also determine the noise made when a checkpoint is reached and a lap completed.</p>
+
+
+<p><u><b>Color Palette (MTM2 only).</b></u></p>
+
+<p>Depending on the textures you are using, selecting a different palette may improve the appearance of the track. If you are mostly re-using textures from a particular track you should select the palette from that same track.</p>
+<p>The "Metalcr3" option is a bastardised version of the MTM1 palette "Metalcr2" (modified to be compatible with MTM2), and may be useful if you are using old MTM1 textures.</p>
+<p>You can experiment with these to see which one looks best. The default is the "Farm Road" Palette (which was used in <i><b>Traxx</b></i> version 1.2 and earlier). You can also try using an optimized custom palette - see <a href="TID_SPECIAL.html">Special Functions</a> which will usually give the best results if you are using custom textures. If you do that, the <i>Track Components</i> box will indicate "Custom".</p>
+
+<p>When you make a new selection, there will be a short delay while the textures are remapped to the new palette. Please do not adjust your set. Do not panic. Do not pass go. Do not collect £200.</p>
+
+
+<p><u><b>Water Level (MTM2 only).</b></u></p>
+
+<p>The water level should be set to between 0 and 255, corresponding directly to altitude levels (viewable in terrain editing mode). Any part of the track below this altitude will be underwater.</p>
+<p>Note you can also use water-type textures to define ponds, streams etc at higher altitudes - just like MTM1.</p>
+
+
+<p><u><b>Type.</b></u></p>
+
+<p><i><b>Traxx</b></i> supports all three MTM2 track types. If you are making an MTM1 track, do not select the "Rumble" option!!</p>
+<p>Long tracks (that are intended to run a single lap, or very few laps) can be set to "Rally". In MTM1 a Rally will always be constrained to one lap; In MTM2 the default lap count will be 1, but you can do more.</p>
+
+<p>Rumbles are only available in MTM2. In order to make a rumble, the following constraints apply:</p>
+
+<p>·&emsp;There must be 2 non-bin-model objects (purple cubes) in the track, marked as type <i>Checkpoint</i>.</p>
+<p>·&emsp;The scoring area box must be checkpoint sequence #0, and located on the main "goal" scoring area. Typically the size of these is set to 64x64x92, but you can reduce the 64's to make the scoring area smaller (or vice versa).</p>
+<p>·&emsp;The "summit area" box must be checkpoint sequence #1, and will usually be located in the same x/y position as the scoring area (ie so the scoring area is in the center). Typically the size of these is set to 128x128x42, but again you can make it larger or smaller (making sure its never smaller than the scoring area!). This box is used to determine when users get knocked off the summit.</p>
+<p>·&emsp;There is no need to define any courses for rumbles (ignore the warning <i><b>Traxx</b></i> gives when you go to POD the track), but you DO need to set the truck positions and angles.</p>
+
+
+<p><u><b>Music.</b></u></p>
+
+<p>Selects the background music that runs when racing the track. <u>For MTM1 this has to be a MOD format file</u>, for MTM2 it should be a WAV file. In the latter case, make sure you select a WAV file as small as possible, because they don't zip very well (convert down to 11KHz/22KHz, 8-bit, mono).</p>
+<p>To load the music file, click the [...] browse button.</p>
+
+<p>You can also select from one of the music tracks that come with the standard tracks (MTM2 only) using the [#] button. In this case, there is no additional WAV data in your POD file, so it is the most efficient way to specify music.</p>
+
+
+<p><i>BP 5/5/99</i></p>
+
+
+</main></body></html>

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Object Editing - Traxx Help</title><link rel="stylesheet" href="help.css"></head>
+<body><nav><a href="index.html">Contents</a></nav><main><h1>Object Editing</h1>
+
+<p><u><b>Object Editing.</b></u></p>
+
+<p>   Enter Object Edit mode using the fourth button in the Editmode Toolbar.</p>
+
+<p>In this context, "Object" means any scenery models that are placed around the track - such as checkpoint banners, trees, boats etc.</p>
+<p>You add a new object to the track by clicking with the right mouse button where you want the object to be on the terrain and selecting <b>Insert</b> from the context menu. Initially the object will not have a bin model associated with it and it will appear as a white/grey box. To assign a bin model, you need to display the <i>Models</i> box - either via the context menu or the <b>View/Models </b>option in the main menu.</p>
+
+<p>The <i>Models</i> box shows a list of all the models currently loaded into the track, and shows a small preview of the one currently selected in the list.</p>
+<p>Models are loaded into the track using the Load button in the <i>Model</i> box's toolbar. This displays a standard Windows file-open box with wire-frame previews initialised to the models folder (this must be set correctly - see <a href="TID_SETUP.html">Program Setup</a>). You can select and load more than one bin file at a time (but only 6 thereof will be shown in the preview displays).</p>
+<p>Once you have loaded the bin model(s) you require, they are applied to the currently selected object using the <b>Apply</b> button.</p>
+
+<p>To select an object, click near its center. The currently selected object will be shown with an overlaid wireframe in white (or display the text "box" if it has no model). There are various parameters associated with each object - these are accessed via the <b>Properties</b> option when you right-click an object (see <a href="TID_OBJPROPS.html">Object Properties</a>).</p>
+
+<p>You can <b>Copy/Paste</b> objects via the right-click menu. This is extremely useful when you have a number of objects that all need to be configured the same way (eg a forest of trees) - so you only need to configure one, and then paste copies of it around the track.</p>
+
+<p>Objects are relocated on the terrain simply by clicking and dragging with the mouse. Note: if you have a shallow viewing angle when doing this the object position may jump at first - especially if it is situated high above the ground - because the mouse is used to define the x/y location of the object on the terrain surface. You may find it helpful to point the viewing angle closer to vertical to make this process easier.</p>
+<p>You can also use the mouse to rotate objects, by holding down <b>&lt;shift&gt;</b> and then dragging left/right across the screen. Right will rotate the object clockwise.</p>
+
+<p>By default, <i><b>Traxx</b></i> positions the model so that its base rests on the terrain where the object is located. However, if you right-click an object and select <b>Properties</b> you can change the height-above-ground and also the orientation angle (and other variables) of the object.</p>
+
+<p><b>tip:</b>&emsp;Object properties can also be obtained by double-clicking it, or selecting it and then pressing <b>&lt;Enter&gt;</b>.</p>
+
+<p>You can also raise/lower objects in units of 0.1 using the S/X keys (just like with terrain editing).</p>
+
+<p><b>tip:</b>&emsp;Select objects using <b>&lt;tab&gt;</b>. This will cycle through objects, starting at the closest one in view, then the next furthest away, etc.</p>
+
+
+<p><u><b>Checkpoints.</b></u></p>
+
+<p>To define a checkpoint, insert and locate the object as describled above, then in the <b>Properties</b> box for the object select the <b>Checkpoint </b>type check-box. You must also specify the sequence number for the checkpoint - and these must be set correctly to relate to the course!</p>
+<p>A checkpoint object should be located at the start/finish line (normally CKBOX.BIN or CKBOXN.BIN) with the highest sequence number - ie put the <u>last</u> checkpoint there.</p>
+<p>You can insert new checkpoints into the sequence at any time - the other checkpoint sequence numbers will be re-arranged to fit around the new one. For example, if you have already entered checkpoints 0, 1 and 2 and you want to insert a new one inbetween 1 and 2, just go ahead and add the new checkpoint and set its sequence number to 2 - the existing 2 will automatically be changed to 3.</p>
+
+<p>Note that in MTM2 checkpoints are <u>always</u> invisible! Normally a checkpoint will therefore comprise 4 separate objects:</p>
+<p>1) The invisible checkpoint object,</p>
+<p>2) An object of type "No collide" (see below) to give the appearance of the checkpoint banner, and</p>
+<p>3) Two objects of type "Post" (or "Default") located at the bases of the banner poles (these prevent you from driving through the checkpoint poles). For MTM1-style checkpoint banners, insert two new objects then go to properties and change the width and height from 64 to 4. You can then move these to superimpose on where the checkpoint posts are located.</p>
+
+
+<p><u><b>Object Types.</b></u></p>
+
+<p>In the Object Properties box, you will need to specify the "type" of each object. As outlined above, there are special types for checkpoints and so on. The following types are available:</p>
+
+<p><b>Default: </b>A solid, visible object.</p>
+
+<p><b>Sign, Barricade, Tree, Cone, Vehicle: </b>Other solid objects, that will behave like the name suggests (ie making the appropriate noises when you hit them etc).</p>
+
+<p><b>Checkpoint: </b>In MTM2 these are invisible (even though you assign a model to them), and they act as "pass-through" areas which the game uses to identify the checkpoints along the course. Normally you would assign the "ckbox.bin" model to these.</p>
+
+<p><b>No collide: </b>These are visible, otherwise normal objects, but you can drive right through them. Use this to hide secret areas, and to display the checkpoint banners etc.</p>
+
+<p>Note: The following apply to MTM2 only.</p>
+
+<p><b>No collide (facing): </b>Same as above, but for the new MTM2 trees etc (flat models which will always be displayed so that they face you in the game).</p>
+
+<p><b>Collide (facing): </b>Similar to the above, but will prevent driving through if the BIN model is defined with a solid tree trunk etc. (This is "New Tree" in tracked2)</p>
+
+<p><b>Moving: </b>Like the train in the standard MTM2 tracks. The vx/vy boxes allow you to specify the speed and direction in which the model moves (mph). Specify vx as 70, for example, and the train will move from West to East at 70mph. You can combine vx/vy values to make the object move along diagonal trajectories. Note that moving objects will follow thhe contours of the terrain and/or ground-boxes in their path. Maximum 48 moving objects.</p>
+
+<p><b>Post: </b>Invisible object that you cannot drive through - these are used, for example, at the base of checkpoint banner structures.</p>
+
+<p><b>Ramp: </b>Wedge-shaped object that you can drive up. These are shown in yellow in <i><b>Traxx</b></i> but are invisible in MTM2. Commonly used in conjunction with a no-collide visual model object, giving the impression that you are driving/jumping over the object. Maximum 10 ramps.</p>
+
+<p><b>Top-Crush:</b> These are intended to show an object squishing when it is driven over. You must apply <u>two</u> models to these objects - the first one is a regular model for the unchanging part of the object, the second must be an animated BIN with 2 frames (before and after crushing - the game will automatically change from one to the other gradually the more an object is "crushed"). <i><b>Traxx</b></i> automatically detects when you are applying the regular or animated model to the object. Maximum 10. (note animated bins applied here are not detected by the "Purge" function!)</p>
+
+
+<p><u><b>Models.</b></u></p>
+
+<p>Objects can be defined as simple boxes (shown purple in <i><b>Traxx</b></i>) or can have a <i><b>Model</b></i> applied to them. Models are defined by BIN format files, which are located in the Models Folder. Checkpoint banners, trees, rocks, houses etc are all defined by BIN Models.</p>
+<p>To include models in your track, use <u><b>V</b></u><b>iew/</b><u><b>M</b></u><b>odels</b> to display the Models Box. Models are loaded using the <b>Load Model</b> button, and all those loaded are shown in the list. The small display area shows a preview of the model which you can rotate using the slider bars, and zoom in/out using the small arrow buttons.</p>
+
+<p>To apply a model to a box, select the purple box (so it says "BOX" on the screen) and then click <b>Apply</b> in the Models Box (or double-click the name of the model in the list). &emsp;You cannot apply models to "Ramp" type objects.</p>
+
+
+<p><u><b>Deleting Models.</b></u></p>
+
+<p>There are two "Cut" options for removing a model from your track. The first <b>Cut Model</b> removes the model, and reverts objects that were using it (if any) back to a simple "BOX".</p>
+<p>The <b>Cut Model + Objects</b> (fat scissors) button not only removes the model, but will also delete the objects from the track that were using it (if any).</p>
+
+
+<p><u><b>Purging Models.</b></u></p>
+
+<p>In order to minimize the size of your track's POD file, it should not contain any superfluous components. The <b>Purge Unused Models</b> option will remove all the models that are loaded, but not being used by any objects in your track.</p>
+<p>This is a useful option to use prior to final completion of the track, especially if its going to be downloaded by people on the 'net.</p>
+
+
+<p><i>BP 5/5/99</i></p>
+
+
+</main></body></html>

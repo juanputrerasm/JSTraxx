@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Special Functions - Traxx Help</title><link rel="stylesheet" href="help.css"></head>
+<body><nav><a href="index.html">Contents</a></nav><main><h1>Special Functions</h1>
+
+<p><u><b>Special functions.</b></u></p>
+
+<p>This describes some additional functions in the <u><b>S</b></u><b>pecial</b> menu.</p>
+
+<p><u><b>Lighting.</b></u></p>
+
+<p>The visual appearance of a track is greatly enhanced by good lighting effects. The <b>Lighting</b> feature allows you to specify the location of the sun, the overall ambient brightness of the track, the darkness of shadows etc.</p>
+
+<p>The <b>Dark</b> and <b>Bright</b> sliders determine the diffuse brightness of the terrain based on their orientation toward the sun. The side of a hill, for instance, that is at 45° and facing the sun location, will have its brighness set to the <i>Bright</i> value. Similarly for a flat area with the sun directly overhead. Terrain that is facing away from the sun location will be set to the <i>Dark</i> value. These two parameters therefore provide the initial "ambient" lighting.</p>
+<p>Typically these look good set somewhere around 50% and 97% respectively.</p>
+<p>You can set these to the same value if you want the whole terrain to be lit at the same brightness.</p>
+
+<p>The <b>Alt. Bias</b> then modifies the brightness of terrain based on altitude - adding additional "darkness" depending on how far below the terrain's maximum point you go. With this set to 100%, any terrain 255 altitude units below the highest peak will be black. Typically a value of 30% - 50% works well. This allows you to darken valleys etc.</p>
+<p>Increasing the <i>Alt. Bias</i> value will increase the amount of "darkness" that is added. High altitude points (mountain tops etc) are affected very little by this setting.</p>
+
+<p>Finally, the <b>Shadow</b> intensity determines how much darker to make areas which are in the shade of either overhanging ground-boxes (bridges, tunnels etc), and/or terrain features (cliffs, mountains etc). If the sun is directly overhead, shadows will only come from ground-boxes, otherwise the shadows are calculated based on sun rays coming in at approximately 45°. Obstructions that are more than 16 grid units away will not cast a shadow.</p>
+<p>Increasing the <i>Shadow</i> value will increase the "darkness" of the shadows.</p>
+<p>Shadows are also cast by static scenery objects. This only applies to objects that are (a) not moving, (b) not checkpoints, (c) not ramps, and (d) do have a model applied. Small objects (less than about half a terrain grid unit in size) will not cast a shadow. The area of coverage of a shadow depends on the width of the object that is facing the sun location (or just the width, if the object type is set to "facing"). The height of the object is taken into consideration if the sun location is not overhead.</p>
+
+<p>The sun position can be set to any of the 4 compass points, or directly overhead. Ground-box faces are shaded automatically based on the sun location.</p>
+
+
+<p><u><b>Random Terrain.</b></u></p>
+
+<p>This tool can be used to generate the entire terrain with randomly located hills and valleys etc. You should <u>not</u> use this <u>after</u> placing a lot of course segments, scenery objects or ground-boxes, because they will <u>not</u> be adjusted to the new terrain! Use this as a start point for a <i>new</i> track!</p>
+
+<p>There are two types: "classic" is the same as in earlier versions of <i><b>Traxx</b></i>, and "Fractal" is new to version 1.4</p>
+
+<p><b>·</b>&emsp;<b>Classic</b></p>
+
+<p>The <b>Ground level</b> setting is the base altitude of the terrain, to which hills are added and valleys subtracted. The default of 100 should be about right for most situations. If you set it too low or too high, the valleys or hills may be "clipped" at the minimum and maximum altitudes (0 and 255 respectively).</p>
+
+<p><b>Max. Hill Height</b> and <b>Min. Valley Depth </b>values determine the range of altitudes that are added to/subtracted from the ground level. Hills and Valleys are added randomly from within these ranges. Note that some smoothing is always applied, so hills may not necessarily hit the maximum value even if the math says they should.</p>
+<p>In general, you dont want these numbers to be too big else the terrain can become undriveable. You should experiment to see what works well for you.</p>
+
+<p><b>·</b>&emsp;<b>Fractal</b></p>
+
+<p>The <b>Max Range </b>setting determines the size of localised transitions between points on the terrain. You should normally use a rather low setting here, otherwise there will be a lot of spikes and holes in the terrain wich can cause trucks to get stuck. Recommended setting not much over 100.</p>
+
+<p>Changing the <b>Roughness</b> essentially sets the overall height of peaks and valleys. If you set this too high, the hills and valleys may clip at the min and max ranges (black/white on the display).</p>
+<p>Experiment with both these settings... you may want to keep the smoothness setting very low when using this type.</p>
+
+<p>·&emsp;The following settings are used by both types:</p>
+
+<p>The <b>Smoothness</b> value changes the general size of features - lower value means more small points features; higher value means fewer smooth, wider features. Usually somwhere near the middle works best.</p>
+
+<p>Although not meaningful in of itself, the <b>Seed</b> number determines the overall pattern of the terrain (ie location of hill and valley structures). You can enter a particular number to see what it comes up with, or click the <b>Random</b> button to let <i><b>Traxx</b></i> pick one at random.</p>
+
+<p>All the settings in this panel are saved from session-to-session, so that you can keep and re-use a set of numbers that you like.</p>
+
+
+<p><u><b>Weather Mask (MTM2 Only).</b></u></p>
+
+<p>You can use this to specify which of MTM2's weather conditions you want to allow for your track. Someone running the track will be able to select any of the conditions you allow here. By default, they are all allowed.</p>
+<p>The game will still list all the conditions, but if the player selects one that isnt activated here, the first one in the allowed list will actually be used. For example, if you allow "Rain" and "Snow" and the player selects "Foggy" in the game, it will actually run "Rain". If you allow only one, then that one will be used always (in the game), regardless of what the player selects.</p>
+<p>The <b>Only Clear</b> and <b>Allow All</b> buttons are provided as shorcuts, so you dont have to strain your poor, soft, gentle little fingers with too much frantic clicking.</p>
+
+
+<p><u><b>Texture Transitions.</b></u></p>
+
+<p>With this feature you can have <i><b>Traxx</b></i> lay textures for you, based on terrain altitudes. Useful for putting snow on hilltops etc.</p>
+<p>Firstly you need to have the <i>TexturesBox</i> open, and you need to go to <i>Texture Editing</i> mode. Then select the textures you want and click to "paint" them into the boxes. You need to fill-in all 10 boxes before the function will work. The yellow/green pattern indicates the arrangement that the textures must be in for the transitions to be applied correctly - <u>you must put the right textures in the right places for it to work properly!</u> (if you want, you can click the same texture into all of the 3x3 grid, if you dont want the transitions to be placed for you).</p>
+<p>The yellow parts of the display will be painted above the <b>Threshold Altitude</b>, and the green parts below (unless you click the <b>Invert...</b> button).</p>
+
+<p><b>tip:</b>&emsp;You will probably want to go to <i>Terrain Edit</i> mode first, and use the Direct Keyboard (hand button) tool to see what altitude you want the transition to occur at.</p>
+
+<p>If the <b>Fill Up to:</b> box is checked, the inner (yellow) texture will be applied to all grid squares where all four corners are above the threshold, and are less than or equal to the limit specified. Without this, only the transition parts will be applied. (Note that if <b>Invert...</b> is checked, its the outer (green) texture that will be applied above the threshold)</p>
+<p>Similarly, <b>Fill down to:</b> will cause the solid outer (green) part to be applied at all places that are below the threshold (opposite with <b>Invert...</b>).</p>
+
+<p><b>tip:</b>&emsp;With "Paint Mode" switched <u>off</u> in <i>Texture Edit</i> mode, you can select a spcific area to which this operation will apply - <u>if no region is selected, the operation applied to the whole terrain!</u></p>
+
+
+<p><u><b>Palette</b></u></p>
+
+<p>This feature is primarily intended for those using custom textures, and custom models. It allows you to include a customized master palette for you track, which MTM uses to display all your textures. In earlier versions of <i><b>Traxx</b></i>, you could only selects from the palettes used by the stock tracks, which may not include good color matches for your custom textures.</p>
+
+<p>This is a 2-stage process - first, obtain the palette you want, then - when you click OK - all your textures will be "remapped" to display with the new palette.</p>
+<p>When you click the "Create Optimized Palette" button (first button in the box), <i><b>Traxx</b></i> will look at all the textures that your track uses (terrain <u>and</u> model textures) and figure out the best set of colors to use. The number of times that a texture is used is taken into consideration; a texture that is used only a couple of times will not be given as high priority as one that is used many times. The same applies to models - textures used by models that are used many times (eg trees) are given higher priority than less numerous objects (eg checkpoints).</p>
+<p>This process uses a very clever algorithm (its not as easy as you might think!), but its still possible that some colors may not get a great match. Generally speaking, however, it will give much better results than using the stock palettes (unless your custom textures are derived from stock ones, and use the same colors).</p>
+
+<p>The custom palette always includes a small set of "standard" colors, which the game uses to display the map, checkpoint finder, etc.</p>
+
+<p>Specific colors cannot be manually edited directly in here, but you can also save and load palettes from palette files (ACT or MS PAL format).</p>
+
+<p><b>tip:</b>&emsp;You can use this feature to convert ACT files into PAL files (and vice versa)! Load one up of one type, then just save it as the other type.</p>
+
+<p>When you click OK, <i><b>Traxx</b></i> will re-load all the textures that your track uses. The display will then be done using the new palette, so you will be able to see how well it worked right away.</p>
+<p>Note that the race-start splash screen image (Wilderness truck in MTM2) is drawn with the track's palette, so it may look different than before, depending on what colors are available.</p>
+
+
+<p><i>BP 5/5/98</i></p>
+
+
+</main></body></html>
