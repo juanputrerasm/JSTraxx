@@ -6,7 +6,7 @@ import { el } from "../../shared/dom.ts";
 
 export interface Control<T> { element: HTMLElement; set(value: T): void; enable(on: boolean): void }
 
-export function spin(label: string, value: number, min: number, max: number, onChange: (v: number) => void, title?: string): Control<number> {
+export function spin(label: string, value: number, min: number, max: number, onChange: (v: number) => void, title?: string): Control<number> & { range(min: number, max: number): void } {
   const input = el("input", { type: "number", min, max, step: 1, value, class: "spin", "aria-label": label, title });
   const commit = () => {
     let v = Math.round(Number(input.value));
@@ -23,6 +23,8 @@ export function spin(label: string, value: number, min: number, max: number, onC
     element,
     set: (v) => { input.value = String(v); },
     enable: (on) => { input.disabled = !on; element.classList.toggle("disabled", !on); },
+    /* UDM_SETRANGE: new limits for later edits (the value is the caller's to bring into range). */
+    range: (lo, hi) => { min = lo; max = hi; input.min = String(lo); input.max = String(hi); },
   };
 }
 

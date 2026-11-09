@@ -7,8 +7,10 @@
   As, View): an 8-bit BMP is kept as it is; a PNG, a TGA or a true-colour picture is HD art,
   checked for the old shape, and an 8-bit copy is made from it ("Also write 8-bit BMP copies"
   decides on OK whether the copy is kept). Music and the backdrop have menus of their own.
+  Music (Traxx 1.7): WAV, MP3 or OGG Vorbis on an MTM2 track, MOD on an MTM1 one, judged by
+  the file's bytes; Save As offers the extension of what the music is.
 
-  Additions: View shows a picture at its own size and Play plays a WAV (Traxx says "not yet
+  Additions: View shows a picture at its own size and Play plays a WAV, MP3 or OGG (Traxx says "not yet
   implemented" for both). The backdrop list is the MODELS folder and the game library.
 */
 import { el } from "../../shared/dom.ts";
@@ -20,11 +22,12 @@ import { decodeImage, tryDecodeImage } from "../../shared/image-decode.ts";
 import { copyImage, pasteImage } from "../../shared/system-clipboard.ts";
 import { rgbaToRgb } from "../../core/image/image-format.ts";
 import { bmpInfo, makeBmp8, stockIcon, stockIconCell } from "../../core/image/bmp.ts";
-import { bitmapRefusal, clampArena, cleanStem, hdArtRefusal, INFO_TEXT_MAX, MAX_BACKDROPS, PALETTE_NAMES, slotSpec, slotWhat, SLOT_BROWSE, SLOT_ICON, SLOT_INFO, SOUND_THEMES, STOCK_MUSIC, type Components } from "../../core/doc/components.ts";
+import { bitmapRefusal, clampArena, cleanStem, hdArtRefusal, INFO_TEXT_MAX, MAX_BACKDROPS, PALETTE_NAMES, slotSpec, slotWhat, SLOT_BROWSE, SLOT_ICON, SLOT_INFO, SOUND_THEMES, STOCK_MUSIC, musicAccept, musicLoadRefusal, musicLoadTitle, musicMime, musicSaveAs, stockMusicPick, stockMusicSelName, type Components } from "../../core/doc/components.ts";
 import type { RgbaImage } from "../../core/view/tiles.ts";
 import type { TxxHdArt } from "../../core/traxx/txx.ts";
 import type { TraxxArena } from "../../core/traxx/sit.ts";
 import type { ModelLoad } from "../../worker/model-handlers.ts";
+import { makeResizable } from "./dialog-size.ts";
 
 export interface ComponentsContext {
   app: AppState;
@@ -328,30 +331,53 @@ export async function componentsDialog(start: Components, ctx: ComponentsContext
   palette.value = String(c.paletteIndex);
   const water = stop(el("input", { type: "number", min: 0, max: 255, step: 0.25, value: c.water4 / 4, class: "spin", disabled: !c.mtm2Only })) as HTMLInputElement;
   const musicIcon = el("img", { alt: "", width: 24, height: 12, class: "cmp-music" }) as HTMLImageElement;
+  // OnMusicLoad / OnMusicSel / OnMusicSaveAs (Traxx 1.7 e4b4cd5): the kind comes from the bytes (MusicKindOf).
   const musicName = () => {
     const m = c.music;
     if (!m) return "";
     const s = String.fromCharCode(...m.subarray(0, Math.min(20, m.length)));
-    return s.startsWith("MUSIC") ? s.replace(/\0.*$/, "") : `${m.length} bytes`;
+    if (s.startsWith("MUSIC")) return s.replace(/\0.*$/, "");
+    const save = musicSaveAs(m);
+    return `${"ext" in save ? save.ext.toUpperCase() : "?"}, ${m.length} bytes`;
   };
   const musicText = el("span", { class: "cmp-label" });
   const showMusic = () => { musicIcon.src = `${import.meta.env.BASE_URL}ui/${c.music ? "music_ic" : "nomusic_"}.png`; musicText.textContent = musicName(); };
   const musicSel = el("button", { type: "button", class: "mini", disabled: ro || !c.mtm2Only, title: "Stock music", onclick: async () => {
-    const cur = musicName().replace(/^MUSIC\\/, "").replace(/\.WAV$/, "") || "BREAK";
-    const pick = await stockMusicDialog(cur);
-    if (pick) { c.music = Uint8Array.from(`MUSIC\\${pick}.WAV`.padEnd(20, "\0"), (ch) => ch.charCodeAt(0)); showMusic(); }
+    const pick = await stockMusicDialog(stockMusicSelName(c.music), ctx.app);
+    if (pick && pick.length > 1) { c.music = stockMusicPick(pick); showMusic(); }
   } }, "#");
   const musicLoad = async () => {
-    const f = await picker(c.mtm2Only ? ".wav" : ".mod");
-    if (f) { c.music = new Uint8Array(await f.arrayBuffer()); showMusic(); }
+    if (ro) return;
+    const f = await picker(musicAccept(c.mtm2Only));
+    if (!f) return;
+    let bytes: Uint8Array;
+    try { bytes = new Uint8Array(await f.arrayBuffer()); } catch { await alertDialog("Load music", "The music file could not be read."); return; }
+    const why = musicLoadRefusal(bytes, c.mtm2Only);
+    if (why) { await alertDialog("Load music", why); return; }
+    c.music = bytes;
+    showMusic();
   };
-  const musicButton = el("button", { type: "button", class: "mini", disabled: ro, title: "Load music", onclick: () => void musicLoad() }, "...");
+  const musicSaveAsFile = async () => {
+    if (!c.music) return;
+    const save = musicSaveAs(c.music);
+    if ("message" in save) { await alertDialog("Save music", save.message); return; }
+    download(c.music, `${ctx.prefix || "music"}.${save.ext}`);
+  };
+  const musicPlay = () => {
+    const mime = musicMime(c.music);
+    if (!c.music || !mime) { void alertDialog("Play", "This browser cannot play that file."); return; }
+    const url = URL.createObjectURL(new Blob([c.music as BlobPart], { type: mime }));
+    const a = new Audio(url);
+    a.addEventListener("ended", () => URL.revokeObjectURL(url), { once: true });
+    void a.play().catch(() => { URL.revokeObjectURL(url); void alertDialog("Play", "This browser cannot play that file."); });
+  };
+  const musicButton = el("button", { type: "button", class: "mini", disabled: ro, title: musicLoadTitle(c.mtm2Only), onclick: () => void musicLoad() }, "...");
   musicIcon.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY, ["@items"], ctx.registry, ctx.app, { slots: { items: [
       { label: "Load...", enabled: !ro, run: () => void musicLoad() },
-      { label: "Save As...", enabled: Boolean(c.music), run: () => c.music && download(c.music, c.mtm2Only ? "music.wav" : "music.mod") },
-      { label: "Play", enabled: Boolean(c.music && c.music.length > 64), run: () => { const a = new Audio(URL.createObjectURL(new Blob([c.music as BlobPart], { type: "audio/wav" }))); void a.play().catch(() => alertDialog("Play", "This browser cannot play that file.")); } },
+      { label: "Save As...", enabled: Boolean(c.music), run: () => void musicSaveAsFile() },
+      { label: "Play", enabled: Boolean(c.music && c.music.length > 64), run: musicPlay },
     ] } });
   });
   showMusic();
@@ -613,11 +639,23 @@ async function arenaDialog(a: TraxxArena): Promise<TraxxArena | null> {
   return r === "ok" ? { x: Number(x.value), y: Number(y.value), sx: Number(sx.value), sy: Number(sy.value) } : null;
 }
 
-/* CStockMusicDlg. */
-async function stockMusicDialog(current: string): Promise<string | null> {
-  const select = stop(el("select", { size: 10, class: "stock-list" }, ...STOCK_MUSIC.map(([n, t]) => el("option", { value: n, selected: n === current }, `${n}  -  ${t}`)))) as HTMLSelectElement;
-  if (select.selectedIndex < 0) select.selectedIndex = 1;
-  const shown = openDialog({ title: "Stock Music", body: select, buttons: [{ label: "OK", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }] });
+/*
+  CStockMusicDlg (StockMusicDlg.cpp): the nine stock tracks in Name and Description columns,
+  the current pick selected (the first row when it is none of them), a double-click is OK.
+  Traxx 1.7: resizable, opens half as wide again and twice as tall as the template the first
+  time, and remembers its size (reg.stockmusic_size, here settings.dialog_sizes).
+*/
+const STOCK_MUSIC_MIN = { w: 360, h: 240 }, STOCK_MUSIC_FIRST = { w: 530, h: 410 };
+
+async function stockMusicDialog(current: string, app: AppState): Promise<string | null> {
+  const nb = (t: string, n: number) => t.padEnd(n, "\u00a0");
+  const head = el("div", { class: "stock-list stock-head", "aria-hidden": "true" }, `${nb("Name", 8)}Description`);
+  const select = stop(el("select", { size: 10, class: "stock-list", "aria-label": "Stock music" }, ...STOCK_MUSIC.map(([n, t]) => el("option", { value: n, selected: n === current }, `${nb(n, 8)}${t}`)))) as HTMLSelectElement;
+  if (select.selectedIndex < 0) select.selectedIndex = 0;
+  const shown = openDialog({ title: "Stock Music", body: [head, select], buttons: [{ label: "OK", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }] });
+  const dialog = select.closest("dialog");
+  if (dialog) makeResizable(dialog, app, "stock_music", STOCK_MUSIC_MIN, STOCK_MUSIC_FIRST, select);
+  select.selectedOptions[0]?.scrollIntoView({ block: "nearest" });
   select.addEventListener("dblclick", () => (select.closest("form") as HTMLFormElement | null)?.requestSubmit());
   return (await shown) === "ok" ? select.value : null;
 }

@@ -50,7 +50,7 @@ export function checkIntegrity(doc: TrackDocument): string[] {
   if (doc.objectsShort > 0) add(`The situation file this track came from promised ${doc.objectsShort} more object${doc.objectsShort === 1 ? "" : "s"} than it held. Traxx kept the ones that were there; writing the track corrects the count.`);
   if (doc.objectsDropped > 0) add(`${doc.objectsDropped} object${doc.objectsDropped === 1 ? " was" : "s were"} dropped when this track was opened - it holds more than the ${MAX_BOXES} this version supports.`);
 
-  if (!t.music) add("Music MOD/WAV not specified.");
+  if (!t.music) add("Music MOD/WAV/MP3/OGG not specified."); // TXNOMUSIC, 1.7 (e4b4cd5)
   if (!t.logoBmp && !t.uiHd[0]) add("Thumbnail/browse bitmap not specified.");
   if (!t.mapBmp && !t.uiHd[1]) add("Zoom (MTM1) or Icon (MTM2) bitmap not specified.");
   if (!t.backdropName || !doc.models.some((m) => m.bytes && m.name.toUpperCase().endsWith(t.backdropName.toUpperCase()))) add("Backdrop model not specified.");

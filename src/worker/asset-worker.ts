@@ -15,6 +15,7 @@ import { artHandlers } from "./art-handlers.ts";
 import { patternHandlers } from "./pattern-handlers.ts";
 import { modelHandlers } from "./model-handlers.ts";
 import { storeHandlers } from "./store-handlers.ts";
+import { farCardHandlers } from "./farcard-handlers.ts";
 
 const LIBRARY = `${ROOT}/library`;
 
@@ -35,6 +36,7 @@ serve({
   ...patternHandlers(),
   ...modelHandlers(() => vfs),
   ...storeHandlers(),
+  ...farCardHandlers(() => vfs),
   /** The archives in the library folder. */
   async "library.list"(): Promise<LibraryItem[]> {
     const entries = await listDirectory(LIBRARY, true);

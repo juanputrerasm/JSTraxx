@@ -41,6 +41,10 @@ import { heightsPodPlan } from "./heights-png.ts";
 import { buildLakeGround } from "./surface.ts";
 import { buildWtr, recomputeLakes, LAKES_NOT_SAVED } from "./lakes.ts";
 import { parseMtm2Veg } from "../../vendor/openphotex/mtm/veg.js";
+import { vegetationFromTxx } from "./veg.ts";
+import { instPodTextureOk, vegModelsThatWillNotInstance, type VegInstanceIssue } from "./instancing.ts";
+import { findAsset } from "../doc/names.ts";
+import { findModelTexture } from "../doc/load-pod.ts";
 
 /** Write POD refused before anything is written ("Cannot build the pod"): the heights PNG could not go in. */
 export class PodBuildRefused extends Error {
@@ -76,6 +80,8 @@ export interface PodWriteResult {
   longFrames: string[];
   /** What was not written as Traxx would write it, for the author. */
   warnings: string[];
+  /** Traxx 1.7: the vegetation models the game will not instance (VegModelsThatWillNotInstance), when a .VEG was written. */
+  vegNotInstanced: VegInstanceIssue[];
 }
 
 const ascii = (s: string) => { const b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i) & 0xff; return b; };
@@ -410,6 +416,15 @@ export function buildTrackPod(doc: TrackDocument, options: PodWriteOptions = {})
   const vegImage = veg?.image && vegName.length <= POD_NAME_MAX ? veg.image : null;
   add(`DATA\\${p}.TXV`, writeTxvFile(doc, !omittedAny, anyHdOver256, options.date ?? new Date(), vegImage ? vegCounts(vegImage) : null, heights.txvKey));
   if (vegImage) add(vegName, vegImage);
+  /*
+    INSTANCING WARNING (CTrackPOD::Save, when the vegetation was written): every species model the
+    game will not instance, judged with InstPodTextureOK (a texture the track holds but marked
+    bad is not loadable). A warning, not a refusal.
+  */
+  const vegNotInstanced = vegImage ? vegModelsThatWillNotInstance(vegetationFromTxx(veg), (bare) => {
+    const at = findAsset(doc.models, bare);
+    return at >= 0 ? doc.models[at]!.bytes : null;
+  }, instPodTextureOk((name) => doc.modelTextures[findModelTexture(doc.modelTextures, name)] ?? null)) : [];
   // The lakes (BuildWTR), recomputed first so the tile map is the terrain's as it is now. A lake
   // in error or a name that does not fit is reported and writes no item.
   if (t.lakes.length) {
@@ -421,5 +436,5 @@ export function buildTrackPod(doc: TrackDocument, options: PodWriteOptions = {})
   }
   if (t.text) add(`WORLD\\${p}.TXT`, t.text);
 
-  return { comment: t.comment.slice(0, 79), entries, omittedAny, anyHdOver256, badTextures, longFrames, warnings };
+  return { comment: t.comment.slice(0, 79), entries, omittedAny, anyHdOver256, badTextures, longFrames, warnings, vegNotInstanced };
 }

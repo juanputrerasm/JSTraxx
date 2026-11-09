@@ -187,7 +187,7 @@ const TABLE: [string, string, string?, string?, string?][] = [
   ["ID_OBJECT_INSERT", "Insert", "Insert an object here"],
   ["ID_OBJECT_DELETE", "Delete", "Delete the selected objects"],
   ["ID_OBJECT_PROPERTIES", "Properties", "Edit the selected object", undefined, "Enter"],
-  ["ID_OBJECT_GROUPPROPERTIES", "Group &Properties...", "Edit the selected objects together"],
+  ["ID_OBJECT_GROUPPROPERTIES", "Group &Properties..."],
   ["ID_OBJECT_COPY", "Copy Object", "Copy the selected object"],
   ["ID_OBJECT_PASTE", "Paste Object", "Paste the copied object here", undefined, "Ctrl+V"],
   ["ID_OBJECT_DISPLAYBOX", "Display Models Box", "Show the Models box"],

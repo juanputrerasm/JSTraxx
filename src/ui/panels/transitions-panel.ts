@@ -8,6 +8,12 @@
 
   The picks are kept by texture name, so a texture deleted since simply stops being set (Traxx
   shifts its indices instead, to the same effect). A new track clears them.
+
+  Traxx 1.7 (e4b4cd5): the window is resizable, opens larger and remembers its size (the
+  floating panel does both); the grid stays square and takes the largest square left of the
+  controls and above the threshold row (LayoutItems' LAY_SQUARE), the controls keep to the
+  right, Apply, Close and the base tile to the bottom right, the threshold slider widens; any
+  texture size is sampled down or up to 64 x 64 (DrawGridImage).
 */
 import { el } from "../../shared/dom.ts";
 import type { AppState } from "../../app/state.ts";
@@ -19,6 +25,7 @@ import { alertDialog } from "../shell/dialog.ts";
 import { AGRD_COL } from "../../core/settings.ts";
 import { findTexture } from "../../core/edit/texture-list.ts";
 import { gammaMap, legacyTileRgba } from "../../core/view/tiles.ts";
+import { sample64, squareSide } from "../../core/ui-layout.ts";
 import type { TransitionSettings } from "../../core/edit/textures.ts";
 
 /* The underlay where no texture is set: a blob, inner and outer in palette entries 3 and 2. */
@@ -60,9 +67,10 @@ export function transitionsPanel(ctx: TransitionsPanelContext): void {
   const thresholdText = el("span", { class: "trans-num" }, String(threshold));
   slider.addEventListener("input", () => { threshold = Number(slider.value); thresholdText.textContent = String(threshold); });
 
+  const gridCell = el("div", { class: "trans-grid-cell" }, gridCanvas);
   panel.body.replaceChildren(el("div", { class: "trans-window" },
     el("div", { class: "trans-top" },
-      gridCanvas,
+      gridCell,
       el("div", { class: "trans-side" },
         el("label", { class: "opt-check" }, invert, "Invert (inner goes below Threshold)"),
         el("label", { class: "opt-check" }, fillMax, "Fill up to:", maxAlt),
@@ -79,16 +87,21 @@ export function transitionsPanel(ctx: TransitionsPanelContext): void {
     const at = findTexture(d, name);
     const tex = at >= 0 ? d.textures[at] : null;
     const img = tex ? legacyTileRgba(tex, d.track.palette, gammaMap(app.settings.gamma)) : null;
-    if (!img) return null;
-    // Every texel of a 64 tile, every fourth of a 256 one (psize).
-    const step = Math.max(1, img.width >> 6);
+    if (!img || img.width <= 0 || img.height <= 0) return null;
+    // DrawGridImage (1.7): sampled down (or up) to 64 x 64, whatever the texture's size.
     const out = new Uint8Array(64 * 64 * 4);
     for (let j = 0; j < 64; j++) for (let i = 0; i < 64; i++) {
-      const s = (Math.min(img.height - 1, j * step) * img.width + Math.min(img.width - 1, i * step)) * 4;
+      const s = sample64(img.width, img.height, i, j) * 4;
       out.set(img.rgba.subarray(s, s + 4), (j * 64 + i) * 4);
     }
     return out;
   };
+
+  // LAY_SQUARE: the grid takes the largest square its cell allows, never below the template's.
+  new ResizeObserver(() => {
+    const side = Math.max(176, squareSide(gridCell.clientWidth, gridCell.clientHeight));
+    gridCanvas.style.width = gridCanvas.style.height = `${side}px`;
+  }).observe(gridCell);
 
   function draw(): void {
     const pal = editor.doc?.track.palette;

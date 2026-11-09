@@ -11,7 +11,7 @@
   Points are scene units: x, y in ipos, z = 3 per terrain step.
 */
 import type { TraxxBox, TraxxLight } from "../traxx/sit.ts";
-import { interpolateRawAtPoint } from "../traxx/terrain.ts";
+import { lightGroundZ, type Ground } from "../traxx/box-ground.ts";
 import { ALTITUDE_SCALE } from "./camera.ts";
 
 export const LIGHT_RADIUS_MAX = 4095;
@@ -20,9 +20,10 @@ const SEGMENTS = 72;
 const SCENE_Z_PER_FOOT = 96 / 64;
 
 /** Line segments as pairs of [x, y, z] points. */
-export function lightPoolLines(box: TraxxBox, light: TraxxLight, heights: Uint8Array): [number, number, number][][] {
+export function lightPoolLines(box: TraxxBox, light: TraxxLight, terrain: Ground): [number, number, number][][] {
   if (light.radius <= 0) return [];
-  const ground = (x: number, y: number) => ALTITUDE_SCALE * interpolateRawAtPoint(heights, x, y);
+  // LightGroundZ: the drive surface's fraction kept on 16-bit, Spline and Full Map (Traxx 1.7).
+  const ground = (x: number, y: number) => lightGroundZ(terrain, x, y, ALTITUDE_SCALE);
   const radius = Math.min(light.radius * 2, 2 * LIGHT_RADIUS_MAX);
   const aim = Math.max(-LIGHT_RADIUS_MAX, Math.min(LIGHT_RADIUS_MAX, light.aimOffset));
   const m3 = Math.sin(box.psi) * Math.cos(box.theta);

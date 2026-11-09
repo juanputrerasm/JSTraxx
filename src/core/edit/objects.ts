@@ -8,7 +8,7 @@
 import type { TrackDocument } from "../doc/document.ts";
 import type { TxxTrack } from "../traxx/txx.ts";
 import { traxxBoxDefaults, traxxSignedSplit, TRAXX_BOX_CRUSH, TRAXX_BOX_FOG, TRAXX_BOX_LIGHT, TRAXX_BOX_RAMP, TRAXX_MAX_FOGS, type TraxxBox } from "../traxx/sit.ts";
-import { interpolateRawAtPoint } from "../traxx/terrain.ts";
+import { boxHeightPairLoad, boxHeightPairStore, surfaceTrack, type Ground } from "../traxx/box-ground.ts";
 
 export const MAX_OBJECTS = 4096;
 export const TYPE_TRAIN = 10;
@@ -53,11 +53,21 @@ export function budgetCap(group: number): number {
   return [MAX_OBJECTS, 20, 100, 100, 100, 100, TRAXX_MAX_FOGS][group] ?? MAX_OBJECTS;
 }
 
-/** OnObjectInsert: a default box on the ground point (whole ipos, steps truncated). Null when the track is full. */
-export function insertObject(track: TxxTrack, at: [number, number, number]): number | null {
+/**
+  OnObjectInsert: a default box on the ground point (whole ipos, steps truncated). Null when the
+  track is full. Traxx 1.7 (b100b6b, 0acc316): on a 16-bit, Spline or Full Map track the pick's
+  z is ignored; the box takes the pick's x / y fractions and is seated on the drive surface
+  (BoxHeightPairStore, its pair 0 above).
+*/
+export function insertObject(track: TxxTrack, at: [number, number, number], fraction: readonly [number, number, number] = [0, 0, 0]): number | null {
   if (track.boxes.length >= MAX_OBJECTS) return null;
   const box = traxxBoxDefaults();
   box.ipos = [Math.trunc(at[0]), Math.trunc(at[1]), Math.trunc(at[2]) + box.heightAboveGround];
+  if (surfaceTrack(track)) {
+    box.fraction[0] = fraction[0];
+    box.fraction[1] = fraction[1];
+    boxHeightPairStore(track, box);
+  }
   track.boxes.push(box);
   return track.boxes.length - 1;
 }
@@ -86,15 +96,17 @@ export function rotateObjects(boxes: TraxxBox[], hundredths: number): void {
 
 /*
   ObjectMove: x and y in thousandths of an ipos, through the same split the dialog uses (never
-  below 0), each object kept at its height above the ground.
+  below 0), each object kept at its height above the ground (the pair taken where it was on the
+  drive surface, BoxHeightPairLoad, then seated where it lands, BoxHeightPairStore).
 */
-export function moveObjects(boxes: TraxxBox[], heights: Uint8Array, dx: number, dy: number): void {
+export function moveObjects(boxes: TraxxBox[], ground: Ground, dx: number, dy: number): void {
   for (const b of boxes) {
+    boxHeightPairLoad(ground, b);
     const px = Math.max(0, b.ipos[0] + b.fraction[0] / 256 + dx / 1000);
     const py = Math.max(0, b.ipos[1] + b.fraction[1] / 256 + dy / 1000);
     [b.ipos[0], b.fraction[0]] = traxxSignedSplit(px);
     [b.ipos[1], b.fraction[1]] = traxxSignedSplit(py);
-    b.ipos[2] = interpolateRawAtPoint(heights, b.ipos[0], b.ipos[1]) + b.heightAboveGround;
+    boxHeightPairStore(ground, b);
   }
 }
 
@@ -119,35 +131,46 @@ export function tiltObjects(boxes: TraxxBox[], pitch: number, heading: number): 
 }
 
 /** ObjectRaise: the height above the ground by hundredths of a step, at most 500 steps. */
-export function raiseObjects(boxes: TraxxBox[], heights: Uint8Array, hundredths: number): void {
+export function raiseObjects(boxes: TraxxBox[], ground: Ground, hundredths: number): void {
   const inc = Math.trunc(Math.fround(256 * Math.fround(hundredths / 100)));
   for (const b of boxes) {
+    boxHeightPairLoad(ground, b);
     b.heightAboveGround += Math.trunc(inc / 256);
     b.fraction[2] += inc % 256;
     if (b.fraction[2] >= 256) { b.heightAboveGround++; b.fraction[2] -= 256; }
     if (b.fraction[2] < 0) { b.heightAboveGround--; b.fraction[2] += 256; }
     if (b.heightAboveGround >= 500) { b.heightAboveGround = 500; b.fraction[2] = 0; }
-    b.ipos[2] = interpolateRawAtPoint(heights, b.ipos[0], b.ipos[1]) + b.heightAboveGround;
+    boxHeightPairStore(ground, b);
   }
 }
 
 /*
   Dragging (OnMouseMove, objects mode): the anchor to the ground point at its height above the
   ground (its fractions kept), the rest of the selection by the same amount, each at its own
-  height above the ground where it lands.
+  height above the ground where it lands. Traxx 1.7 (b100b6b, e4e034d, 0acc316): on the drive
+  surface each box's pair is taken where it was (BoxHeightPairLoad), the anchor takes the pick's
+  x / y fractions, the pick's z is ignored, and each is seated where it lands (BoxHeightPairStore).
 */
-export function dragObjects(track: TxxTrack, selected: readonly number[], at: [number, number, number]): void {
+export function dragObjects(track: TxxTrack, selected: readonly number[], at: [number, number, number], fraction: readonly [number, number, number] = [0, 0, 0]): void {
   const anchor = track.boxes[selected[0]];
   if (!anchor) return;
   const cx = Math.trunc(at[0]), cy = Math.trunc(at[1]);
   const dx = cx - anchor.ipos[0], dy = cy - anchor.ipos[1];
-  anchor.ipos = [cx, cy, Math.trunc(at[2]) + anchor.heightAboveGround];
+  const cz = Math.trunc(at[2]) + anchor.heightAboveGround;
+  boxHeightPairLoad(track, anchor);
+  anchor.ipos = [cx, cy, cz];
+  if (surfaceTrack(track)) {
+    anchor.fraction[0] = fraction[0];
+    anchor.fraction[1] = fraction[1];
+    boxHeightPairStore(track, anchor);
+  }
   if (!dx && !dy) return;
   for (const i of selected.slice(1)) {
     const b = track.boxes[i];
+    boxHeightPairLoad(track, b);
     b.ipos[0] = Math.max(0, b.ipos[0] + dx);
     b.ipos[1] = Math.max(0, b.ipos[1] + dy);
-    b.ipos[2] = interpolateRawAtPoint(track.heights, b.ipos[0], b.ipos[1]) + b.heightAboveGround;
+    boxHeightPairStore(track, b);
   }
 }
 
@@ -200,9 +223,10 @@ export function setTypeOfObjects(track: TxxTrack, selected: readonly number[], i
   ApplyObject: a model onto the selected objects. A top crush takes a keyframed model as its
   cab, any other as its base (shown only until it has a cab); everything else takes it as its
   model, set on the ground by the model's lowest point (basez: the lowest vertex or 0, less 31,
-  in model units of 1/256 step).
+  in model units of 1/256 step). Traxx 1.7 (0acc316): on the drive surface the box is then
+  seated with BoxHeightPairStore, the ground's fraction folded in.
 */
-export function applyModel(boxes: TraxxBox[], model: { title: string; keyframed: boolean; baseZ: number }): void {
+export function applyModel(boxes: TraxxBox[], model: { title: string; keyframed: boolean; baseZ: number }, ground: Ground | null = null): void {
   for (const box of boxes) {
     if (box.type === TRAXX_BOX_CRUSH && model.keyframed) { box.crushName = model.title; continue; }
     box.modelName = model.title;
@@ -210,6 +234,7 @@ export function applyModel(boxes: TraxxBox[], model: { title: string; keyframed:
     box.heightAboveGround = (-model.baseZ) >> 8;
     box.fraction[2] = -model.baseZ - 256 * box.heightAboveGround;
     box.ipos[2] += box.heightAboveGround;
+    if (ground && surfaceTrack(ground)) boxHeightPairStore(ground, box);
   }
 }
 
@@ -223,16 +248,21 @@ export function modelBaseZ(upCoordinates: Iterable<number>): number {
 /*
   OnObjectPaste: a new object at the ground point with everything the copy had except its
   place, and its type dropped to Default if that type's budget is full. Returns the new index
-  and a message when the type was refused.
+  and a message when the type was refused. Traxx 1.7 (0acc316): on the drive surface the copy's
+  height (the clipboard holds the height pair, copyForClipboard) is seated on the ground here.
 */
-export function pasteObject(track: TxxTrack, copy: TraxxBox, at: [number, number, number]): { index: number | null; refusal: string | null } {
-  const index = insertObject(track, at);
+export function pasteObject(track: TxxTrack, copy: TraxxBox, at: [number, number, number], fraction: readonly [number, number, number] = [0, 0, 0]): { index: number | null; refusal: string | null } {
+  const index = insertObject(track, at, fraction);
   if (index === null) return { index: null, refusal: "Max. 4096 Objects!" };
   const box = track.boxes[index];
   const pos = box.ipos;
   Object.assign(box, structuredClone(copy));
   box.ipos = [pos[0], pos[1], pos[2] + copy.heightAboveGround];
   box.fraction = [copy.fraction[0], copy.fraction[1], copy.fraction[2]];
+  if (surfaceTrack(track)) {
+    box.ipos[2] = pos[2];
+    boxHeightPairStore(track, box);
+  }
   let refusal: string | null = null;
   const count = (test: (t: number) => boolean) => track.boxes.filter((b) => test(b.type)).length;
   if (copy.type === TRAXX_BOX_RAMP && count((t) => t === TRAXX_BOX_RAMP) > 100) refusal = "Max. 100 Ramps!";

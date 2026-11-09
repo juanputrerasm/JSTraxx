@@ -3,8 +3,16 @@
   (a 2D DDA), each cell's two triangles tested exactly, split along the same checkerboard
   diagonal the view draws and InterpolateRawAtPoint uses. Scene units: x and y ipos, z
   ALTITUDESCALE units.
+
+  Traxx 1.7 (COpenGLTerrainRenderer::PickSurfaceRay, b100b6b and 9f861ea): every mode but
+  Classic 8-bit picks on the drive surface itself (pickSurface): the ray walked across the
+  window's 32 ft triangles, refined on Spline and Full Map against SurfaceHeightV, the point
+  kept with its 1/256 fractions.
 */
 import { ALTITUDE_SCALE } from "./camera.ts";
+import type { Terrain16 } from "../traxx/terrain16.ts";
+import { TERRAINMODE_CLASSIC8 } from "../traxx/terrain16.ts";
+import { pickPoint, pickRay } from "../traxx/surface-pick.ts";
 
 export interface TerrainHit {
   /** The point hit, in scene units. */
@@ -15,6 +23,12 @@ export interface TerrainHit {
   vertex: [number, number];
   /** Distance along the ray. */
   t: number;
+  /**
+    The point as Traxx's pick gives it (ScreenToTerrainPoint): whole ipos x, y and whole steps z,
+    and the 1/256 left over on each (always 0 on Classic 8-bit, where the point is truncated).
+  */
+  ipos: [number, number, number];
+  fraction: [number, number, number];
 }
 
 type V3 = [number, number, number];
@@ -72,10 +86,44 @@ export function pickTerrain(heights: Uint8Array, origin: V3, dir: V3, maxT = 1e6
     const t = hitCell(i, j);
     if (t >= 0 && t <= tExit + 1e-6) {
       const point: V3 = [origin[0] + dir[0] * t, origin[1] + dir[1] * t, origin[2] + dir[2] * t];
-      return { point, cell: [i, j], vertex: [Math.min(255, Math.round(point[0] / 64)), Math.min(255, Math.round(point[1] / 64))], t };
+      return {
+        point, cell: [i, j], vertex: [Math.min(255, Math.round(point[0] / 64)), Math.min(255, Math.round(point[1] / 64))], t,
+        ipos: [Math.trunc(point[0]), Math.trunc(point[1]), Math.trunc(point[2] / ALTITUDE_SCALE)], fraction: [0, 0, 0],
+      };
     }
     if (tMaxX < tMaxY) { i += stepX; tMaxX += tDeltaX; } else { j += stepY; tMaxY += tDeltaY; }
     if (i < 0 || j < 0 || i > 254 || j > 254 || Math.min(tMaxX, tMaxY) - Math.min(tDeltaX, tDeltaY) > tExit) break;
   }
   return null;
+}
+
+/**
+  PickSurfaceRay: the pick on a 16-bit, Spline or Full Map track, in scene units. The window is
+  the grid window's cells x0..x0 + n - 2, y0..y0 + n - 2 (n = gridsize), as Traxx passes
+  lastgridx0 .. lastgridx0 + n - 2; heights beyond the map are 0. Scene to surface space: x, y
+  times 256 (1/256 ipos), z times 256 / ALTITUDE_SCALE (v). The vertex is the nearer corner of
+  the (window-clamped) cell on each axis, as PickSurfaceRay's vertexindex. Null on Classic 8-bit
+  and on a miss. JSTraxx's ray starts at the camera with tmin 0 (Traxx's 8 is its near plane).
+*/
+export function pickSurface(t: Terrain16, origin: V3, dir: V3, window: { x0: number; y0: number; n: number }): TerrainHit | null {
+  if (t.terrainMode === TERRAINMODE_CLASSIC8 || window.n < 2) return null;
+  const zs = 256 / ALTITUDE_SCALE;
+  const org = [origin[0] * 256, origin[1] * 256, origin[2] * zs] as const;
+  const d = [dir[0] * 256, dir[1] * 256, dir[2] * zs] as const;
+  const { x0, y0, n } = window;
+  const hit = pickRay(t, org, d, 0, x0, y0, x0 + n - 2, y0 + n - 2);
+  if (!hit) return null;
+  const { px, py, v } = pickPoint(t, org, d, hit.t);
+  const ci = Math.min(n - 2, Math.max(0, hit.cellx - x0)), cj = Math.min(n - 2, Math.max(0, hit.celly - y0));
+  const inx = px - (x0 + ci) * 16384, iny = py - (y0 + cj) * 16384;
+  const vx = x0 + ci + (inx >= 8192 ? 1 : 0), vy = y0 + cj + (iny >= 8192 ? 1 : 0);
+  return {
+    point: [px / 256, py / 256, (ALTITUDE_SCALE * v) / 256],
+    // Clamped to the map's cells, which is all JSTraxx's callers index.
+    cell: [Math.min(254, Math.max(0, x0 + ci)), Math.min(254, Math.max(0, y0 + cj))],
+    vertex: [Math.min(255, Math.max(0, vx)), Math.min(255, Math.max(0, vy))],
+    t: hit.t,
+    ipos: [px >> 8, py >> 8, v >> 8],
+    fraction: [px & 255, py & 255, v & 255],
+  };
 }

@@ -7,7 +7,9 @@
   The dialog edits a COPY of the track's vegetation and resolves with it on OK (null on
   Cancel), as Traxx copies `work` back on IDOK. Planting goes through the caller's `replant`
   (vegReplant in src/core/edit/veg-planter.ts, with the track's models, lakes and ground).
-  Make Far Cards (VegetationFarCard.cpp) is not ported; its button is shown greyed.
+  Make Far Cards (OnMakeCards, VegetationFarCard.cpp) goes through the caller's
+  `makeFarCards`: the cards become models of the REAL track, the entries' far models are set
+  in the copy and follow OK / Cancel as the rest of it does.
 */
 import { el, clear } from "../../shared/dom.ts";
 import { alertDialog, confirmDialog, openDialog } from "../shell/dialog.ts";
@@ -33,6 +35,8 @@ export interface VegetationDialogOptions {
   modelNames: string[];
   /** VegPlant on the copy; null when the track cannot be planted (the reason is shown). */
   replant: (work: Vegetation) => VegPlantResult | null;
+  /** VegMakeFarCards on the copy: how many entries were given a far model, and the report. */
+  makeFarCards: (work: Vegetation) => Promise<{ changed: number; report: string }>;
 }
 
 /** The bare name after the last slash (VegBareName). */
@@ -98,7 +102,7 @@ export async function vegetationDialog(opts: VegetationDialogOptions): Promise<V
   const edit = button("Edit...", () => void onEdit());
   const remove = button("Remove", () => onRemove());
   const replantBtn = button("Re-plant", () => { if (!work.readonly) void replant(false); });
-  const makeCards = el("button", { type: "button", disabled: true, title: "Not available yet" }, "Make Far Cards");
+  const makeCards = button("Make Far Cards", () => void onMakeCards());
   const clearAll = button("Clear All", () => void onClearAll());
   for (const n of [seed, corridor, margin, colName, spacing, density, pertile]) stopKeys(n);
   for (const n of [seed, corridor, margin]) n.addEventListener("input", () => { dirty = true; });
@@ -175,6 +179,7 @@ export async function vegetationDialog(opts: VegetationDialogOptions): Promise<V
     edit.disabled = !(have && cursel >= 0);
     remove.disabled = !(have && cursel >= 0);
     replantBtn.disabled = ro;
+    makeCards.disabled = ro;
   }
 
   function refreshAll(): void {
@@ -296,6 +301,30 @@ export async function vegetationDialog(opts: VegetationDialogOptions): Promise<V
     if (result.report.length) await alertDialog("Vegetation", result.report.join("\n"));
     else if (!result.ok && !quiet) await alertDialog("Vegetation", "Nothing could be planted.");
     return result.ok;
+  }
+
+  /*
+    OnMakeCards: one card per distinct tree / bush model, loaded into the track; each entry that
+    had no far model of its own is given its card's name. The rules then differ from what was
+    planted (the species carry farModel), so the dirty flag goes up.
+  */
+  let making = false;
+  async function onMakeCards(): Promise<void> {
+    if (work.readonly || making) return;
+    saveColourFields();
+    making = true;
+    makeCards.disabled = true;
+    let result: { changed: number; report: string };
+    try {
+      result = await opts.makeFarCards(work);
+    } catch (err) {
+      result = { changed: 0, report: `Far cards were not made: ${err instanceof Error ? err.message : String(err)}` };
+    } finally {
+      making = false;
+    }
+    if (result.changed > 0) dirty = true;
+    fillEntries(); updateStatus(); updateEnables();
+    await alertDialog("Vegetation", result.report);
   }
 
   async function onClearAll(): Promise<void> {

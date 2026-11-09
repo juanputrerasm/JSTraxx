@@ -7,12 +7,21 @@
     - a click or Space applies it (Direct Edit applies with S / ] and X / [ instead);
     - Tab turns it an eighth, - and + change the curvature, [ ] X S the altitude;
     - right-click: Copy Area, Paste Area, Adjust Heights, Copy / Paste Terrain as Bitmap.
+
+  Traxx 1.7: on a Full Map the brush point is the 8 ft vertex under the pointer (editfine,
+  TerrainPickFine: FineVertexAtPoint of the picked point) and `vertex` its 32 ft tile, which the
+  lakes keep using; the brush, Copy and Paste Area work on the 1024 grid with wrap. CLASSIC16 and
+  Spline work on h16. Every terrain edit passes the lake guard.
 */
 import type { ModeHandler, ViewPoint } from "../editor.ts";
 import type { ModeContext } from "./context.ts";
 import { ATXT_COL, AGRD_COL, EDIT_TERRAIN } from "../../core/settings.ts";
-import { adjustHeights, applyEditGrid, brushRect, copyTerrain, heightsToRgba, makeEditGrid, pasteTerrain, previewHeights, rgbaToHeights, type BrushParams, type EditGrid, type TerrainBlock, type Placed } from "../../core/edit/terrain.ts";
-import { recordFields, recordGrid } from "../../core/edit/record.ts";
+import {
+  adjustHeights, altitudeV, applyBrush, brushPreview, brushRect, copyArea as copyBlock, heightsToRgba, makeEditGrid, pasteArea as pasteBlock,
+  pasteBitmapHeights, pasteFits, previewLabel, rgbaToHeights, stampWindow, type BrushParams, type EditGrid, type TerrainBlock, type Placed,
+} from "../../core/edit/terrain.ts";
+import { amplitudeFractional, amplitudeText, stepAmplitude } from "../../core/edit/amplitude.ts";
+import { recordFields, recordGrid, recordWindow } from "../../core/edit/record.ts";
 import { deriveBoxHeights } from "../../core/doc/load-pod.ts";
 import { CONTEXT_MENUS } from "../../ui/shell/commands.ts";
 import { adjustHeightsDialog } from "../../ui/dialogs/adjust-heights.ts";
@@ -21,23 +30,31 @@ import { copyImage, pasteImage } from "../../shared/system-clipboard.ts";
 import { ALTITUDE_SCALE } from "../../core/view/camera.ts";
 import { devicePx } from "../../render/overlay.ts";
 import { lakeCommands, lakeErrors, lakeRefusal } from "./lake-commands.ts";
-import { adjustHeights16, applyStamp16, heightsChanged } from "../../core/traxx/surface.ts";
-import { refreshRaw, TERRAINMODE_CLASSIC8, TERRAINMODE_FINE } from "../../core/traxx/terrain16.ts";
+import { adjustHeights16, fineVertexAtPoint } from "../../core/traxx/surface.ts";
+import { syncFromRaw, TERRAINMODE_FINE, type Terrain16 } from "../../core/traxx/terrain16.ts";
 import { buildLakeGround } from "../../core/traxx/surface.ts";
 import { lakeMinHeight, lakeNearestLegalHeight, recomputeLakes, LAKE_MAX_HEIGHT, LAKE_NO_BASIN } from "../../core/traxx/lakes.ts";
 import type { Recording } from "../../core/edit/record.ts";
+import { publishTerrainMode } from "../terrain-kind.ts";
 
 export function terrainMode(ctx: ModeContext): ModeHandler {
   const { app, editor, view, registry } = ctx;
+  /** editlocation: the 32 ft vertex (on a Full Map, the tile of the 8 ft point). */
   let vertex: [number, number] | null = null;
+  /** editfine: a Full Map's 8 ft point under the pointer, 0..1023 each way. */
+  let fineVertex: [number, number] | null = null;
   let brush: EditGrid | null = null;
   let brushKey = "";
 
+  const onFine = () => editor.doc?.track.terrainMode === TERRAINMODE_FINE;
   const params = (): BrushParams => {
     const e = app.settings.edit;
-    return { tool: e.tool, width: e.terrainw, height: e.terrainh, orientation: e.orientation, curvature: e.curvature, altitude: e.altitude };
+    return { tool: e.tool, width: e.terrainw, height: e.terrainh, orientation: e.orientation, curvature: e.curvature, altitude: e.altitude, fine: onFine() };
   };
-  /* MakeEditGrid runs when a setting changes (TX_TERRAINMODE and friends), so Bumps keeps its pattern until then. */
+  /*
+    MakeEditGrid runs when a setting changes (TX_TERRAINMODE and friends) or the track's limits
+    do (EditGridFollowMode), so Bumps keeps its pattern until then.
+  */
   const grid = (): EditGrid => {
     const p = params();
     const key = JSON.stringify(p);
@@ -46,13 +63,37 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
   };
   app.on("settings", () => { if (app.mode === EDIT_TERRAIN) editor.selectionChanged(); });
 
+  /*
+    The edit bar follows the track's mode (OnUpdateEditSizeRange, FollowAmplitudeKind); a mode
+    change also drops the brush point (OnTerrainGrid: editfine = -1).
+  */
+  let lastMode: number | null = null;
+  const follow = () => {
+    const mode = editor.doc?.track.terrainMode ?? null;
+    if (mode !== lastMode) { lastMode = mode; vertex = fineVertex = null; }
+    publishTerrainMode(app, mode);
+  };
+  app.on("commands", follow);
+  follow();
+
   const heights = () => editor.doc!.track.heights;
 
-  /* The vertex under the pointer: the nearest grid point to the terrain hit, inside the window. */
-  const locate = (p: ViewPoint): [number, number] | null => {
+  /*
+    The vertex under the pointer: the nearest grid point to the terrain hit. On a Full Map the
+    nearest 8 ft point to the hit (TerrainPickFine), and its tile.
+  */
+  const locate = (p: ViewPoint): { vertex: [number, number]; fine: [number, number] | null } | null => {
     const hit = view.pick(p.clientX, p.clientY);
-    return hit ? hit.vertex : null;
+    if (!hit) return null;
+    if (!onFine()) return { vertex: hit.vertex, fine: null };
+    // TerrainPickFine: whole ipos plus the 1/256 fraction, all FineVertexAtPoint needs.
+    const fv = fineVertexAtPoint(hit.ipos[0] * 256 + hit.fraction[0], hit.ipos[1] * 256 + hit.fraction[1]);
+    const fx = fv & 0xffff, fy = (fv >> 16) & 0xffff;
+    return { vertex: [fx >> 2, fy >> 2], fine: [fx, fy] };
   };
+  const moveTo = (l: ReturnType<typeof locate>) => { vertex = l?.vertex ?? null; fineVertex = l?.fine ?? null; };
+  /** The brush's centre on the grid it edits: the 8 ft point on a Full Map (none yet: nothing to edit). */
+  const centre = (): [number, number] | null => (onFine() ? fineVertex : vertex);
 
   /*
     Every grid a terrain edit can touch, recorded over `rect`: raw, and on a 16-bit track h16 and
@@ -63,6 +104,20 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
     const recs = [recordGrid(t.heights, rect, label, (r) => ({ heights: r }))];
     if (t.h16) recs.push(recordGrid(t.h16, rect, label, (r) => ({ heights: r })));
     if (t.rawShadow) recs.push(recordGrid(t.rawShadow, rect, label, (r) => ({ heights: r })));
+    return recs;
+  };
+
+  /*
+    A w x h stamp at the centre: on a Full Map the window of 8 ft points it writes (wrapping) and
+    the 32 ft mirror under it (TraxxUndo's gridfine, but only the window); else the cells.
+  */
+  const recordStamp = (t: Terrain16, w: number, h: number, c: [number, number], label: string): Recording[] => {
+    if (!t.fine) return recordTerrain(brushRect(w, h, c[0], c[1]), label);
+    const win = stampWindow(t, w, h, c[0], c[1]);
+    const touch = { heights: win.touch };
+    const k = win.coarse;
+    const recs = [recordWindow(t.fine, 1024, win.x0, win.y0, win.w, win.h, label, touch), recordWindow(t.heights, 256, k.x0, k.y0, k.w, k.h, label, touch)];
+    if (t.rawShadow) recs.push(recordWindow(t.rawShadow, 256, k.x0, k.y0, k.w, k.h, label, touch));
     return recs;
   };
 
@@ -80,43 +135,52 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
   };
 
   /*
-    ApplyEditGrid at the brush's vertex, as one undo step. CLASSIC16 and Spline: the same brush
-    on h16 in v (ApplyStamp16, terraingridv), clipped at the map edge, then RefreshRaw. A Full Map
-    is brushed on its 8 ft points in Traxx; that brush is not ported, so it is refused here.
+    ApplyEditGrid at the brush's centre, as one undo step. Any pending 8-bit edit is folded in
+    first (SaveTerrainUndo's SyncFromRaw), then the brush goes on raw (classic 8-bit), h16
+    (CLASSIC16, Spline: clipped) or the 1024 grid (Full Map: wrapping), terraingridv in v.
   */
   const apply = (label = "Terrain Edit", altitudeSign = 0) => {
     if (!vertex || !editor.doc) return;
     const t = editor.doc.track;
-    if (t.terrainMode === TERRAINMODE_FINE) { app.status("The 8 ft Full Map brush is not ported yet: convert to 16-bit Spline to edit with the brush."); return; }
+    const c = centre();
+    if (!c) return;
+    // Direct Edit: TX_TERRAINAMPLITUDE carries +-direct_alt as terrainzv.
     const p = altitudeSign ? { ...params(), altitude: altitudeSign * app.settings.edit.altitude } : params();
-    const eg = altitudeSign ? grid() : grid();
+    const eg = grid();
     const w = p.tool === 7 ? 1 : eg.width, h = p.tool === 7 ? 1 : eg.height;
-    const rect = brushRect(w, h, vertex[0], vertex[1]);
+    syncFromRaw(t);
     const before = lakeErrors(t);
-    const recs = recordTerrain(rect, label);
-    if (t.terrainMode !== TERRAINMODE_CLASSIC8 && t.h16) {
-      applyStamp16(t.h16, 256, 255, eg.gridV, w, h, vertex[0], vertex[1], p.tool, p.altitude * 256, p.tool === 5 ? t.h16.slice() : null, false);
-      refreshRaw(t);
-      heightsChanged(t);
-    } else applyEditGrid(heights(), eg, p, vertex[0], vertex[1]);
+    const recs = recordStamp(t, w, h, c, label);
+    applyBrush(t, eg, p, c[0], c[1]);
     commitGuarded(label, "The terrain edit", recs, before);
   };
 
   /* Direct Edit: S / ] adds the altitude to the point, X / [ takes it off (TX_TERRAINAMPLITUDE). */
   const direct = (sign: number) => apply("Direct Edit", sign);
 
+  /* OnTerrainCopy: the rotated brush's size around the centre, in the units of the track's grid. */
   const copyArea = () => {
-    if (!vertex) return;
+    const c = centre();
+    if (!vertex || !c || !editor.doc) return;
     const eg = grid();
-    editor.clipboard.terrain = copyTerrain(heights(), eg.width, eg.height, vertex[0], vertex[1]);
+    syncFromRaw(editor.doc.track);
+    editor.clipboard.terrain = copyBlock(editor.doc.track, eg.width, eg.height, c[0], c[1]);
     app.emit("commands", undefined);
+  };
+  const canPasteArea = () => {
+    const block = editor.clipboard.terrain as TerrainBlock | undefined;
+    const t = editor.doc?.track;
+    return Boolean(vertex && centre() && block && t && pasteFits(block, t));
   };
   const pasteArea = () => {
     const block = editor.clipboard.terrain as TerrainBlock | undefined;
-    if (!vertex || !block) return;
-    const before = lakeErrors(editor.doc!.track);
-    const recs = recordTerrain(brushRect(block.width, block.height, vertex[0], vertex[1]), "Paste Area");
-    pasteTerrain(heights(), block, vertex[0], vertex[1]);
+    const c = centre();
+    const t = editor.doc?.track;
+    if (!vertex || !c || !block || !t || !pasteFits(block, t)) return;
+    syncFromRaw(t);
+    const before = lakeErrors(t);
+    const recs = recordStamp(t, block.width, block.height, c, "Paste Area");
+    pasteBlock(t, block, c[0], c[1]);
     commitGuarded("Paste Area", "Paste Area", recs, before);
   };
 
@@ -124,6 +188,8 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
   const adjust = async () => {
     const doc = editor.doc;
     if (!doc || !editor.canEdit) return;
+    // A pending 8-bit edit is folded in first (SaveTerrainUndo's SyncFromRaw).
+    syncFromRaw(doc.track);
     const h = doc.track.heights;
     let min = 255, max = 0;
     for (const v of h) { if (v < min) min = v; if (v > max) max = v; }
@@ -137,13 +203,14 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
     ];
     const placed: Placed[] = [];
     if (r.movePlaced) {
-      placed.push(...t.boxes, ...t.trucks);
+      // Objects carry their fractions; truck starts and course ends have none (AddPlacedPoint).
+      placed.push(...t.boxes, ...t.trucks.map((tr) => ({ ipos: tr.ipos })));
       for (const course of [t.course, ...t.extendedCourses]) for (const seg of course ?? []) placed.push({ ipos: seg.cstart }, { ipos: seg.cend });
     }
     // 16-bit tracks: the same factor and lift (taken from the 8-bit mirror) on h16 or the Full Map
     // grid, inc * 256 (AdjustHeights16 / AdjustHeightsFine), so fractions survive.
     const res = adjustHeights(h, r, placed, r.moveWater ? t.waterLevel4 : null,
-      t.fine || t.h16 ? (scale, inc, f) => adjustHeights16(t, scale, inc * 256, f) : undefined);
+      t.fine || t.h16 ? (scale, inc, f) => adjustHeights16(t, scale, inc * 256, f) : undefined, t);
     if (res.water4 !== null) t.waterLevel4 = res.water4;
     // The lakes are refitted whatever "move water" says: lifted 4N or scaled floor(H * f), then
     // moved to the nearest height the basin legally holds.
@@ -173,21 +240,26 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
   };
   const pasteBitmap = async () => {
     if (!editor.canEdit) return;
+    // TerrainIsFine: a 256 x 256 8-bit picture is Import Heightmap's job on a Full Map.
+    if (onFine()) { app.status("On a 16-bit Full Map track, use Import Heightmap instead"); return; }
     let img;
     try { img = await pasteImage(); } catch { img = null; }
     const data = img ? rgbaToHeights(img.rgba, img.width, img.height) : null;
     if (!data) { await alertDialog("Paste Terrain Bitmap", "Sorry, the bitmap must be 256 x 256 pixels. Copy a greyscale picture of that size first."); return; }
     const t = editor.doc!.track;
     if (t.terrainMode === TERRAINMODE_FINE) return;
+    syncFromRaw(t);
     const before = lakeErrors(t);
     const recs = recordTerrain({ minX: 0, minY: 0, maxX: 255, maxY: 255 }, "Paste Terrain Bitmap");
-    heights().set(data);
+    // 16-bit tracks: each byte b is the height b << 8 in h16, then the mirror follows.
+    pasteBitmapHeights(t, data);
     commitGuarded("Paste Terrain Bitmap", "Paste Terrain Bitmap", recs, before);
   };
 
   const editable = () => editor.canEdit;
-  registry.bind("ID_TERRAIN_COPY", copyArea, { enabled: () => editable() && vertex !== null });
-  registry.bind("ID_TERRAIN_PASTE", pasteArea, { enabled: () => editable() && vertex !== null && Boolean(editor.clipboard.terrain) });
+  registry.bind("ID_TERRAIN_COPY", copyArea, { enabled: () => editable() && vertex !== null && centre() !== null });
+  // A block pastes only on the kind of grid it was copied from (TerrainPasteFits).
+  registry.bind("ID_TERRAIN_PASTE", pasteArea, { enabled: () => editable() && canPasteArea() });
   registry.bind("ID_TERRAIN_RAISELOWER", adjust, { enabled: editable });
   registry.bind("ID_TERRAIN_COPYBITMAP", copyBitmap, { enabled: () => Boolean(editor.doc) });
   registry.bind("ID_TERRAIN_PASTEBITMAP", pasteBitmap, { enabled: () => editable() && editor.doc?.track.terrainMode !== TERRAINMODE_FINE });
@@ -197,48 +269,66 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
 
   return {
     hover(p) {
-      const v = locate(p);
-      if (v?.[0] !== vertex?.[0] || v?.[1] !== vertex?.[1]) { vertex = v; editor.selectionChanged(); }
+      const l = locate(p);
+      const same = l?.vertex[0] === vertex?.[0] && l?.vertex[1] === vertex?.[1] && l?.fine?.[0] === fineVertex?.[0] && l?.fine?.[1] === fineVertex?.[1];
+      if (!same) { moveTo(l); editor.selectionChanged(); }
     },
     down(p) {
-      vertex = locate(p);
+      moveTo(locate(p));
       if (vertex && app.settings.edit.tool !== 7) apply();
     },
     contextMenu(p) {
-      vertex = locate(p) ?? vertex;
+      const l = locate(p);
+      if (l) moveTo(l);
       return { items: [...CONTEXT_MENUS.Terrain, ...lakes.menuItems()] };
     },
     keyDown(e) {
       const tool = app.settings.edit.tool;
       if (e.ctrlKey || e.metaKey || e.altKey) return false;
+      /*
+        [ ] X S: Direct Edit applies; otherwise the Altitude moves a whole step on a classic track
+        and 0.1 on a 16-bit one (StepAmplitude, from the box as it reads).
+      */
+      const nudge = (sign: number) => {
+        if (tool === 7) { direct(sign); return; }
+        const mode = editor.doc?.track.terrainMode ?? null;
+        if (amplitudeFractional(mode)) {
+          const v = stepAmplitude(amplitudeText(altitudeV(app.settings.edit.altitude), true), sign);
+          setEdit((s) => { s.altitude = v / 256; });
+        } else setEdit((s) => { s.altitude = Math.max(-255, Math.min(255, Math.round(s.altitude) + sign)); });
+      };
       switch (e.code) {
         case "Space": if (vertex && tool !== 7) apply(); return true;
         case "Tab": setEdit((s) => { s.orientation = (s.orientation + 1) & 7; }); return true;
         case "Minus": case "NumpadSubtract": setEdit((s) => { s.curvature = Math.max(0, s.curvature - 1); }); return true;
         case "Equal": case "NumpadAdd": setEdit((s) => { s.curvature = Math.min(6, s.curvature + 1); }); return true;
-        case "BracketRight": case "KeyS":
-          if (tool === 7) direct(1); else setEdit((s) => { s.altitude = Math.min(255, s.altitude + 1); });
-          return true;
-        case "BracketLeft": case "KeyX":
-          if (tool === 7) direct(-1); else setEdit((s) => { s.altitude = Math.max(-255, s.altitude - 1); });
-          return true;
+        case "BracketRight": case "KeyS": nudge(1); return true;
+        case "BracketLeft": case "KeyX": nudge(-1); return true;
       }
       return false;
     },
     copy: copyArea,
     paste: pasteArea,
-    canCopy: () => vertex !== null,
-    canPaste: () => vertex !== null && Boolean(editor.clipboard.terrain),
+    canCopy: () => vertex !== null && centre() !== null,
+    canPaste: canPasteArea,
+    /*
+      OverlayTerrainGrid: the stamp's new heights (8 ft points on a Full Map, thinned above 40 a
+      side; h16 on 16-bit tracks), a line from the centre down to the ground, and both heights
+      labelled (to a tenth of a step on 16-bit tracks).
+    */
     drawOverlay(g, project) {
       const doc = editor.doc;
-      if (!doc || !vertex) return;
+      const c = centre();
+      if (!doc || !vertex || !c) return;
       const p = params(), eg = grid();
       const w = p.tool === 7 ? 1 : eg.width, h = p.tool === 7 ? 1 : eg.height;
       const hw = (w - 1) >> 1, hh = (h - 1) >> 1;
-      const ph = previewHeights(doc.track.heights, eg, p, vertex[0], vertex[1]);
-      const pts = Array.from({ length: w * h }, (_, k) => {
-        const i = k % w, j = Math.trunc(k / w);
-        return project((vertex![0] - hw + i) * 64, (vertex![1] - hh + j) * 64, ALTITUDE_SCALE * ph[k]);
+      const pv = brushPreview(doc.track, eg, p, c[0], c[1]);
+      const ni = pv.cols.length, nj = pv.rows.length;
+      const z = (v: number) => (ALTITUDE_SCALE * v) / 256;
+      const pts = Array.from({ length: ni * nj }, (_, k) => {
+        const i = pv.cols[k % ni]!, j = pv.rows[Math.trunc(k / ni)]!;
+        return project((c[0] - hw + i) * pv.spacing, (c[1] - hh + j) * pv.spacing, z(pv.v[k]!));
       });
       const colours = app.settings.colors;
       g.strokeStyle = colours[AGRD_COL];
@@ -252,23 +342,21 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
         }
         g.stroke();
       };
-      for (let j = 0; j < h; j++) line(pts.slice(j * w, (j + 1) * w));
-      for (let i = 0; i < w; i++) line(Array.from({ length: h }, (_, j) => pts[j * w + i]));
+      for (let j = 0; j < nj; j++) line(pts.slice(j * ni, (j + 1) * ni));
+      for (let i = 0; i < ni; i++) line(Array.from({ length: nj }, (_, j) => pts[j * ni + i]!));
       // The centre: a line down to the ground, the ground height under it and the new height above.
-      const centre = pts[hh * w + hw];
-      const gx = vertex[0], gy = vertex[1];
-      const base = doc.track.heights[Math.min(255, gx) + (Math.min(255, gy) << 8)];
-      const basePt = project(gx * 64, gy * 64, ALTITUDE_SCALE * base);
-      if (!centre || !basePt) return;
-      g.beginPath(); g.moveTo(centre.x, centre.y); g.lineTo(basePt.x, basePt.y); g.stroke();
+      const top = pts[pv.cj * ni + pv.ci];
+      const basePt = project(c[0] * pv.spacing, c[1] * pv.spacing, z(pv.baseV));
+      if (!top || !basePt) return;
+      g.beginPath(); g.moveTo(top.x, top.y); g.lineTo(basePt.x, basePt.y); g.stroke();
       g.font = "12px system-ui, sans-serif";
       g.textAlign = "center";
       const text = colours[ATXT_COL];
       g.fillStyle = p.tool === 7 ? text : dim(text);
-      g.fillText(String(base), basePt.x, basePt.y);
+      g.fillText(previewLabel(pv.baseV, pv.precise), basePt.x, basePt.y);
       if (p.tool !== 4 && p.tool !== 5 && p.tool !== 7) {
         g.fillStyle = text;
-        g.fillText(String(ph[hh * w + hw]), centre.x, centre.y - 10);
+        g.fillText(previewLabel(pv.editV, pv.precise), top.x, top.y - 10);
       }
     },
     selectionText: () => (vertex ? `Vertex ${vertex[0]}, ${vertex[1]}` : ""),

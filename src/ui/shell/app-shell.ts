@@ -68,8 +68,8 @@ export class AppShell {
       textures: panel("textures", "Textures", 480, 360, "toolbar-textures.png",
         ["ID_TEXTURE_OPEN", "|", "ID_TEXTURE_CUT", "ID_TEXTURE_COPY", "ID_TEXTURE_PASTE", "ID_TEXTURE_PASTEX", "|", "ID_TEXTURE_ANIMATE", "|", "ID_TEXTURE_PURGE", "|", "ID_TEXTURE_ZOOMOUT", "ID_TEXTURE_ZOOMRESET", "ID_TEXTURE_ZOOMIN"]),
       models: panel("models", "Models", 330, 280, "toolbar-objects.png", ["ID_OBJECT_OPEN", "|", "ID_OBJECT_CUT", "ID_OBJECT_CUTEX", "|", "ID_OBJECT_PURGE"]),
-      patterns: panel("patterns", "Patterns", 200, 240, "toolbar-patterns.png", ["ID_PATTERN_FILE", "|", "ID_PATTERN_CUT", "ID_PATTERN_COPY", "ID_PATTERN_PASTE"]),
-      transitions: panel("transitions", "Auto Texture Transitions", 330, 290, null, []),
+      patterns: panel("patterns", "Patterns", 380, 440, "toolbar-patterns.png", ["ID_PATTERN_FILE", "|", "ID_PATTERN_CUT", "ID_PATTERN_COPY", "ID_PATTERN_PASTE"]),
+      transitions: panel("transitions", "Auto Texture Transitions", 560, 460, null, []),
     };
 
     app.on("commands", () => this.refresh());

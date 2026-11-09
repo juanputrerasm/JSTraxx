@@ -4,6 +4,12 @@
   spin from 40 to 600), its vertex and polygon counts, and Apply, which puts it on the selected
   objects (a double-click does the same).
 
+  Traxx 1.7: a model with a .SRF surface mesh beside its source (or, read out of a pod, in that
+  pod) is tagged "(surface)". Load keeps the .SRF beside the model it loads: in the MODELS
+  folder, in the same library pod, or picked from disk together with the .BIN (the browser
+  cannot look beside a picked file). Not ported: the preview strip of Traxx's modern Load
+  dialog (ObjectsPaintCells: wireframes of up to six picked files); the list is JSTraxx's own.
+
   Toolbar: Load (from the MODELS folder, the game library or disk), Cut (the model goes; the
   objects showing it lose it), Cut + Objects (they go too) and Purge. The Load list can delete
   files of the MODELS folder in browser storage (a JSTraxx addition): a copy there is read before
@@ -23,6 +29,7 @@ import { recordFields, type Recording } from "../../core/edit/record.ts";
 import { removeModel } from "../../core/edit/objects.ts";
 import { BG_COL } from "../../core/settings.ts";
 import { findAsset } from "../../core/doc/names.ts";
+import { modelLabel } from "../../core/doc/surface-sidecar.ts";
 import type { ModelItem, ModelLoad } from "../../worker/model-handlers.ts";
 
 /* The preview controls (TraxxObjectsDlg.cpp). */
@@ -94,7 +101,9 @@ export function modelsPanel(ctx: ModelsPanelContext): void {
   /* SetTrackPOD: the list again, keeping the pick. */
   function fill(): void {
     const names = editor.doc?.track.models ?? [];
-    list.replaceChildren(...names.map((n) => el("option", { value: n, selected: n === selected }, n)));
+    // SetTrackPOD (1.7): a surface mesh is tagged "(surface)"; the option's value stays the name.
+    const models = editor.doc?.models ?? [];
+    list.replaceChildren(...names.map((n) => el("option", { value: n, selected: n === selected }, modelLabel(models[findAsset(models, n)], n))));
     if (!names.includes(selected)) selected = "";
     counts();
     draw();
@@ -147,7 +156,8 @@ export function modelsPanel(ctx: ModelsPanelContext): void {
     if (messages.length) await alertDialog("Load Model", messages.join("\n\n"));
   }
 
-  const fileInput = el("input", { type: "file", multiple: true, accept: ".bin", hidden: true });
+  // A .SRF picked with its .BIN stands for the one beside it on disk (FindSurfaceSidecar).
+  const fileInput = el("input", { type: "file", multiple: true, accept: ".bin,.srf", hidden: true });
   document.body.append(fileInput);
   fileInput.addEventListener("change", async () => {
     const files = [...(fileInput.files ?? [])];

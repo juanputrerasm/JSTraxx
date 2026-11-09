@@ -99,6 +99,15 @@ async function start(): Promise<void> {
   toggleSetting("ID_FUNCTION_7", "always_buildings");
   toggleSetting("ID_FUNCTION_8", "show_water");
   toggleSetting("ID_FUNCTION_9", "show_backdrop");
+  // View > Vegetation (CTraxxFrame::OnViewVegetation and friends): each a persisted switch, enabled
+  // with the OpenGL renderer, which is the only one JSTraxx has.
+  const toggleVeg = (id: string, key: "show_vegetation" | "show_grass" | "show_veg_mask" | "show_veg_aids" | "show_lake_walls") =>
+    registry.bind(id, () => app.updateSettings((s) => { s[key] = !s[key]; }), { checked: () => app.settings[key] });
+  toggleVeg("ID_VIEW_VEGETATION", "show_vegetation");
+  toggleVeg("ID_VIEW_GRASS", "show_grass");
+  toggleVeg("ID_VIEW_VEGMASK", "show_veg_mask");
+  toggleVeg("ID_VIEW_VEGAIDS", "show_veg_aids");
+  toggleVeg("ID_VIEW_LAKEWALLS", "show_lake_walls");
 
   registry.bind("ID_VIEW_OPTIONS", () => showOptions(app, library));
   registry.bind("ID_VIEW_LIBRARY", () => showOptions(app, library, "library"));

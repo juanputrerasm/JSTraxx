@@ -48,6 +48,8 @@ export interface ModelAsset {
     packed beside it by Write POD. A model read out of a pod has no source file and none.
   */
   srf?: Uint8Array | null;
+  /** NotePodSurface: read out of a pod that carries MODELS\<stem>.SRF (the "(surface)" tag only; nothing to pack). */
+  podSurface?: boolean;
 }
 
 /** What an opened POD carried that a .TXX does not keep. */

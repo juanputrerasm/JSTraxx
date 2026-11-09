@@ -273,10 +273,11 @@ a { color: var(--accent); }
 @media (max-width: 640px) { .cut-grid, .ani-grid { flex-direction: column; } .cut-preview { width: 100%; height: auto; } }
 
 /* Auto Texture Transitions */
-.trans-window { display: flex; flex-direction: column; gap: 6px; padding: 6px; }
-.trans-top { display: flex; gap: 8px; flex-wrap: wrap; }
-.trans-grid { width: 176px; height: 176px; image-rendering: pixelated; border: 1px solid var(--line-strong); cursor: pointer; }
-.trans-side { display: flex; flex-direction: column; gap: 4px; min-width: 120px; flex: 1; }
+.trans-window { display: flex; flex-direction: column; gap: 6px; padding: 6px; height: 100%; box-sizing: border-box; }
+.trans-top { display: flex; gap: 8px; flex: 1; min-height: 0; }
+.trans-grid-cell { flex: 1; min-width: 176px; min-height: 176px; overflow: hidden; }
+.trans-grid { width: 176px; height: 176px; box-sizing: border-box; image-rendering: pixelated; border: 1px solid var(--line-strong); cursor: pointer; }
+.trans-side { display: flex; flex-direction: column; gap: 4px; min-width: 120px; flex: none; }
 .trans-side .spin { width: 4em; margin-left: auto; }
 .trans-base-row { display: flex; gap: 8px; align-items: flex-end; margin-top: auto; }
 .trans-base { width: 64px; height: 56px; image-rendering: pixelated; border: 1px solid var(--line-strong); cursor: pointer; }
@@ -286,10 +287,10 @@ a { color: var(--accent); }
 .trans-num { min-width: 2.5em; }
 
 /* Patterns */
-.pat-window { display: flex; flex-direction: column; gap: 4px; padding: 4px; }
+.pat-window { display: flex; flex-direction: column; gap: 4px; padding: 4px; height: 100%; box-sizing: border-box; }
 .pat-file { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pat-label { flex: 1; min-width: 60px; }
-.pat-display { width: 100%; max-width: 208px; aspect-ratio: 208 / 184; border: 1px solid var(--line-strong); image-rendering: pixelated; }
+.pat-display { flex: 1; min-height: 120px; width: 100%; box-sizing: border-box; border: 1px solid var(--line-strong); image-rendering: pixelated; }
 .pat-count { color: var(--text-dim); min-width: 4em; }
 .pat-files { width: 100%; min-width: 16em; }
 
@@ -314,6 +315,7 @@ a { color: var(--accent); }
 .obj-props .obj-sound { width: 8em; }
 .obj-two { display: flex; gap: 8px; flex-wrap: wrap; }
 .stock-list { width: 100%; min-width: 22em; font-family: ui-monospace, monospace; }
+.stock-head { padding: 0 4px 2px; color: var(--text-dim); white-space: pre; }
 
 /* Track Components */
 .cmp-dialog { max-width: min(560px, calc(100vw - 32px)); }

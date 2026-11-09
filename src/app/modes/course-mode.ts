@@ -34,10 +34,16 @@ export function courseMode(ctx: ModeContext): ModeHandler {
   const showTruck = () => { view.selectedTruck = truck; view.rebuildCourse(); };
   app.on("tools", () => { anchor = -1; truck = -1; if (app.mode === EDIT_COURSE) { showTruck(); editor.selectionChanged(); } });
 
-  /* The ground under a point, as Traxx stores positions: whole ipos and whole steps. */
+  /*
+    The ground under a point, as Traxx stores positions: whole ipos and whole steps. Traxx 1.7
+    (b100b6b): off Classic 8-bit a course point or truck has no fraction field, so the picked
+    point rounds to the nearest step on each axis (+ fraction >> 7).
+  */
   const ground = (p: ViewPoint): [number, number, number] | null => {
     const hit = view.pick(p.clientX, p.clientY);
-    return hit ? [Math.trunc(hit.point[0]), Math.trunc(hit.point[1]), Math.trunc(hit.point[2] / ALTITUDE_SCALE)] : null;
+    if (!hit) return null;
+    const [x, y, z] = hit.ipos, [fx, fy, fz] = hit.fraction;
+    return [x + (fx >> 7), y + (fy >> 7), z + (fz >> 7)];
   };
 
   /* SelectCourseAnchor, then SelectTruck. */

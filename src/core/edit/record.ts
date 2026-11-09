@@ -46,6 +46,42 @@ export function recordGrid(grid: Grid, rect: Rect, label: string, touch: (r: Rec
   };
 }
 
+/*
+  Start recording a w x h window of a size x size grid whose corner (x0, y0) may lie off the map:
+  coordinates wrap (size is a power of two), as a Full Map's surface and its brush do
+  (ApplyStamp16 with wrap). Only the window is kept, so an 8 ft stroke does not cost a 2 MB
+  snapshot per undo step (Traxx keeps one level, a whole copy: TraxxUndo's gridfine).
+*/
+export function recordWindow(grid: Grid, size: number, x0: number, y0: number, w: number, h: number, label: string, touch: Touch): Recording {
+  const mask = size - 1;
+  w = Math.max(0, Math.min(size, w));
+  h = Math.max(0, Math.min(size, h));
+  const read = (): Grid => {
+    const out = new (grid.constructor as { new (n: number): Grid })(w * h);
+    for (let j = 0; j < h; j++) {
+      const row = ((y0 + j) & mask) * size;
+      for (let i = 0; i < w; i++) out[j * w + i] = grid[row + ((x0 + i) & mask)]!;
+    }
+    return out;
+  };
+  const write = (data: Grid) => {
+    for (let j = 0; j < h; j++) {
+      const row = ((y0 + j) & mask) * size;
+      for (let i = 0; i < w; i++) grid[row + ((x0 + i) & mask)] = data[j * w + i]!;
+    }
+  };
+  const before = read();
+  return {
+    finish(finalLabel = label) {
+      const after = read();
+      let same = true;
+      for (let i = 0; i < after.length && same; i++) same = after[i] === before[i];
+      if (same) return null;
+      return { label: finalLabel, touch, undo: () => write(before), redo: () => write(after) };
+    },
+  };
+}
+
 /** Start recording fields of an object; finish compares and makes the change. */
 export function recordFields<T extends object, K extends keyof T>(target: T, keys: readonly K[], label: string, touch: Touch): Recording {
   const before = keys.map((k) => structuredClone(target[k]));

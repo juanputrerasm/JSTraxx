@@ -74,6 +74,12 @@ export interface TraxxSettings {
   show_sit_units: boolean;
   pod_fallback_noask: boolean;
   show_mask_overlay: boolean;
+  /** View > Vegetation (CTraxxReg show_vegetation, show_grass, show_veg_mask, show_veg_aids, show_lake_walls). */
+  show_vegetation: boolean;
+  show_grass: boolean;
+  show_veg_mask: boolean;
+  show_veg_aids: boolean;
+  show_lake_walls: boolean;
   hd_no_legacy_siblings: boolean;
   texture_filter: string;
   /** The patterns file the Patterns window works on (TXP_file), by name in jstraxx/patterns. */
@@ -132,6 +138,12 @@ export function defaultSettings(): TraxxSettings {
     show_sit_units: false,
     pod_fallback_noask: false,
     show_mask_overlay: false,
+    // Traxx.cpp: trees on, the rest off.
+    show_vegetation: true,
+    show_grass: false,
+    show_veg_mask: false,
+    show_veg_aids: false,
+    show_lake_walls: false,
     hd_no_legacy_siblings: false,
     texture_filter: "*",
     txp_file: "Patterns.txp",
@@ -201,9 +213,11 @@ export function mergeSettings(stored: unknown): TraxxSettings {
     tool: Math.round(clamp(e.tool, 0, 7, d.edit.tool)),
     orientation: Math.round(clamp(e.orientation, 0, 7, d.edit.orientation)),
     curvature: Math.round(clamp(e.curvature, 0, 6, d.edit.curvature)),
-    altitude: Math.round(clamp(e.altitude, -255, 255, d.edit.altitude)),
-    terrainw: Math.round(clamp(e.terrainw, 1, 25, d.edit.terrainw)),
-    terrainh: Math.round(clamp(e.terrainh, 1, 25, d.edit.terrainh)),
+    // Traxx 1.7: decimal steps on 16-bit tracks (kept in v, so a multiple of 1/256), and the
+    // brush up to 100 8 ft points on a Full Map (the edit bar clamps to 25 elsewhere).
+    altitude: Math.round(clamp(e.altitude, -255, 255, d.edit.altitude) * 256) / 256,
+    terrainw: Math.round(clamp(e.terrainw, 1, 100, d.edit.terrainw)),
+    terrainh: Math.round(clamp(e.terrainh, 1, 100, d.edit.terrainh)),
     paint: typeof e.paint === "boolean" ? e.paint : d.edit.paint,
     texturew: Math.round(clamp(e.texturew, 1, 16, d.edit.texturew)),
     textureh: Math.round(clamp(e.textureh, 1, 16, d.edit.textureh)),

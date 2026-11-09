@@ -137,9 +137,22 @@ const lakeFragment = /* glsl */ `
 `;
 
 /**
-  The lakes (COpenGLTerrainRenderer::DrawLakes, the sheets): a flat quad at each lake's height
-  over every tile its fill holds, in the lake's tint at the water opacity, depth-tested and not
-  written. The wall rings (Show Lake Walls) are not drawn.
+  The ground the wall rings ride (RingZ, RingZSurface), in scene z: the ground AS DRAWN (Traxx
+  1.7 fix round 1, 4cbc21a), the tile's height grid at its drawn level: through the 8 ft points
+  on an 8 ft tile (straightened sides included), corner to corner on a 32 ft one.
+*/
+export interface LakeWallGround {
+  /** Grid steps a side of cell (gi, gj): 1 at 32 ft, 4 at 8 ft. */
+  per: (gi: number, gj: number) => number;
+  /** The drawn z at grid point (a, b), 0..per, of cell (gi, gj). */
+  z: (gi: number, gj: number, a: number, b: number) => number;
+}
+
+/**
+  The lakes (COpenGLTerrainRenderer::DrawLakes): a flat quad at each lake's height over every
+  tile its fill holds, in the lake's tint at the water opacity, depth-tested and not written.
+  With Show Lake Walls, a ring of lines (opaque, in the lake's tint) round every dry tile next to
+  the lake, riding the ground but never under the lake's height, lifted 1 ft.
 */
 export class LakesLayer {
   readonly material = new THREE.RawShaderMaterial({
@@ -147,14 +160,25 @@ export class LakesLayer {
     uniforms: { window: { value: new THREE.Vector4(0, 0, 256, 256) }, opacity: { value: 0.5 } },
   });
   readonly mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.material);
+  private wallMaterial = new THREE.RawShaderMaterial({
+    glslVersion: THREE.GLSL3, vertexShader: lakeVertex, fragmentShader: lakeFragment, transparent: true, depthWrite: false,
+    uniforms: { window: { value: new THREE.Vector4(0, 0, 256, 256) }, opacity: { value: 1 } },
+  });
+  readonly walls = new THREE.LineSegments(new THREE.BufferGeometry(), this.wallMaterial);
 
   constructor() {
     this.mesh.renderOrder = 10;
     this.mesh.frustumCulled = false;
+    this.walls.renderOrder = 11;
+    this.walls.frustumCulled = false;
   }
 
-  /** tmap: lake index + 1 per tile; heights in water units; errors per lake. */
-  rebuild(tmap: Uint8Array | null, heights: readonly number[], errors: readonly number[]): void {
+  private last: { tmap: Uint8Array | null; heights: readonly number[]; errors: readonly number[] } = { tmap: null, heights: [], errors: [] };
+
+  /** tmap: lake index + 1 per tile; heights in water units; errors per lake; the ground for the walls. */
+  rebuild(tmap: Uint8Array | null, heights: readonly number[], errors: readonly number[], ground: LakeWallGround | null = null): void {
+    this.last = { tmap, heights, errors };
+    this.rebuildWalls(tmap, heights, errors, ground);
     const p: number[] = [], c: number[] = [], t: number[] = [];
     if (tmap) {
       for (let j = 0; j < 255; j++) {
@@ -177,8 +201,58 @@ export class LakesLayer {
     this.mesh.geometry = g;
   }
 
+  /** The drawn ground changed level (the camera's tile moved): the wall rings ride it again. */
+  reride(ground: LakeWallGround | null): void {
+    this.rebuildWalls(this.last.tmap, this.last.heights, this.last.errors, ground);
+  }
+
+  /*
+    The wall rings: a dry tile (not the map's last row or column) 4-adjacent, wrapping, to a lake
+    gets a line loop for each lake it borders.
+  */
+  private rebuildWalls(tmap: Uint8Array | null, heights: readonly number[], errors: readonly number[], ground: LakeWallGround | null): void {
+    const p: number[] = [], c: number[] = [], t: number[] = [];
+    if (tmap && ground) {
+      for (let lk = 0; lk < heights.length; lk++) {
+        const id = lk + 1, w = (ALTITUDE_SCALE * heights[lk]!) / 4;
+        const tint = errors[lk] ? [255, 0, 255] : LAKE_TINT[lk % 6]!;
+        const ringZ = (g: number) => Math.max(g, w) + ALTITUDE_SCALE / 2;
+        for (let j = 0; j < 255; j++) {
+          for (let i = 0; i < 255; i++) {
+            if (tmap[i + (j << 8)] !== 0) continue;
+            if (tmap[((i + 1) & 255) + (j << 8)] !== id && tmap[((i - 1) & 255) + (j << 8)] !== id &&
+              tmap[i + (((j + 1) & 255) << 8)] !== id && tmap[i + (((j - 1) & 255) << 8)] !== id) continue;
+            // From corner to corner round the tile, `per` grid steps a side.
+            const per = ground.per(i, j);
+            const pts: number[][] = [];
+            const cx = [0, 1, 1, 0, 0], cy = [0, 0, 1, 1, 0];
+            for (let side = 0; side < 4; side++) {
+              for (let k = 0; k < per; k++) {
+                const ox = cx[side]! * per + (cx[side + 1]! - cx[side]!) * k, oy = cy[side]! * per + (cy[side + 1]! - cy[side]!) * k;
+                const g = ground.z(i, j, ox, oy);
+                pts.push([i * 64 + (ox * 64) / per, j * 64 + (oy * 64) / per, ringZ(g)]);
+              }
+            }
+            for (let k = 0; k < pts.length; k++) {
+              const a = pts[k]!, b = pts[(k + 1) % pts.length]!;
+              p.push(...a, ...b);
+              for (let n = 0; n < 2; n++) { c.push(i, j); t.push(tint[0]! / 255, tint[1]! / 255, tint[2]! / 255); }
+            }
+          }
+        }
+      }
+    }
+    this.walls.geometry.dispose();
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(p, 3));
+    g.setAttribute("cell", new THREE.Float32BufferAttribute(c, 2));
+    g.setAttribute("tint", new THREE.Float32BufferAttribute(t, 3));
+    this.walls.geometry = g;
+  }
+
   setWindow(w: THREE.Vector4): void {
     this.material.uniforms.window.value.copy(w);
+    this.wallMaterial.uniforms.window.value.copy(w);
   }
 
   setOpacity(percent: number): void {
@@ -189,5 +263,7 @@ export class LakesLayer {
   dispose(): void {
     this.mesh.geometry.dispose();
     this.material.dispose();
+    this.walls.geometry.dispose();
+    this.wallMaterial.dispose();
   }
 }

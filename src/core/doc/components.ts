@@ -14,6 +14,7 @@ import { defaultFogMap, paletteIndexFromFogMap, stockPalette, traxxFogMap, withS
 import { stemFromText } from "../traxx/terrain.ts";
 import { TRACKTYPE_CIRCUIT, TRACKTYPE_DRAG, TRACKTYPE_RALLY, TRACKTYPE_RUMBLE } from "./new-track.ts";
 import type { Touch } from "../edit/history.ts";
+import { musicKind } from "../traxx/pod-writer.ts";
 
 /** The Type radio buttons, in order. */
 export const TRACK_TYPES = [TRACKTYPE_CIRCUIT, TRACKTYPE_RALLY, TRACKTYPE_RUMBLE, TRACKTYPE_DRAG];
@@ -154,6 +155,77 @@ export function applyComponents(doc: TrackDocument, c: Components): Touch {
     touch.palette = true;
   }
   return touch;
+}
+
+/*
+  Music (TraxxComponentsDlg.cpp, Traxx 1.7 e4b4cd5): an MTM2 track plays WAV, MP3 and OGG
+  Vorbis, an MTM1 track MOD only. What a file IS comes from its bytes (MusicKindOf), never its
+  name, as the pod writer decides the extension the same way.
+*/
+
+/** OnMusicLoad's filter: "Music (*.wav;*.mp3;*.ogg)" for MTM2, "Music MOD files (*.mod)" otherwise. */
+export function musicAccept(mtm2Only: boolean): string {
+  return mtm2Only ? ".wav,.mp3,.ogg" : ".mod";
+}
+
+/** OnMusicLoad's title. */
+export function musicLoadTitle(mtm2Only: boolean): string {
+  return mtm2Only ? "Load music (WAV, MP3 or OGG)" : "Load music MOD file";
+}
+
+/**
+  OnMusicLoad: why the picked file is refused, or null to keep it. An empty file is refused
+  first; then MTM2 takes WAV, MP3 and OGG (the Ogg must hold Vorbis: the identification header
+  "\x01vorbis" within the first 96 bytes), MTM1 takes MOD only.
+*/
+export function musicLoadRefusal(bytes: Uint8Array, mtm2Only: boolean): string | null {
+  if (bytes.length === 0) return "The music file is empty.";
+  const kind = musicKind(bytes);
+  if (mtm2Only) {
+    if (kind !== "wav" && kind !== "mp3" && kind !== "ogg") return "That file is not a WAV, MP3 or OGG Vorbis file.";
+    if (kind === "ogg") {
+      let vorbis = false;
+      for (let k = 0; k + 7 <= bytes.length && k < 96; k++) {
+        if (bytes[k] === 1 && bytes[k + 1] === 0x76 && bytes[k + 2] === 0x6f && bytes[k + 3] === 0x72 && bytes[k + 4] === 0x62 && bytes[k + 5] === 0x69 && bytes[k + 6] === 0x73) { vorbis = true; break; }
+      }
+      if (!vorbis) return "That Ogg file does not hold Vorbis audio (Opus and FLAC are not supported).  Convert it to OGG Vorbis.";
+    }
+    return null;
+  }
+  return kind !== "mod" ? "The original game only plays MOD music.  Tick the MTM2-only box to use WAV, MP3 or OGG." : null;
+}
+
+/**
+  OnMusicSaveAs: the extension the saved file takes (the filter and default extension follow
+  the kind), or Traxx's message for a stock pick, which has no file to save.
+*/
+export function musicSaveAs(bytes: Uint8Array): { ext: "wav" | "mp3" | "ogg" | "mod" } | { message: string } {
+  const kind = musicKind(bytes);
+  if (kind === "stock") return { message: "This is one of the game's own music tracks, so there is no file to save." };
+  return { ext: kind === "wav" || kind === "mp3" || kind === "ogg" ? kind : "mod" };
+}
+
+/** The MIME type a browser plays the music as (Play is a JSTraxx addition); null for a MOD or stock pick. */
+export function musicMime(bytes: Uint8Array | null): string | null {
+  const kind = musicKind(bytes);
+  return kind === "wav" ? "audio/wav" : kind === "mp3" ? "audio/mpeg" : kind === "ogg" ? "audio/ogg" : null;
+}
+
+/** OnMusicSel: the stock name the Stock Music list starts on ("BREAK" unless a stock pick is set). */
+export function stockMusicSelName(music: Uint8Array | null): string {
+  if (!music || musicKind(music) !== "stock") return "BREAK";
+  let s = "";
+  for (let i = 6; i < music.length && music[i]; i++) s += String.fromCharCode(music[i]!);
+  const at = s.indexOf(".WAV");
+  return at >= 0 ? s.slice(0, at) : s;
+}
+
+/** OnMusicSel's OK: "MUSIC\<NAME>.WAV" in a 20-byte block (GlobalAlloc(GHND, 20), zero filled). */
+export function stockMusicPick(name: string): Uint8Array {
+  const s = `MUSIC\\${name}.WAV`;
+  const out = new Uint8Array(Math.max(20, s.length + 1));
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
+  return out;
 }
 
 /** OnArenaSettings: x and y kept to the grid, sizes to 1..128. */

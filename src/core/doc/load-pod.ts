@@ -14,7 +14,8 @@ import type { PodArchive, PodEntry } from "../../vendor/openphotex/pod/types.js"
 import { parseMtmSit, parseMtmLvl } from "../../vendor/openphotex/mtm/sit.js";
 import { parseAnimations } from "../../vendor/openphotex/tv/ani.js";
 import { parseBin } from "../../vendor/openphotex/model/bin.js";
-import { traxxSitFromParsed, TRAXX_BOX_CRUSH } from "../traxx/sit.ts";
+import { traxxSitFromParsed, TRAXX_BOX_CRUSH, type TraxxBox } from "../traxx/sit.ts";
+import { boxHeightPairOf, surfaceTrack } from "../traxx/box-ground.ts";
 import type { TxxAnimation, TxxCourseSegment, TxxGroundBox, TxxSound } from "../traxx/txx.ts";
 import { isHdName, rawSide, resolveItemName, seekToItem, swapExt } from "../traxx/pod-items.ts";
 import { withSysColors } from "../traxx/palette.ts";
@@ -29,6 +30,7 @@ import { buildLakeGround } from "../traxx/surface.ts";
 import { parseWtrLakes, recomputeLakes, LAKES_MISMATCH } from "../traxx/lakes.ts";
 import { emptyCarry, type ModelAsset, type TextureAsset, type TrackDocument } from "./document.ts";
 import { afterFirstSlash, findAsset } from "./names.ts";
+import { notePodSurfaces } from "./surface-sidecar.ts";
 
 export const MAX_POD_TRACKS = 100;
 export const MAX_TEXTURES = 1024;
@@ -212,6 +214,8 @@ export async function loadPodTrack(source: PodSource, which: number, fileName: s
   const backdrops = new Set<unknown>();
   for (const name of [track.backdropName, ...track.extraBackdrops]) if (name) backdrops.add(await loadModel(name));
   track.models = doc.models.filter((m) => !backdrops.has(m)).map((m) => m.name);
+  // Traxx 1.7 (CTrackPOD::Load): a model whose pod also carries MODELS\<stem>.SRF is tagged a surface mesh.
+  notePodSurfaces(doc.models, entries.map((e) => e.name));
 
   // CTrackPOD::DeriveBoxHeightsAboveGround and InferPrefixMode.
   deriveBoxHeights(track);
@@ -396,6 +400,8 @@ export function applyTerrainHeightsImage(doc: TrackDocument, txv: string | null,
     try {
       const img = decodePngSamples(png);
       if (img.colorType !== 0 && img.colorType !== 4) why = "It is not a greyscale image.";
+      // OpenPhotex reads 1, 2 and 4-bit grey too; a height image is 8 or 16-bit only.
+      else if (img.bitDepth !== 8 && img.bitDepth !== 16) why = `It could not be decoded (png: bit depth ${img.bitDepth} is not supported).`;
       else if (img.width !== img.height || (img.width !== 256 && img.width !== 1024)) why = `It is ${img.width} x ${img.height}; a height image is 256 x 256 or 1024 x 1024.`;
       else {
         const n = img.width * img.height, ch = img.channels;
@@ -638,10 +644,14 @@ export function modelAsset(name: string, bytes: Uint8Array): ModelAsset {
   DeriveBoxHeightsAboveGround: each box's height above the terrain from its absolute Z, after
   normalising the fraction to 0..255. Not clamped at zero: buried props stay buried.
 */
-export function deriveBoxHeights(track: { boxes: { ipos: [number, number, number]; fraction: [number, number, number]; heightAboveGround: number }[]; heights: Uint8Array }): void {
+export function deriveBoxHeights(track: { boxes: { ipos: [number, number, number]; fraction: [number, number, number]; heightAboveGround: number }[]; heights: Uint8Array } & Partial<Terrain16>): void {
+  // Traxx 1.7 (e4e034d): on 16-bit, Spline and Full Map the ground has a fraction of its own,
+  // so the height is the floored difference of the totals; ipos[2] and zfraction stay absolute.
+  const surface = surfaceTrack(track as Terrain16);
   for (const box of track.boxes) {
     while (box.fraction[2] < 0) { box.fraction[2] += 256; box.ipos[2]--; }
     while (box.fraction[2] > 255) { box.fraction[2] -= 256; box.ipos[2]++; }
-    box.heightAboveGround = box.ipos[2] - interpolateRawAtPoint(track.heights, box.ipos[0], box.ipos[1]);
+    if (surface) box.heightAboveGround = boxHeightPairOf(surface, box as TraxxBox)[0];
+    else box.heightAboveGround = box.ipos[2] - interpolateRawAtPoint(track.heights, box.ipos[0], box.ipos[1]);
   }
 }

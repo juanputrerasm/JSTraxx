@@ -11,6 +11,9 @@
   Pasting a pattern whose textures the track lacks asks to load them from the ART folder and
   the library, or loads them at once with "Always load textures". The file is rewritten after
   every change, as Traxx does. The first time, the file is Traxx's own Patterns.txp.
+
+  Traxx 1.7 (e4b4cd5): the window is resizable, opens larger and remembers its size (the
+  floating panel does both), the preview fills it and the thumbnail keeps its aspect.
 */
 import { el } from "../../shared/dom.ts";
 import type { AppState } from "../../app/state.ts";
@@ -26,6 +29,7 @@ import { buildPattern, MAX_PATTERNS, missingTextures, pasteMapping, pastePattern
 import { addTexture } from "../../core/edit/texture-list.ts";
 import { recordFields, recordGrid, type Recording } from "../../core/edit/record.ts";
 import { gammaMap } from "../../core/view/tiles.ts";
+import { fitThumbnail } from "../../core/ui-layout.ts";
 import type { TextureClip } from "../../app/modes/textures-mode.ts";
 import type { Area } from "../../core/edit/textures.ts";
 import type { TextureAsset } from "../../core/doc/document.ts";
@@ -77,22 +81,29 @@ export function patternsPanel(ctx: PatternsPanelContext): void {
   }
   display.addEventListener("wheel", (e) => { e.preventDefault(); step(e.deltaY > 0 ? 1 : -1); }, { passive: false });
 
-  /* DisplayThumbnail: across the width for a wide one, down the height for a tall one. */
+  /* DisplayThumbnail (1.7): fitted inside the display keeping its aspect, whatever shape the display is. */
   function draw(): void {
     const g = display.getContext("2d")!;
     g.fillStyle = "#c0c0c0";
     g.fillRect(0, 0, display.width, display.height);
     const p = selected >= 0 ? patterns[selected] : null;
     const t = p ? patternThumbnail(p) : null;
-    if (!t) return;
+    const fit = t ? fitThumbnail(t.width, t.height, display.width, display.height) : null;
+    if (!t || !fit) return;
     const c = new OffscreenCanvas(t.width, t.height);
     c.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(t.rgba), t.width, t.height), 0, 0);
-    const wide = t.width >= t.height;
-    const dw = wide ? display.width : Math.trunc((t.width * display.height) / t.height);
-    const dh = wide ? Math.trunc((t.height * display.width) / t.width) : display.height;
     g.imageSmoothingEnabled = false;
-    g.drawImage(c, 0, 0, dw, dh);
+    g.drawImage(c, 0, 0, fit.w, fit.h);
   }
+
+  // LayoutItems' LAY_FILL (TraxxPatternsDlg.cpp, 1.7): the preview fills the resized window.
+  new ResizeObserver(() => {
+    const w = Math.max(1, Math.round(display.clientWidth)), h = Math.max(1, Math.round(display.clientHeight));
+    if (w === display.width && h === display.height) return;
+    display.width = w;
+    display.height = h;
+    draw();
+  }).observe(display);
 
   async function load(name: string): Promise<void> {
     let bytes = await worker.call<Uint8Array | null>("txp.read", { name });

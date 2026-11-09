@@ -31,6 +31,11 @@ export function noKeys(): NavKeys {
 
 export interface CameraPlace { x: number; y: number; z: number; orientation: number; elevation: number }
 
+/* The ground in scene z: ALTITUDESCALE x the step, floored (whole steps on Classic 8-bit are exact). */
+function groundZ(groundAt: (x: number, y: number) => number, x: number, y: number): number {
+  return Math.floor(ALTITUDE_SCALE * groundAt(x, y));
+}
+
 export class TraxxCamera {
   x = 128 << 6;
   y = 128 << 6;
@@ -49,10 +54,15 @@ export class TraxxCamera {
   private dorientation = 0; private delevation = 0;
   private resid = { x: 0, y: 0, z: 0, or: 0, el: 0 };
 
-  /** Called when a track opens (CTraxxView::OnUpdate): level view, 100 steps above the ground here. */
+  /**
+    Called when a track opens (CTraxxView::OnUpdate): level view, 100 steps above the ground here.
+    `groundAt` is in steps; on a 16-bit, Spline or Full Map track it carries the ground's 1/256
+    fraction (box-ground.ts cameraGround), floored in z as Traxx 1.7's
+    (ALTITUDESCALE * (z * 256 + zfrac)) >> 8 is (e4e034d).
+  */
   resetForTrack(groundAt: (x: number, y: number) => number): void {
     if (this.elevation < 900) this.elevation = 900;
-    this.z = ALTITUDE_SCALE * (groundAt(this.x, this.y) + 100);
+    this.z = groundZ(groundAt, this.x, this.y) + ALTITUDE_SCALE * 100;
     this.stop();
     this.lockZ = false;
   }
@@ -164,7 +174,7 @@ export class TraxxCamera {
       moved = true;
     }
     if (this.dxy !== 0 || this.dyx !== 0) {
-      const above = this.lockZ ? this.z - ALTITUDE_SCALE * groundAt(this.x, this.y) : 0;
+      const above = this.lockZ ? this.z - groundZ(groundAt, this.x, this.y) : 0;
       const [dv0, dv1] = this.dvector;
       this.resid.x += ((this.dxy * dv0 + this.dyx * dv1) / 2048) * s;
       this.resid.y += ((this.dxy * dv1 - this.dyx * dv0) / 2048) * s;
@@ -173,7 +183,7 @@ export class TraxxCamera {
       this.resid.y -= dy;
       this.x = Math.min(16383, Math.max(0, this.x + dx));
       this.y = Math.min(16383, Math.max(0, this.y + dy));
-      if (this.lockZ) this.z = above + ALTITUDE_SCALE * groundAt(this.x, this.y);
+      if (this.lockZ) this.z = above + groundZ(groundAt, this.x, this.y);
       this.updateGrid();
       moved = true;
     }
@@ -193,10 +203,10 @@ export class TraxxCamera {
   /** Move by (forward, right, up) in ipos and z units, along the current facing. */
   move(forward: number, right: number, up: number, groundAt: (x: number, y: number) => number): void {
     const r = (this.orientation * Math.PI) / 1800;
-    const above = this.z - ALTITUDE_SCALE * groundAt(this.x, this.y);
+    const above = this.z - groundZ(groundAt, this.x, this.y);
     this.x = Math.min(16383, Math.max(0, Math.round(this.x + forward * Math.sin(r) + right * Math.cos(r))));
     this.y = Math.min(16383, Math.max(0, Math.round(this.y + forward * Math.cos(r) - right * Math.sin(r))));
-    this.z = this.lockZ ? above + ALTITUDE_SCALE * groundAt(this.x, this.y) : Math.min(MAX_Z_POSITION, Math.max(0, Math.round(this.z + up)));
+    this.z = this.lockZ ? above + groundZ(groundAt, this.x, this.y) : Math.min(MAX_Z_POSITION, Math.max(0, Math.round(this.z + up)));
     this.updateGrid();
   }
 

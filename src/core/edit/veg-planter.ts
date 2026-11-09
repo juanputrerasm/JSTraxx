@@ -19,6 +19,7 @@
 */
 import { decodePngSamples } from "../../vendor/openphotex/texture/png.js";
 import { decodeTga } from "../image/image-format.ts";
+import { stbiPngRgba } from "../image/stbi-png.ts";
 import { cFixed, f32 } from "../traxx/cformat.ts";
 import {
   VEG_COLLIDE_NONE, VEG_COLLIDE_TRUNK, VEG_FLAG_CASTSHADOW, VEG_FLAG_CROSSFADE, VEG_FLAG_FACING, VEG_KIND_GROUND,
@@ -27,6 +28,7 @@ import {
 } from "../traxx/veg.ts";
 import { TERRAINMODE_CLASSIC8 } from "../traxx/terrain16.ts";
 import type { TxxTrack } from "../traxx/txx.ts";
+import type { VegInstanceIssue } from "../traxx/instancing.ts";
 import type { VegClumpRec, VegColour, VegEntry, VegMaskFile, VegSpeciesRec, VegTreeRec, Vegetation } from "../traxx/veg.ts";
 
 /** VEG_PALETTE_TOLERANCE: pixels within this many levels per channel count as the colour. */
@@ -133,8 +135,8 @@ export interface VegMaskImage {
 
 /*
   VegDecodeMask: stbi_load_from_memory(..., 3). Three components: grey is replicated, alpha
-  dropped, 16-bit samples keep their high byte (stbi__convert_16_to_8). A palette PNG is not
-  something OpenPhotex's decoder reads yet; it is refused with the reason.
+  dropped, 16-bit samples keep their high byte (stbi__convert_16_to_8), and a palette PNG is
+  expanded through its PLTE to RGB (stbi__expand_png_palette), as stb does for any req_comp of 3.
 */
 export function vegDecodeMask(mask: VegMaskFile | null): { img: VegMaskImage | null; err: string | null } {
   if (!mask) return { img: null, err: "There is no mask loaded." };
@@ -145,18 +147,10 @@ export function vegDecodeMask(mask: VegMaskFile | null): { img: VegMaskImage | n
     if (d.length >= 8 && d[0] === 0x89 && d[1] === 0x50 && d[2] === 0x4e && d[3] === 0x47) {
       const s = decodePngSamples(d);
       w = s.width; h = s.height;
+      const rgba = stbiPngRgba(s);
       rgb = new Uint8Array(w * h * 3);
-      const n = w * h, ch = s.channels, shift = s.bitDepth === 16 ? 8 : 0;
-      for (let i = 0; i < n; i++) {
-        const p = i * ch;
-        if (ch >= 3) {
-          rgb[i * 3] = s.samples[p]! >> shift;
-          rgb[i * 3 + 1] = s.samples[p + 1]! >> shift;
-          rgb[i * 3 + 2] = s.samples[p + 2]! >> shift;
-        } else {
-          const g = s.samples[p]! >> shift;
-          rgb[i * 3] = g; rgb[i * 3 + 1] = g; rgb[i * 3 + 2] = g;
-        }
+      for (let i = 0; i < w * h; i++) {
+        rgb[i * 3] = rgba[i * 4]!; rgb[i * 3 + 1] = rgba[i * 4 + 1]!; rgb[i * 3 + 2] = rgba[i * 4 + 2]!;
       }
     } else {
       const t = decodeTga(d, "mask");
@@ -525,6 +519,12 @@ export interface VegPlantInput {
   model: (name: string) => VegModelInfo | null;
   /** Decoded masks, when the caller already has them (otherwise decoded from veg.masks). */
   images?: (VegMaskImage | null)[];
+  /**
+    VegModelsThatWillNotInstance on the freshly planted vegetation (core/traxx/instancing.ts
+    vegModelsThatWillNotInstance with the track's models and InstPodTextureOK); without it the
+    instancing warning is not given.
+  */
+  notInstanced?: (veg: Vegetation) => readonly VegInstanceIssue[];
 }
 
 export interface VegPlantResult {
@@ -1077,7 +1077,15 @@ export function vegPlant(input: VegPlantInput): VegPlantResult {
   veg.readonly = false;
   veg.foreign = null;
   report.push(`Planted ${veg.trees.length} trees and ${veg.clumps.length} grass clumps (${veg.species.length} species).`);
-  // The instancing warning (VegModelsThatWillNotInstance, VegetationFarCard.cpp) is not ported yet.
+  /*
+    INSTANCING WARNING, one line per offending model (VegPlant, after the species table is filled):
+    a tree model the game cannot instance draws only the nearest ~128 copies, a grass model is
+    not drawn at all.
+  */
+  for (const w of input.notInstanced?.(veg) ?? []) {
+    if (w.kind === VEG_KIND_GROUND) report.push(`Warning: ${w.model} will not be instanced by the game (${w.why}) - as grass it is not drawn at all.`);
+    else report.push(`Warning: ${w.model} will not be instanced by the game (${w.why}) - as a tree it draws only the nearest ~128 copies.`);
+  }
   return { ok: true, report };
 }
 
@@ -1102,6 +1110,7 @@ export function vegReplant(
   models: ReadonlyMap<string, ArrayLike<number>>,
   lakeTiles: Uint8Array | null,
   surfaceHeightV?: (px: number, py: number) => number,
+  notInstanced?: (veg: Vegetation) => readonly VegInstanceIssue[],
 ): VegPlantResult | null {
   let ground: (x: number, z: number) => number;
   if (track.terrainMode === TERRAINMODE_CLASSIC8) ground = (x, z) => vegGroundHeightClassic8(track.heights, x, z);
@@ -1112,6 +1121,6 @@ export function vegReplant(
   return vegPlant({
     veg, ground, waterLevel4: track.waterLevel4, lakeTiles, lakeHeights: track.lakes.map((l) => l.height),
     groundBoxes: track.groundBoxes, boxes: track.boxes, courses: [track.course, ...track.extendedCourses],
-    trucks: track.trucks, model: vegModelLookup(info),
+    trucks: track.trucks, model: vegModelLookup(info), notInstanced,
   });
 }

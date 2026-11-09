@@ -11,13 +11,19 @@
 
   Cells live in 32 x 32 chunks so an edit rewrites one chunk's attributes in place.
 
-  Traxx 1.7 (Traxx/SurfaceMesh.cpp): a 16-bit track's corners are its 16-bit heights (v / 256
-  steps, CornerV). Spline and Full Map tracks are drawn on their 8 ft surface (FineV) near the
-  camera: here every chunk the grid window reaches is built at 8 ft, 4 x 4 fine cells a cell,
-  split by the engine's parity on the fine indices, with texcoords bilinear in the cell's corner
-  mappings (SurfaceTileTexcoords); the chunks outside the window, which the window hides, stay
-  at 32 ft. Traxx's ring of 8 ft tiles straightens its edges against 32 ft neighbours; nothing
-  outside the window is drawn here, so no edge needs it.
+  Traxx 1.7 (Traxx/SurfaceMesh.cpp SurfaceTileVertices, OpenGLTerrainRenderer.cpp
+  BuildSurfaceTileArray, SurfaceTileLodsFor, CompileSurfaceTileWireframeList): a 16-bit
+  track's corners are its 16-bit heights (v / 256 steps, CornerV). Spline and Full Map tracks
+  are drawn in 4 x 4-cell tiles: those within 8 tiles of the camera's tile (the window centre)
+  from the 8 ft points (FineV), 4 x 4 fine cells a cell split by the engine's parity on the fine
+  indices, with texcoords bilinear in the cell's corner mappings (SurfaceTileTexcoords); every
+  other tile from the 32 ft corners. An 8 ft tile's side facing a 32 ft tile is straightened onto
+  that tile's edge, so there are no cracks (core/view/surface-tiles.ts). The wire frame outlines
+  the cells as drawn: 8 ft lines on an 8 ft tile, 32 ft lines elsewhere.
+
+  A chunk is 16 x 16 cells (4 x 4 tiles); when the camera's tile moves, only the chunks whose
+  tiles changed level or straightened sides are rebuilt (the tile stamp). Traxx's fast draw
+  (display-list / VBO caching and grouping) draws the same picture and is not ported.
 */
 import * as THREE from "three";
 import type { TileSet } from "../core/view/tiles.ts";
@@ -25,23 +31,24 @@ import { cornerUv } from "../core/view/tiles.ts";
 import { ALTITUDE_SCALE } from "../core/view/camera.ts";
 import type { Terrain16 } from "../core/traxx/terrain16.ts";
 import { TERRAINMODE_CLASSIC8 } from "../core/traxx/terrain16.ts";
-import { cornerV, fineV, getSurface } from "../core/traxx/surface.ts";
+import { cornerV } from "../core/traxx/surface.ts";
+import { hasFineLod, surfaceTileStamp, SurfaceTileGrids, SURFACE_LOD_8FT, TILE_SIZE } from "../core/view/surface-tiles.ts";
 
 const CELLS = 255;
-const CHUNK = 32;
+const CHUNK = 16;
 const CHUNKS = Math.ceil(CELLS / CHUNK);
 
 const vertexShader = /* glsl */ `
   in vec3 position;
   in vec2 uv;
   in vec2 tile;
-  in vec2 cell;
+  in vec3 cell;
   in vec2 local;
   uniform mat4 modelViewMatrix;
   uniform mat4 projectionMatrix;
   out vec2 vUv;
   flat out vec2 vTile;
-  flat out vec2 vCell;
+  flat out vec3 vCell;
   out vec2 vLocal;
   void main() {
     vUv = uv;
@@ -70,8 +77,8 @@ const fragmentShader = /* glsl */ `
   uniform bool maskOn;
   in vec2 vUv;
   flat in vec2 vTile;
-  flat in vec2 vCell;
-  in vec2 vLocal;
+  flat in vec3 vCell;    // the 32 ft cell, and its wire steps a side (1, or 4 on an 8 ft tile)
+  in vec2 vLocal;        // in wire steps from the cell's corner: 0 .. vCell.z
   out vec4 outColor;
   void main() {
     if (vCell.x < window.x || vCell.y < window.y || vCell.x >= window.z || vCell.y >= window.w) discard;
@@ -80,16 +87,21 @@ const fragmentShader = /* glsl */ `
     else if (vTile.x < 0.5) colour = texture(smallTiles, vec3(vUv, vTile.y)).rgb;
     else colour = texture(largeTiles, vec3(vUv, vTile.y)).rgb;
     // The painted detail mask, washed over the ground (COpenGLTerrainRenderer::MaskWash).
-    if (maskOn) colour *= texture(maskWash, (vCell + 0.5) / 256.0).rgb;
+    if (maskOn) colour *= texture(maskWash, (vCell.xy + 0.5) / 256.0).rgb;
     if (wireMode != 0 && wireCells) {
-      // Distance to the cell's four edges (and its diagonal), in pixels. Each cell draws half
-      // of a shared edge, so the two halves make a line wireWidth pixels wide.
-      vec2 edge = min(vLocal, 1.0 - vLocal);
+      // Distance to the nearest grid line of the drawn mesh (8 ft on an 8 ft tile, 32 ft
+      // elsewhere: CompileSurfaceTileWireframeList) and the drawn diagonal, in pixels. Each
+      // side draws half of a shared line, so the two halves make a line wireWidth pixels wide.
+      float steps = max(vCell.z, 1.0);
+      vec2 k = min(floor(vLocal), vec2(steps - 1.0));
+      vec2 f = vLocal - k;
+      vec2 edge = min(f, 1.0 - f);
       vec2 fw = max(fwidth(vLocal), vec2(1e-6));
       float d = min(edge.x / fw.x, edge.y / fw.y);
       if (wireDiagonals) {
-        float parity = mod(vCell.x + vCell.y, 2.0);
-        float diag = parity < 0.5 ? (vLocal.x - vLocal.y) : (vLocal.x + vLocal.y - 1.0);
+        vec2 g = vCell.xy * steps + k;
+        float parity = mod(g.x + g.y, 2.0);
+        float diag = parity < 0.5 ? (f.x - f.y) : (f.x + f.y - 1.0);
         d = min(d, 2.0 * abs(diag) / max(fw.x + fw.y, 1e-6));
       }
       float halfWidth = 0.5 * wireWidth;
@@ -112,9 +124,17 @@ function cornerZ(src: TerrainSource, vx: number, vy: number): number {
   return (ALTITUDE_SCALE * cornerV(src as Terrain16, vx, vy)) / 256;
 }
 
-/** The track draws an 8 ft surface (Spline, Full Map). */
-function hasFineSurface(src: TerrainSource): boolean {
-  return Boolean(src.terrainMode && src.terrainMode !== TERRAINMODE_CLASSIC8 && getSurface(src as Terrain16));
+function isClassic(src: TerrainSource): boolean {
+  return !src.terrainMode || src.terrainMode === TERRAINMODE_CLASSIC8;
+}
+
+interface ChunkData {
+  x0: number; y0: number; w: number; h: number;
+  /** The tiles' stamps the geometry was built for. */
+  stamp: string;
+  /** Per cell: its first vertex and its points a side (per + 1). */
+  start: Int32Array;
+  per: Uint8Array;
 }
 
 export class TerrainMesh {
@@ -125,7 +145,8 @@ export class TerrainMesh {
   private smallTex: THREE.DataArrayTexture | null = null;
   private largeTex: THREE.DataArrayTexture | null = null;
   private source: TerrainSource;
-  private windowRect: [number, number, number, number] = [0, 0, 256, 256];
+  /** The camera's cell the levels are for (DrawTerrainScene's lastgridx, lastgridy). */
+  private camera: [number, number] = [128, 128];
 
   constructor(source: TerrainSource) {
     this.source = source;
@@ -153,136 +174,120 @@ export class TerrainMesh {
     for (let cy = 0; cy < CHUNKS; cy++) {
       for (let cx = 0; cx < CHUNKS; cx++) {
         const w = Math.min(CHUNK, CELLS - cx * CHUNK), h = Math.min(CHUNK, CELLS - cy * CHUNK);
-        const geometry = this.chunkGeometry(cx * CHUNK, cy * CHUNK, w, h, false);
-        const mesh = new THREE.Mesh(geometry, this.material);
+        const data: ChunkData = { x0: cx * CHUNK, y0: cy * CHUNK, w, h, stamp: "", start: new Int32Array(w * h), per: new Uint8Array(w * h) };
+        const mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.material);
         mesh.frustumCulled = true;
-        mesh.userData = { x0: cx * CHUNK, y0: cy * CHUNK, w, h, fine: false };
+        mesh.userData = data;
+        this.build(mesh, this.stampOf(data));
         this.chunks.push(mesh);
         this.group.add(mesh);
       }
     }
   }
 
-  private chunkGeometry(x0: number, y0: number, w: number, h: number, fine: boolean): THREE.BufferGeometry {
-    if (fine) return this.fineChunkGeometry(x0, y0, w, h);
-    const n = w * h;
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * 4 * 3), 3));
-    g.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(n * 4 * 2), 2));
-    g.setAttribute("tile", new THREE.BufferAttribute(new Float32Array(n * 4 * 2), 2));
-    const cell = new Float32Array(n * 4 * 2), local = new Float32Array(n * 4 * 2);
-    const index = new Uint32Array(n * 6);
-    const corners = [[0, 0], [1, 0], [1, 1], [0, 1]];
-    for (let j = 0; j < h; j++) {
-      for (let i = 0; i < w; i++) {
-        const c = j * w + i, gi = x0 + i, gj = y0 + j, v = c * 4;
-        for (let k = 0; k < 4; k++) {
-          cell.set([gi, gj], (v + k) * 2);
-          local.set(corners[k], (v + k) * 2);
-        }
-        // v00 = 0, v10 = 1, v11 = 2, v01 = 3; odd cells split v10-v01, even ones v00-v11.
-        index.set(((gi + gj) & 1) ? [v + 3, v + 2, v + 1, v + 1, v, v + 3] : [v, v + 3, v + 2, v + 2, v + 1, v], c * 6);
-      }
+  /* The stamps of the chunk's tiles (SurfaceTileStampFor's level and straightened sides). */
+  private stampOf(d: ChunkData): string {
+    if (!hasFineLod(this.source)) return "32";
+    const out: number[] = [];
+    const [gx, gy] = this.camera;
+    for (let ty = d.y0 / TILE_SIZE; ty * TILE_SIZE < d.y0 + d.h; ty++) {
+      for (let tx = d.x0 / TILE_SIZE; tx * TILE_SIZE < d.x0 + d.w; tx++) out.push(surfaceTileStamp(this.source, tx, ty, gx, gy));
     }
-    g.setAttribute("cell", new THREE.BufferAttribute(cell, 2));
-    g.setAttribute("local", new THREE.BufferAttribute(local, 2));
-    g.setIndex(new THREE.BufferAttribute(index, 1));
-    this.writeCells(g, x0, y0, w, h, 0, 0, w, h);
-    return g;
+    return out.join(",");
   }
 
-  /* An 8 ft chunk: 25 points a cell (5 x 5), two triangles each of its 16 fine cells. */
-  private fineChunkGeometry(x0: number, y0: number, w: number, h: number): THREE.BufferGeometry {
-    const n = w * h;
+  /* The chunk's geometry for its tiles' levels: (per + 1)^2 points and 2 per^2 triangles a cell. */
+  private build(mesh: THREE.Mesh, stamp: string): void {
+    const d = mesh.userData as ChunkData;
+    const fine = hasFineLod(this.source);
+    const [gx, gy] = this.camera;
+    let nv = 0, nt = 0;
+    for (let j = 0; j < d.h; j++) {
+      for (let i = 0; i < d.w; i++) {
+        const gi = d.x0 + i, gj = d.y0 + j;
+        const per = fine && surfaceTileStamp(this.source, gi >> 2, gj >> 2, gx, gy) >> 4 === SURFACE_LOD_8FT ? 4 : 1;
+        d.per[j * d.w + i] = per;
+        d.start[j * d.w + i] = nv;
+        nv += (per + 1) * (per + 1);
+        nt += 2 * per * per;
+      }
+    }
     const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * 25 * 3), 3));
-    g.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(n * 25 * 2), 2));
-    g.setAttribute("tile", new THREE.BufferAttribute(new Float32Array(n * 25 * 2), 2));
-    const cell = new Float32Array(n * 25 * 2), local = new Float32Array(n * 25 * 2);
-    const index = new Uint32Array(n * 32 * 3);
-    for (let j = 0; j < h; j++) {
-      for (let i = 0; i < w; i++) {
-        const c = j * w + i, gi = x0 + i, gj = y0 + j, v = c * 25;
-        for (let q = 0; q < 25; q++) {
-          cell.set([gi, gj], (v + q) * 2);
-          local.set([(q % 5) / 4, Math.trunc(q / 5) / 4], (v + q) * 2);
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(nv * 3), 3));
+    g.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(nv * 2), 2));
+    g.setAttribute("tile", new THREE.BufferAttribute(new Float32Array(nv * 2), 2));
+    const cell = new Float32Array(nv * 3), local = new Float32Array(nv * 2);
+    const index = new Uint32Array(nt * 3);
+    let k = 0;
+    for (let j = 0; j < d.h; j++) {
+      for (let i = 0; i < d.w; i++) {
+        const gi = d.x0 + i, gj = d.y0 + j, c = j * d.w + i;
+        const per = d.per[c]!, v = d.start[c]!, row = per + 1;
+        for (let b = 0; b <= per; b++) {
+          for (let a = 0; a <= per; a++) {
+            const q = v + b * row + a;
+            cell[q * 3] = gi; cell[q * 3 + 1] = gj; cell[q * 3 + 2] = per;
+            local[q * 2] = a; local[q * 2 + 1] = b;
+          }
         }
-        let k = c * 96;
-        for (let b = 0; b < 4; b++) {
-          for (let a = 0; a < 4; a++) {
-            const p00 = v + b * 5 + a, p10 = p00 + 1, p01 = p00 + 5, p11 = p00 + 6;
-            // Parity on the global fine indices: odd cuts p10-p01, even p00-p11 (SurfaceHeightV's triangles).
-            const tri = ((4 * gi + a + 4 * gj + b) & 1) ? [p01, p11, p10, p10, p00, p01] : [p00, p01, p11, p11, p10, p00];
+        for (let b = 0; b < per; b++) {
+          for (let a = 0; a < per; a++) {
+            const p00 = v + b * row + a, p10 = p00 + 1, p01 = p00 + row, p11 = p01 + 1;
+            // The engine's split on the drawn grid's global indices: odd cuts p10-p01, even p00-p11.
+            const tri = ((gi * per + a + gj * per + b) & 1) ? [p01, p11, p10, p10, p00, p01] : [p00, p01, p11, p11, p10, p00];
             index.set(tri, k);
             k += 6;
           }
         }
       }
     }
-    g.setAttribute("cell", new THREE.BufferAttribute(cell, 2));
+    g.setAttribute("cell", new THREE.BufferAttribute(cell, 3));
     g.setAttribute("local", new THREE.BufferAttribute(local, 2));
     g.setIndex(new THREE.BufferAttribute(index, 1));
-    this.writeFineCells(g, x0, y0, w, 0, 0, w, h);
-    return g;
+    mesh.geometry.dispose();
+    mesh.geometry = g;
+    d.stamp = stamp;
+    this.write(mesh, 0, 0, d.w, d.h, null);
   }
 
-  private writeFineCells(g: THREE.BufferGeometry, x0: number, y0: number, w: number, i0: number, j0: number, i1: number, j1: number): void {
-    const src = this.source as Terrain16 & TerrainSource;
+  /*
+    Positions, texcoords and tiles for cells [i0, i1) x [j0, j1) of a chunk. The heights are the
+    tile's height grid at its drawn level (SurfaceTileHeightGrid) off Classic 8-bit.
+  */
+  private write(mesh: THREE.Mesh, i0: number, j0: number, i1: number, j1: number, grids: SurfaceTileGrids | null): void {
+    const d = mesh.userData as ChunkData;
+    const src = this.source;
+    const g = mesh.geometry;
     const pos = g.getAttribute("position") as THREE.BufferAttribute;
     const uv = g.getAttribute("uv") as THREE.BufferAttribute;
     const tile = g.getAttribute("tile") as THREE.BufferAttribute;
     const P = pos.array as Float32Array, U = uv.array as Float32Array, T = tile.array as Float32Array;
+    const classic = isClassic(src);
+    if (!classic && !grids) grids = new SurfaceTileGrids(src as Terrain16, this.camera[0], this.camera[1]);
     for (let j = j0; j < j1; j++) {
       for (let i = i0; i < i1; i++) {
-        const gi = x0 + i, gj = y0 + j, v = (j * w + i) * 25;
+        const gi = d.x0 + i, gj = d.y0 + j, c = j * d.w + i;
+        const per = d.per[c]!, v = d.start[c]!, row = per + 1;
         const word = src.clr[gi + (gj << 8)]!;
         const texIndex = word & 0x0fff;
         const where = this.tiles && texIndex < this.tiles.where.length ? this.tiles.where[texIndex]! : -1;
         const side = where >= 0 ? this.tiles!.side[texIndex]! : 64;
         const m = [0, 1, 2, 3].map((k) => cornerUv(k, word, side));
-        for (let q = 0; q < 25; q++) {
-          const a = q % 5, b = Math.trunc(q / 5), s = a / 4, t = b / 4;
-          P[(v + q) * 3] = gi * 64 + a * 16;
-          P[(v + q) * 3 + 1] = gj * 64 + b * 16;
-          P[(v + q) * 3 + 2] = (ALTITUDE_SCALE * fineV(src, 4 * gi + a, 4 * gj + b)) / 256;
-          // Bilinear in the four corner mappings: m[0] (0,0), m[1] (1,0), m[2] (1,1), m[3] (0,1).
-          U[(v + q) * 2] = (1 - s) * (1 - t) * m[0]![0] + s * (1 - t) * m[1]![0] + s * t * m[2]![0] + (1 - s) * t * m[3]![0];
-          U[(v + q) * 2 + 1] = (1 - s) * (1 - t) * m[0]![1] + s * (1 - t) * m[1]![1] + s * t * m[2]![1] + (1 - s) * t * m[3]![1];
-          T[(v + q) * 2] = where < 0 ? -1 : where >> 15;
-          T[(v + q) * 2 + 1] = where < 0 ? 0 : where & 0x7fff;
-        }
-      }
-    }
-    pos.needsUpdate = uv.needsUpdate = tile.needsUpdate = true;
-    g.computeBoundingSphere();
-    g.computeBoundingBox();
-  }
-
-  /** Recompute positions and tile attributes for cells [i0, i1) x [j0, j1) of a chunk. */
-  private writeCells(g: THREE.BufferGeometry, x0: number, y0: number, w: number, _h: number, i0: number, j0: number, i1: number, j1: number): void {
-    const { clr } = this.source;
-    const pos = g.getAttribute("position") as THREE.BufferAttribute;
-    const uv = g.getAttribute("uv") as THREE.BufferAttribute;
-    const tile = g.getAttribute("tile") as THREE.BufferAttribute;
-    const P = pos.array as Float32Array, U = uv.array as Float32Array, T = tile.array as Float32Array;
-    const corners = [[0, 0], [1, 0], [1, 1], [0, 1]];
-    for (let j = j0; j < j1; j++) {
-      for (let i = i0; i < i1; i++) {
-        const gi = x0 + i, gj = y0 + j, v = (j * w + i) * 4;
-        const word = clr[gi + (gj << 8)];
-        const texIndex = word & 0x0fff;
-        const where = this.tiles && texIndex < this.tiles.where.length ? this.tiles.where[texIndex] : -1;
-        const side = where >= 0 ? this.tiles!.side[texIndex] : 64;
-        for (let k = 0; k < 4; k++) {
-          const vx = gi + corners[k][0], vy = gj + corners[k][1];
-          P[(v + k) * 3] = vx * 64;
-          P[(v + k) * 3 + 1] = vy * 64;
-          P[(v + k) * 3 + 2] = cornerZ(this.source, vx, vy);
-          const [u, t] = cornerUv(k, word, side);
-          U[(v + k) * 2] = u;
-          U[(v + k) * 2 + 1] = t;
-          T[(v + k) * 2] = where < 0 ? -1 : where >> 15;
-          T[(v + k) * 2 + 1] = where < 0 ? 0 : where & 0x7fff;
+        const tg = grids ? grids.grid(gi >> 2, gj >> 2) : null;
+        for (let b = 0; b <= per; b++) {
+          for (let a = 0; a <= per; a++) {
+            const q = v + b * row + a, s = a / per, t = b / per;
+            P[q * 3] = gi * 64 + (a * 64) / per;
+            P[q * 3 + 1] = gj * 64 + (b * 64) / per;
+            P[q * 3 + 2] = tg
+              ? (ALTITUDE_SCALE * tg.v[((gj & 3) * tg.per + b) * tg.n + (gi & 3) * tg.per + a]!) / 256
+              : cornerZ(src, gi + a, gj + b);
+            // Bilinear in the four corner mappings: m[0] (0,0), m[1] (1,0), m[2] (1,1), m[3] (0,1).
+            U[q * 2] = (1 - s) * (1 - t) * m[0]![0] + s * (1 - t) * m[1]![0] + s * t * m[2]![0] + (1 - s) * t * m[3]![0];
+            U[q * 2 + 1] = (1 - s) * (1 - t) * m[0]![1] + s * (1 - t) * m[1]![1] + s * t * m[2]![1] + (1 - s) * t * m[3]![1];
+            T[q * 2] = where < 0 ? -1 : where >> 15;
+            T[q * 2 + 1] = where < 0 ? 0 : where & 0x7fff;
+          }
         }
       }
     }
@@ -295,32 +300,26 @@ export class TerrainMesh {
   updateCells(minX: number, minY: number, maxX: number, maxY: number): void {
     // The spline moves the surface up to two cells round an edited point.
     const spread = this.source.terrainMode === 2 ? 2 : 1;
+    const grids = isClassic(this.source) ? null : new SurfaceTileGrids(this.source as Terrain16, this.camera[0], this.camera[1]);
     for (const mesh of this.chunks) {
-      const { x0, y0, w, h, fine } = mesh.userData as { x0: number; y0: number; w: number; h: number; fine: boolean };
-      // A height change moves the cells on both sides of a vertex, so widen by one.
-      const i0 = Math.max(0, minX - spread - x0), j0 = Math.max(0, minY - spread - y0);
-      const i1 = Math.min(w, maxX + spread - x0 + 1), j1 = Math.min(h, maxY + spread - y0 + 1);
+      const { x0, y0, w, h } = mesh.userData as ChunkData;
+      // A height change moves the cells on both sides of a vertex, so widen by one; a tile's
+      // straightened side reads its corners, so whole tiles are rewritten.
+      const i0 = Math.max(0, ((minX - spread) & ~3) - x0), j0 = Math.max(0, ((minY - spread) & ~3) - y0);
+      const i1 = Math.min(w, ((maxX + spread) | 3) - x0 + 1), j1 = Math.min(h, ((maxY + spread) | 3) - y0 + 1);
       if (i0 >= i1 || j0 >= j1) continue;
-      if (fine) this.writeFineCells(mesh.geometry, x0, y0, w, i0, j0, i1, j1);
-      else this.writeCells(mesh.geometry, x0, y0, w, h, i0, j0, i1, j1);
+      this.write(mesh, i0, j0, i1, j1, grids);
     }
   }
 
   /*
-    The levels follow the track's mode and the window: 8 ft for the chunks the window reaches on
-    a Spline or Full Map track, 32 ft for the rest. Called after a mode change and when the
-    window moves; rebuilds only the chunks whose level changed.
+    The levels follow the track's mode and the camera's tile: rebuilds only the chunks whose
+    tiles' stamps changed. Called after a mode change and when the window moves.
   */
   updateLevels(): void {
-    const fineOk = hasFineSurface(this.source);
-    const [wx0, wy0, wx1, wy1] = this.windowRect;
     for (const mesh of this.chunks) {
-      const d = mesh.userData as { x0: number; y0: number; w: number; h: number; fine: boolean };
-      const want = fineOk && d.x0 < wx1 && d.x0 + d.w > wx0 && d.y0 < wy1 && d.y0 + d.h > wy0;
-      if (want === d.fine) continue;
-      mesh.geometry.dispose();
-      mesh.geometry = this.chunkGeometry(d.x0, d.y0, d.w, d.h, want);
-      d.fine = want;
+      const stamp = this.stampOf(mesh.userData as ChunkData);
+      if (stamp !== (mesh.userData as ChunkData).stamp) this.build(mesh, stamp);
     }
   }
 
@@ -394,7 +393,7 @@ export class TerrainMesh {
   setWindow(gridx: number, gridy: number, gridsize: number): void {
     const half = (gridsize - 1) >> 1;
     this.material.uniforms.window.value.set(gridx - half, gridy - half, gridx + half, gridy + half);
-    this.windowRect = [gridx - half, gridy - half, gridx + half, gridy + half];
+    this.camera = [gridx, gridy];
     this.updateLevels();
   }
 

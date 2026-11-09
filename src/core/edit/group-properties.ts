@@ -10,7 +10,7 @@
 */
 import type { TxxTrack } from "../traxx/txx.ts";
 import { traxxSignedSplit, TRAXX_BOX_CRUSH, TRAXX_BOX_RAMP, type TraxxBox } from "../traxx/sit.ts";
-import { interpolateRawAtPoint } from "../traxx/terrain.ts";
+import { boxHeightPairStore, boxHeightShown, type Ground } from "../traxx/box-ground.ts";
 import { cFixed } from "../traxx/cformat.ts";
 import { setTypeOfObjects, typeToIndex } from "./objects.ts";
 import { setObjectSound } from "./object-properties.ts";
@@ -31,8 +31,11 @@ export interface GroupFields {
 
 const stem = (n: string) => { const d = n.lastIndexOf("."); return d >= 0 ? n.slice(0, d) : n; };
 
-/** GroupFieldTexts: every object written the same way, so equal text means shared. */
-export function groupFieldTexts(box: TraxxBox): string[] {
+/**
+  GroupFieldTexts: every object written the same way, so equal text means shared. With the
+  track, the height on a 16-bit, Spline or Full Map track is Z less the ground (BoxHeightPairOf).
+*/
+export function groupFieldTexts(box: TraxxBox, ground: Ground | null = null): string[] {
   const deg = [box.psi, box.phi, box.theta].map((r) => {
     let d = (180 * r) / Math.PI;
     while (d < 0) d += 360;
@@ -41,17 +44,17 @@ export function groupFieldTexts(box: TraxxBox): string[] {
   });
   return [
     String(Math.trunc(box.mass)),
-    cFixed(Math.fround(box.heightAboveGround + box.fraction[2] / 256), 3),
+    cFixed(boxHeightShown(ground, box), 3),
     cFixed(deg[0]!, 2), cFixed(deg[1]!, 2), cFixed(deg[2]!, 2),
     String(box.width), String(box.length), String(box.height),
   ];
 }
 
-export function groupStart(boxes: readonly TraxxBox[]): GroupFields {
+export function groupStart(boxes: readonly TraxxBox[], ground: Ground | null = null): GroupFields {
   const out: GroupFields = { typeIndex: -1, level: -1, soundCont: "", soundImpact: "", text: Array(8).fill(""), anyPlain: false };
   let firstPlain = true;
   boxes.forEach((box, i) => {
-    const v = groupFieldTexts(box);
+    const v = groupFieldTexts(box, ground);
     const type = typeToIndex(box.type), cont = stem(box.soundCont), impact = stem(box.soundImpact);
     if (i === 0) {
       Object.assign(out, { typeIndex: type, level: box.priority, soundCont: cont, soundImpact: impact });
@@ -90,12 +93,12 @@ export function usable(field: number, text: string, orig: string): boolean {
 }
 
 /** ApplyGroupLook. */
-export function applyLook(box: TraxxBox, text: readonly string[], orig: readonly string[], heights: Uint8Array): void {
+export function applyLook(box: TraxxBox, text: readonly string[], orig: readonly string[], ground: Ground): void {
   const ok = (f: number) => usable(f, text[f]!, orig[f]!);
   if (ok(GP_HEIGHT)) {
     [box.heightAboveGround, box.fraction[2]] = traxxSignedSplit(Math.fround(Number(text[GP_HEIGHT])));
     if (box.heightAboveGround >= 500) { box.heightAboveGround = 500; box.fraction[2] = 0; }
-    box.ipos[2] = interpolateRawAtPoint(heights, box.ipos[0], box.ipos[1]) + box.heightAboveGround;
+    boxHeightPairStore(ground, box);
   }
   if (ok(GP_ANGLE)) box.psi = Math.fround((Math.PI * Number(text[GP_ANGLE])) / 180);
   if (ok(GP_PITCH)) box.phi = Math.fround((Math.PI * Number(text[GP_PITCH])) / 180);
@@ -129,7 +132,7 @@ export function applyGroup(track: TxxTrack, selection: readonly number[], r: Gro
   let soundRefused = false;
   for (const box of boxes) {
     if (usable(GP_MASS, r.text[GP_MASS]!, r.start.text[GP_MASS]!)) box.mass = Math.trunc(Number(r.text[GP_MASS]));
-    applyLook(box, r.text, r.start.text, track.heights);
+    applyLook(box, r.text, r.start.text, track);
     if (box.type === TRAXX_BOX_RAMP || box.type === TRAXX_BOX_CRUSH) continue;
     if (r.level >= 0 && r.level !== r.start.level) box.priority = r.level;
     for (const [continuous, name, start, wav] of [[true, r.soundCont, r.start.soundCont, r.wavs.cont], [false, r.soundImpact, r.start.soundImpact, r.wavs.impact]] as const) {

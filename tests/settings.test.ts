@@ -17,7 +17,7 @@ test("defaults are CTraxxReg's", () => {
 test("stored settings are held to the ranges Traxx's controls allow", () => {
   const s = mergeSettings({
     gamma: 9, polysize: 77, water_opacity: -5, mode: 12, unknown: 1,
-    edit: { tool: 9, terrainw: 0, terrainh: 99, curvature: 3.4, wireframe: 1, paint: "yes" },
+    edit: { tool: 9, terrainw: 0, terrainh: 120, curvature: 3.4, wireframe: 1, paint: "yes" },
     colors: ["#ABCDEF", "red"],
     recent: ["a", 3, "b", "c", "d", "e"],
     panels: { textures: { x: 1, y: 2, w: 300, h: 200, open: 1 }, bad: { x: "1" } },
@@ -29,7 +29,7 @@ test("stored settings are held to the ranges Traxx's controls allow", () => {
   assert.equal((s as unknown as Record<string, unknown>).unknown, undefined);
   assert.equal(s.edit.tool, 7);
   assert.equal(s.edit.terrainw, 1);
-  assert.equal(s.edit.terrainh, 25);
+  assert.equal(s.edit.terrainh, 100, "1-100: a Full Map brush counts 8 ft points (Traxx 1.7)");
   assert.equal(s.edit.curvature, 3);
   assert.equal(s.edit.wireframe, 1);
   assert.equal(s.edit.paint, true);

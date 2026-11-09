@@ -11,7 +11,7 @@ import type { TrackDocument } from "../core/doc/document.ts";
 import type { AppState } from "../app/state.ts";
 import { TraxxCamera } from "../core/view/camera.ts";
 import { buildTileSet, gammaMap, type RgbaImage, type TileSet } from "../core/view/tiles.ts";
-import { interpolateRawAtPoint } from "../core/traxx/terrain.ts";
+import { cameraGround } from "../core/traxx/box-ground.ts";
 import { BG_COL, EDIT_BUILDINGS, EDIT_OBJECTS, GRID_MAX, WIRE_COL, WIREO_COL, type TraxxSettings } from "../core/settings.ts";
 import { TerrainMesh } from "./terrain.ts";
 import { Viewport } from "./viewport.ts";
@@ -21,15 +21,19 @@ import { ObjectLayer } from "./objects.ts";
 import { GroundBoxLayer } from "./ground-boxes.ts";
 import { FogBoxLayer } from "./fog-boxes.ts";
 import { effectiveFog, fogDriftArrow, FOG_DRIFT_COLOUR, type FogPreview } from "../core/view/fog-volume.ts";
-import { WaterLayer, LakesLayer } from "./water.ts";
+import { WaterLayer, LakesLayer, type LakeWallGround } from "./water.ts";
+import { VegetationLayer } from "./vegetation.ts";
+import { vegWindow } from "../core/view/veg-draw.ts";
 import { tileMinMaxU } from "../core/traxx/surface.ts";
+import { hasFineLod, SurfaceTileGrids } from "../core/view/surface-tiles.ts";
+import { TERRAINMODE_CLASSIC8 } from "../core/traxx/terrain16.ts";
 import { trackLakes } from "../core/traxx/lakes.ts";
 import { BackdropLayer } from "./backdrop.ts";
 import { CourseLayer } from "./course.ts";
 import { Overlay2D } from "./overlay.ts";
 import { arrowSegments, checkpointArrow, checkpointWantsArrow } from "../core/view/arrows.ts";
 import { objectMatrix } from "../core/view/model-geometry.ts";
-import { pickTerrain, type TerrainHit } from "../core/view/pick.ts";
+import { pickSurface, pickTerrain, type TerrainHit } from "../core/view/pick.ts";
 import { EDIT_COURSE } from "../core/settings.ts";
 import { ALTITUDE_SCALE } from "../core/view/camera.ts";
 import type { Touch } from "../core/edit/history.ts";
@@ -51,6 +55,7 @@ export class TrackView {
   private backdrop = new BackdropLayer();
   private course = new CourseLayer();
   private fogBoxes = new FogBoxLayer();
+  private vegetation = new VegetationLayer();
   /** The fog a properties dialog is previewing (CTraxxView::SetFogPreview), or null. */
   private fogPreview: FogPreview | null = null;
   readonly overlay: Overlay2D;
@@ -65,12 +70,14 @@ export class TrackView {
   private lastTick = 0;
   private listeners: (() => void)[] = [];
   private objectWindow = "";
+  /** The camera's tile the lake walls and the mask wash were laid on (currentLodKey). */
+  private lodKey = "";
 
   constructor(host: HTMLElement, app: AppState) {
     this.app = app;
     this.viewport = new Viewport(host);
     this.viewport.onBeforeRender(() => this.step());
-    this.viewport.scene.add(this.water.group, this.lakes.mesh, this.backdrop.arena, this.course.group, this.fogBoxes.group);
+    this.viewport.scene.add(this.water.group, this.lakes.mesh, this.lakes.walls, this.backdrop.arena, this.course.group, this.fogBoxes.group, this.vegetation.group);
     this.overlay = new Overlay2D(host, this.viewport.camera);
     this.viewport.onAfterRender(() => this.overlay.draw());
     this.overlay.add((g, project) => this.drawLabels(g, project));
@@ -86,7 +93,8 @@ export class TrackView {
     this.listeners.push(fn);
   }
 
-  readonly groundAt = (x: number, y: number) => (this.doc ? interpolateRawAtPoint(this.doc.track.heights, x, y) : 0);
+  /* The camera's ground in steps: whole on Classic 8-bit, v / 256 on the drive surface (cameraGround). */
+  readonly groundAt = (x: number, y: number) => (this.doc ? cameraGround(this.doc.track, x, y) : 0);
 
   async open(doc: TrackDocument | null): Promise<void> {
     this.clear();
@@ -130,6 +138,7 @@ export class TrackView {
     this.terrain = null; this.groundBoxes = null; this.objects = null; this.models = null; this.tiles = null;
     this.water.rebuild(new Uint8Array(65536), 0);
     this.lakes.rebuild(null, [], []);
+    this.vegetation.build(null, null);
     this.backdrop.scene.clear();
     this.backdrop.arena.clear();
     this.course.group.clear();
@@ -155,6 +164,8 @@ export class TrackView {
     this.objects.hideColliders = s.hide_colliders;
     this.viewport.scene.add(this.objects.group);
     this.backdrop.build(models, [doc.track.backdropName, ...doc.track.extraBackdrops], doc.track.arena ? { x: doc.track.arena.x, y: doc.track.arena.y } : null, doc.track.heights);
+    // The vegetation draws with the same models (its species are in the model list).
+    this.vegetation.build(doc, models);
     this.objectWindow = "";
     this.updateWindow();
     this.applyVisibility();
@@ -262,6 +273,7 @@ export class TrackView {
     if (touch.heights) this.terrain?.updateLevels();
     for (const r of [touch.heights, touch.clr]) if (r) this.terrain?.updateCells(r.minX, r.minY, r.maxX, r.maxY);
     if (touch.heights || touch.water) this.rebuildWater();
+    if (touch.heights) { this.vegetation.invalidate(); this.updateVegetation(); }
     if (touch.objects || touch.groundBoxes || touch.heights) this.objectsChanged();
     if (touch.course || touch.trucks) this.rebuildCourse();
     if (touch.track && !touch.palette) this.buildModels();
@@ -337,8 +349,30 @@ export class TrackView {
     this.water.rebuild(t.heights, t.waterLevel4, tileMinMaxU(t));
     if (t.lakes.length) {
       const st = trackLakes(t);
-      this.lakes.rebuild(st.tmap, t.lakes.map((l) => l.height), st.lakes.map((l) => l.errors));
+      this.lakes.rebuild(st.tmap, t.lakes.map((l) => l.height), st.lakes.map((l) => l.errors), this.wallGround());
     } else this.lakes.rebuild(null, [], []);
+    this.lodKey = this.currentLodKey();
+  }
+
+  /*
+    The ground the lake wall rings ride, as drawn (DrawLakes, 4cbc21a): the classic corners
+    (wrapping, RingZ), else each tile's height grid at the level the terrain draws it.
+  */
+  private wallGround(): LakeWallGround | null {
+    if (!this.doc) return null;
+    const t = this.doc.track;
+    if (t.terrainMode === TERRAINMODE_CLASSIC8) {
+      return { per: () => 1, z: (gi, gj, a, b) => ALTITUDE_SCALE * t.heights[((gi + a) & 255) + (((gj + b) & 255) << 8)]! };
+    }
+    const grids = new SurfaceTileGrids(t, this.camera.gridx, this.camera.gridy);
+    return { per: (gi, gj) => grids.per(gi, gj), z: (gi, gj, a, b) => (ALTITUDE_SCALE * grids.at(gi, gj, a, b)) / 256 };
+  }
+
+  /* The camera's tile on a track drawn with the 8 ft ring, "" otherwise: the drawn ground's key. */
+  private currentLodKey(): string {
+    const t = this.doc?.track;
+    if (!t || !hasFineLod(t)) return "";
+    return `${this.camera.gridx >> 2},${this.camera.gridy >> 2}`;
   }
 
   /** The terrain under a point of the view (client pixels), or null. */
@@ -349,7 +383,13 @@ export class TrackView {
     const ray = new THREE.Raycaster();
     ray.setFromCamera(ndc, this.viewport.camera);
     const o = ray.ray.origin, d = ray.ray.direction;
-    return pickTerrain(this.doc.track.heights, [o.x, o.y, o.z], [d.x, d.y, d.z]);
+    const t = this.doc.track;
+    if (t.terrainMode === TERRAINMODE_CLASSIC8) return pickTerrain(t.heights, [o.x, o.y, o.z], [d.x, d.y, d.z]);
+    // Traxx 1.7: the drive surface itself, over the grid window (PickSurfaceRay).
+    const s = this.app.settings;
+    const gridsize = s.show_whole_grid ? GRID_MAX : s.polysize;
+    const half = (gridsize - 1) >> 1;
+    return pickSurface(t, [o.x, o.y, o.z], [d.x, d.y, d.z], { x0: this.camera.gridx - half, y0: this.camera.gridy - half, n: gridsize });
   }
 
   /** Decode the terrain HD art not decoded yet. True when any was. */
@@ -424,10 +464,30 @@ export class TrackView {
     if (this.groundBoxes) this.groundBoxes.mesh.visible = mode === EDIT_BUILDINGS || s.always_buildings;
     this.water.group.visible = s.show_water;
     this.lakes.mesh.visible = s.show_water && s.water_opacity > 0;
+    this.lakes.walls.visible = s.show_water && s.show_lake_walls;
+    this.updateVegetation();
     const backdrop = s.show_backdrop && s.edit.wireframe !== 1 && !this.doc?.track.arena;
     this.viewport.backdrop = backdrop ? this.backdrop.scene : null;
     this.backdrop.arena.visible = s.show_backdrop;
     this.viewport.requestRender();
+  }
+
+  /*
+    The vegetation for the camera as it is: what shows, model or card, and the facing yaw.
+    Neither the plants nor the wash are drawn over a wireframe (CTraxxView::Display).
+  */
+  private updateVegetation(): void {
+    if (!this.vegetation.active) return;
+    const s = this.app.settings;
+    const solid = s.edit.wireframe !== 1;
+    const gridsize = s.show_whole_grid ? GRID_MAX : s.polysize;
+    const cam = this.viewport.camera;
+    cam.updateMatrixWorld();
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+    this.vegetation.lodCentre = [this.camera.gridx, this.camera.gridy];
+    this.vegetation.update(cam.position, right, vegWindow(this.camera.gridx, this.camera.gridy, gridsize, s.show_whole_grid), {
+      trees: solid && s.show_vegetation, grass: solid && s.show_grass, aids: solid && s.show_veg_aids, wash: solid && s.show_veg_mask,
+    });
   }
 
   private updateWindow(): void {
@@ -435,6 +495,13 @@ export class TrackView {
     const gridsize = s.show_whole_grid ? GRID_MAX : s.polysize;
     const { gridx, gridy } = this.camera;
     this.terrain?.setWindow(gridx, gridy, gridsize);
+    // The 8 ft ring moved with the camera's tile: the lake walls ride it again (the mask wash
+    // keys on the camera's tile itself).
+    const lod = this.currentLodKey();
+    if (lod !== this.lodKey) {
+      this.lodKey = lod;
+      if (this.doc?.track.lakes.length) this.lakes.reride(this.wallGround());
+    }
     const half = (gridsize - 1) >> 1;
     this.water.setWindow(new THREE.Vector4(gridx - half, gridy - half, gridx + half, gridy + half));
     this.lakes.setWindow(new THREE.Vector4(gridx - half, gridy - half, gridx + half, gridy + half));
@@ -452,6 +519,7 @@ export class TrackView {
   changed(): void {
     this.updateWindow();
     this.viewport.placeCamera(this.camera);
+    this.updateVegetation();
     this.viewport.requestRender();
     for (const fn of this.listeners) fn();
   }
@@ -470,6 +538,7 @@ export class TrackView {
     this.camera.tick(ms, this.groundAt);
     this.updateWindow();
     this.viewport.placeCamera(this.camera);
+    this.updateVegetation();
     for (const fn of this.listeners) fn();
     this.viewport.requestRender();
   }

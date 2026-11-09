@@ -9,7 +9,7 @@
 */
 import type { TxxTrack } from "../traxx/txx.ts";
 import { traxxSignedSplit, TRAXX_BOX_CRUSH, TRAXX_BOX_FOG, TRAXX_BOX_LIGHT, TRAXX_BOX_RAMP, TRAXX_MAX_FOGS, type TraxxBox, type TraxxFog, type TraxxLight } from "../traxx/sit.ts";
-import { interpolateRawAtPoint } from "../traxx/terrain.ts";
+import { boxHeightPairStore, boxHeightShown, surfaceTrack, type Ground } from "../traxx/box-ground.ts";
 import { POD1_NAME_MAX } from "../traxx/pod-items.ts";
 import { STOCK_CONT_SOUNDS, STOCK_SOUNDS } from "../traxx/stock-data.ts";
 import { findAsset } from "../doc/names.ts";
@@ -70,7 +70,11 @@ export function radians(deg: number): number {
 
 const stripExt = (name: string) => { const dot = name.lastIndexOf("."); return dot >= 0 ? name.slice(0, dot) : name; };
 
-export function objectFields(box: TraxxBox): ObjectFields {
+/**
+  OnInitDialog. `ground`: the track, so that on a 16-bit, Spline or Full Map track the height
+  shown is Z less the ground (BoxHeightPairOf, e4e034d); omitted, the stored pair.
+*/
+export function objectFields(box: TraxxBox, ground: Ground | null = null): ObjectFields {
   return {
     typeIndex: typeToIndex(box.type),
     checkpoint: box.checkpointSeq,
@@ -81,7 +85,7 @@ export function objectFields(box: TraxxBox): ObjectFields {
     sizeD: box.height,
     fx: f32(box.ipos[0] + box.fraction[0] / 256),
     fy: f32(box.ipos[1] + box.fraction[1] / 256),
-    fz: f32(box.heightAboveGround + box.fraction[2] / 256),
+    fz: boxHeightShown(ground, box),
     mass: Math.trunc(box.mass),
     angle: degrees(box.psi),
     elev: degrees(box.phi),
@@ -95,12 +99,12 @@ export function objectFields(box: TraxxBox): ObjectFields {
   };
 }
 
-/** ApplySettings: what the view shows while the dialog is open. */
-export function previewObject(box: TraxxBox, heights: Uint8Array, f: ObjectFields): void {
+/** ApplySettings: what the view shows while the dialog is open (BoxHeightPairStore seats it). */
+export function previewObject(box: TraxxBox, ground: Ground, f: ObjectFields): void {
   [box.ipos[0], box.fraction[0]] = traxxSignedSplit(Math.max(0, f.fx));
   [box.ipos[1], box.fraction[1]] = traxxSignedSplit(Math.max(0, f.fy));
   [box.heightAboveGround, box.fraction[2]] = traxxSignedSplit(f.fz);
-  box.ipos[2] = interpolateRawAtPoint(heights, box.ipos[0], box.ipos[1]) + box.heightAboveGround;
+  boxHeightPairStore(ground, box);
   box.psi = radians(f.angle);
   box.phi = radians(f.elev);
   box.theta = radians(f.tilt);
@@ -151,7 +155,7 @@ export function setObjectSound(track: TxxTrack, box: TraxxBox, continuous: boole
   Returns the messages Traxx shows (sounds, caps), in order. The box array may be reordered
   (checkpoints), so the box is found again by identity.
 */
-export function applyObjectFields(track: TxxTrack, index: number, f: ObjectFields, heights: Uint8Array, wavs: { cont: Uint8Array | null; impact: Uint8Array | null }, oldHag: number): string[] {
+export function applyObjectFields(track: TxxTrack, index: number, f: ObjectFields, ground: Ground, wavs: { cont: Uint8Array | null; impact: Uint8Array | null }, oldHag: number): string[] {
   const box = track.boxes[index]!;
   const messages: string[] = [];
   applyTypeIndex(box, f.typeIndex);
@@ -168,7 +172,10 @@ export function applyObjectFields(track: TxxTrack, index: number, f: ObjectField
   box.mass = f.mass;
   [box.heightAboveGround, box.fraction[2]] = traxxSignedSplit(f.fz);
   if (box.heightAboveGround >= HAG_MAX) { box.heightAboveGround = HAG_MAX; box.fraction[2] = 0; }
-  if (box.heightAboveGround !== oldHag) box.ipos[2] = interpolateRawAtPoint(heights, box.ipos[0], box.ipos[1]) + box.heightAboveGround;
+  // Traxx 1.7 (e4e034d): a non-classic track always re-grounds, the typed fraction being a height
+  // fraction until it is folded into the absolute one; Classic 8-bit only when the height changed.
+  if (surfaceTrack(ground)) boxHeightPairStore(ground, box);
+  else if (box.heightAboveGround !== oldHag) boxHeightPairStore(ground, box);
   box.psi = radians(f.angle);
   box.phi = radians(f.elev);
   box.theta = radians(f.tilt);

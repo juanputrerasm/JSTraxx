@@ -1,6 +1,6 @@
 # JSTraxx
 
-A web implementation of Traxx, the classic Monster Truck Madness 2 track editor, ported from Traxx 1.6.7.
+A web implementation of Traxx, the classic Monster Truck Madness 2 track editor, ported from Traxx 1.7.0.
 
 **Open it in your browser: https://juanputrerasm.github.io/JSTraxx/** (Chrome, Edge, Firefox or Safari; nothing to install).
 

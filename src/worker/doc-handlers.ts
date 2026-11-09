@@ -13,7 +13,8 @@ import { ROOT, exists, listDirectory, readBytes, writeBytesToFile } from "../sha
 import { newTrackDocument } from "../core/doc/new-track.ts";
 import { countTracks, loadPodTrack, type PodSource as PodReader } from "../core/doc/load-pod.ts";
 import { openTxx, type AssetSource } from "../core/doc/load-txx.ts";
-import { cloneFromSit, type TrackedFolder } from "../core/doc/clone.ts";
+import { cloneAssetSource, cloneFromSit, type TrackedFolder } from "../core/doc/clone.ts";
+import { layeredModels, libraryModels } from "../core/doc/surface-sidecar.ts";
 import { documentBuffers, type TrackDocument } from "../core/doc/document.ts";
 import { writeTxx } from "../core/traxx/txx.ts";
 import { fillHdLegacy } from "../core/doc/hd-legacy.ts";
@@ -35,7 +36,10 @@ async function readOpfs(path: string): Promise<Uint8Array | null> {
   try { return await readBytes(path); } catch { return null; }
 }
 
-/** Traxx's ART and MODELS folders, then the game library. */
+/**
+  Traxx's ART and MODELS folders, then the game library. A model's .SRF comes only from where
+  the model did (FindSurfaceSidecar: beside its source), see core/doc/surface-sidecar.ts.
+*/
 function assetSource(vfs: () => Vfs): AssetSource {
   const lookup = (folder: string, dir: string) => async (path: string) => {
     const own = await readOpfs(opfsPath(dir, path));
@@ -44,7 +48,7 @@ function assetSource(vfs: () => Vfs): AssetSource {
     const hit = v.find(`${folder}\\${path}`) ?? v.findByTitle(path);
     return hit ? hit.mount.readEntry(hit.entry) : null;
   };
-  return { art: lookup("ART", ART_DIR), model: lookup("MODELS", MODELS_DIR) };
+  return { art: lookup("ART", ART_DIR), model: layeredModels([(path) => readOpfs(opfsPath(MODELS_DIR, path)), libraryModels(vfs)]) };
 }
 
 async function podReader(source: PodSource): Promise<PodReader> {
@@ -122,11 +126,7 @@ export function docHandlers(vfs: () => Vfs) {
       const root = at > 0 ? payload.sitPath.slice(0, at) : "";
       const folder = rebased(trackedFolder(payload.files), root);
       payload = { ...payload, sitPath: payload.sitPath.slice(root.length) };
-      const library = assetSource(vfs);
-      const assets: AssetSource = {
-        art: async (p) => (await folder.read(`ART\\${p}`)) ?? library.art(p),
-        model: async (p) => (await folder.read(`MODELS\\${p}`)) ?? library.model(p),
-      };
+      const assets = cloneAssetSource(folder, assetSource(vfs));
       return loading(async () => sendLoaded(await cloneFromSit(folder, payload.sitPath, assets, progress)));
     },
 

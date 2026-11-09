@@ -5,7 +5,8 @@
                                 Smooth Full Map from 32 ft grid (OnTerrainSmoothFine)
                                 Store heights as PNG (OnTerrainHeightsPng)
     Edit > Import / Export Heightmap (OnTerrainImportRaw, OnTerrainExportRaw)
-    Special > Vegetation...     the Vegetation window and its Re-plant (VegetationDlg.cpp)
+    Special > Vegetation...     the Vegetation window, its Re-plant and Make Far Cards
+                                (VegetationDlg.cpp, VegetationFarCard.cpp)
 
   Traxx clears the terrain undo on a grid conversion; JSTraxx keeps it as one undo step instead
   (the whole terrain record before and after), which covers what Traxx's does.
@@ -30,6 +31,17 @@ import { lakeErrors, lakeRefusal, lakesNow } from "./modes/lake-commands.ts";
 import { vegetationFromTxx, vegetationToTxx } from "../core/traxx/veg.ts";
 import { vegReplant } from "../core/edit/veg-planter.ts";
 import { vegetationDialog } from "../ui/dialogs/vegetation-dialog.ts";
+import type { Vegetation } from "../core/traxx/veg.ts";
+import { vegMakeFarCards, type VegFarCardHost } from "../core/traxx/veg-far-card.ts";
+import { instPodTextureOk, vegModelsThatWillNotInstance } from "../core/traxx/instancing.ts";
+import { findAsset } from "../core/doc/names.ts";
+import { findModelTexture } from "../core/doc/load-pod.ts";
+import type { ModelAsset, TextureAsset } from "../core/doc/document.ts";
+import type { ModelLoad } from "../worker/model-handlers.ts";
+import { assetWorker } from "./workers.ts";
+
+/** MAXNPODMODELS. */
+const MAX_MODELS = 4096;
 
 /** The whole terrain, for a step that replaces it. */
 const TERRAIN_FIELDS = ["terrainMode", "heights", "h16", "fine", "rawShadow"] as const;
@@ -137,7 +149,9 @@ export function bindTerrainCommands(app: AppState, registry: CommandRegistry, ed
   /*
     Special > Vegetation...: the window edits a copy; Re-plant plants it on the track as it is
     (the drive surface, the lakes' tiles, the objects and courses); OK keeps it as the track's
-    .VEG image and masks, one undo step.
+    .VEG image and masks, one undo step. Make Far Cards (VegMakeFarCards) adds its cards to the
+    REAL track as models, as Traxx does; they are part of the same undo step, and on Cancel they
+    stay in the track as a "Make Far Cards" step of their own (Traxx keeps them, with no undo).
   */
   registry.bind("ID_EDIT_VEGETATION", async () => {
     const doc = editor.doc;
@@ -148,18 +162,73 @@ export function bindTerrainCommands(app: AppState, registry: CommandRegistry, ed
       const raw = view.modelGeometry(m.name)?.raw;
       if (raw) models.set(m.name, raw);
     }
+    const recs = [
+      recordFields(doc, ["models", "modelTextures"], "Vegetation", { models: true }),
+      recordFields(t, ["models", "vegetation"], "Vegetation", { track: true, models: true }),
+    ];
+    const modelBytes = (name: string) => { const at = findAsset(doc.models, name); return at >= 0 ? doc.models[at]!.bytes : null; };
+    const modelTexture = (face: string) => doc.modelTextures[findModelTexture(doc.modelTextures, face)] ?? null;
+    // VegModelsThatWillNotInstance with InstPodTextureOK, for the planter's warning lines.
+    const notInstanced = (v: Vegetation) => vegModelsThatWillNotInstance(v, modelBytes, instPodTextureOk(modelTexture));
+    let cards = 0;
+    const worker = assetWorker();
+    const host: VegFarCardHost<ModelAsset, TextureAsset> = {
+      trackPalette: t.palette,
+      modelBytes,
+      modelLoaded: (bare) => findAsset(doc.models, bare) >= 0,
+      modelTexture,
+      artFile: (name) => worker.call<Uint8Array | null>("farcard.artRead", { name }),
+      artExists: (name) => worker.call<boolean>("farcard.exists", { art: name }),
+      binExists: (bare) => worker.call<boolean>("farcard.exists", { bin: bare }),
+      writeArt: (stem, f) => worker.call<string | null>("farcard.writeArt", { stem, ...f }),
+      writeBin: (bare, bytes) => worker.call<boolean>("farcard.writeBin", { bare, bytes }),
+      deleteArt: (stem) => worker.call<void>("farcard.deleteArt", { stem }),
+      // VcLoadCard: a free model slot, then LoadModelTextures from the ART folder. A bad
+      // placeholder already there for the card's texture is dropped first, so it is loaded again.
+      loadCard: async (bare) => {
+        if (t.models.length >= MAX_MODELS) return "the track already holds the maximum number of models";
+        const face = `ART\\${bare.replace(/\.[^.]*$/, "")}.RAW`;
+        const have = doc.modelTextures.filter((x) => !(x.bad && findModelTexture([x], face) >= 0)).map((x) => x.name);
+        const [r] = await worker.call<ModelLoad[]>("models.load", { items: [{ file: bare, source: "models" }], have });
+        if (!r || typeof r === "string") return `cannot read ${bare}${r ? ` (${r})` : ""}`;
+        return { model: r.model, textures: r.textures, bytes: r.model.bytes ?? new Uint8Array(0), missing: r.missing };
+      },
+      addCard: (c) => {
+        for (const tex of c.textures) {
+          const old = findModelTexture(doc.modelTextures, tex.name);
+          if (old >= 0 && doc.modelTextures[old]!.bad) doc.modelTextures.splice(old, 1);
+        }
+        t.models.push(c.model.name);
+        doc.models.push(c.model);
+        doc.modelTextures.push(...c.textures);
+        cards++;
+      },
+      loadedTexture: (c, face) => c.textures[findModelTexture(c.textures, `ART\\${face}`)] ?? null,
+      modelsFolderLabel: "the MODELS folder (browser storage)",
+      artFolderLabel: "the ART folder (browser storage)",
+    };
     const result = await vegetationDialog({
       vegetation: vegetationFromTxx(t.vegetation),
       prefix: t.prefix,
       modelNames: doc.models.map((m) => m.name),
       replant: (work) => vegReplant(t, work, models, t.lakes.length ? lakesNow(t).tmap : null,
-        t.terrainMode === TERRAINMODE_CLASSIC8 ? undefined : (px, py) => surfaceHeightV(t, px, py)),
+        t.terrainMode === TERRAINMODE_CLASSIC8 ? undefined : (px, py) => surfaceHeightV(t, px, py), notInstanced),
+      makeFarCards: async (work) => {
+        if (editor.doc !== doc) return { changed: 0, report: "Far cards were not made: the track is no longer open." };
+        app.status("Making far cards...");
+        try {
+          return await vegMakeFarCards(host, work);
+        } finally {
+          app.status("");
+        }
+      },
     });
-    if (!result || editor.doc !== doc) return;
-    const rec = recordFields(t, ["vegetation"], "Vegetation", { track: true, models: true });
-    const block = vegetationToTxx(result, t.prefix);
-    t.vegetation = block.image || block.masks.some(Boolean) ? { masks: block.masks.map((m) => (m ? { ext: m.ext, data: m.data } : null)), image: block.image } : null;
-    editor.commit(rec);
+    if (editor.doc !== doc) return;
+    if (result) {
+      const block = vegetationToTxx(result, t.prefix);
+      t.vegetation = block.image || block.masks.some(Boolean) ? { masks: block.masks.map((m) => (m ? { ext: m.ext, data: m.data } : null)), image: block.image } : null;
+      editor.commitAll("Vegetation", recs);
+    } else if (cards > 0) editor.commitAll("Make Far Cards", recs);
   }, { enabled: can });
 
   void app;

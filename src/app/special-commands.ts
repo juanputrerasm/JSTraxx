@@ -16,7 +16,7 @@ import { traxxFogMap, withSysColors } from "../core/traxx/palette.ts";
 import { MTM2_ONLY } from "../core/doc/document.ts";
 import { TRAXX_BOX_FOG, TRAXX_BOX_LIGHT, TRAXX_BOX_RAMP } from "../core/traxx/sit.ts";
 import { terrainGenTarget } from "../core/edit/terrain-gen16.ts";
-import { refreshRaw } from "../core/traxx/terrain16.ts";
+import { refreshRaw, TERRAINMODE_CLASSIC8 } from "../core/traxx/terrain16.ts";
 import { heightsChanged } from "../core/traxx/surface.ts";
 import { lakeErrors, lakeRefusal } from "./modes/lake-commands.ts";
 import { alertDialog } from "../ui/shell/dialog.ts";
@@ -36,10 +36,16 @@ export function bindSpecial(app: AppState, registry: CommandRegistry, editor: Ed
     const s = out.settings;
     app.updateSettings((st) => { st.randseed = (s.seed & 255) | (s.mode << 8); st.autoterrain = { left: s.ground, right: s.hillHeight, top: s.valleyDepth, bottom: s.smoothness }; });
     // A 16-bit result goes into the real grid (h16, or the Full Map's 1024), then the mirror follows.
+    // Only the grid the dialog made is written, settled before the undo record (OnEditGenTerrain's
+    // GEN_FINE / GEN_H16 / GEN_RAW, review fix 78d7b93): a mismatch leaves the track and undo alone.
+    const gen = t.fine && target.gridSize === 1024 && out.v ? "fine"
+      : t.h16 && target.gridSize === 256 && out.v ? "h16"
+      : t.terrainMode === TERRAINMODE_CLASSIC8 && !target.precise ? "raw" : null;
+    if (!gen) return;
     const before = lakeErrors(t);
     const rec = recordFields(t, ["heights", "h16", "fine", "rawShadow"], "Random Terrain", { heights: { minX: 0, minY: 0, maxX: 255, maxY: 255 } });
-    if (target.precise && out.v && t.fine && target.gridSize === 1024) t.fine.set(out.v);
-    else if (target.precise && out.v && t.h16 && target.gridSize === 256) t.h16.set(out.v);
+    if (gen === "fine") t.fine!.set(out.v!);
+    else if (gen === "h16") t.h16!.set(out.v!);
     else t.heights.set(out.heights);
     if (target.precise) { refreshRaw(t); heightsChanged(t); }
     const refusal = lakeRefusal(t, before, "Generate Terrain");

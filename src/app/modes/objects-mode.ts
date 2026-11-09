@@ -25,6 +25,10 @@ import { applyObjectFields, objectFields, previewObject } from "../../core/edit/
 import { groupPropertiesDialog, objectPropertiesDialog } from "../../ui/dialogs/object-dialogs.ts";
 import { applyGroup, applyLook, groupStart } from "../../core/edit/group-properties.ts";
 import { lightPoolLines } from "../../core/view/light-pool.ts";
+import { copyForClipboard } from "../../core/traxx/box-ground.ts";
+
+/** A ground point picked in the view: whole ipos / steps and the 1/256 left over. */
+interface Spot { at: [number, number, number]; fraction: [number, number, number] }
 import { effectiveFog, fogShapeLines, fogVolumeCentre, fogVolumeRing, type FogPreview } from "../../core/view/fog-volume.ts";
 import { arrowSegments, lightArrow } from "../../core/view/arrows.ts";
 import { openDialog } from "../../ui/shell/dialog.ts";
@@ -47,7 +51,7 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
   let collapseOnUp = false;
   let boxFrom: { x: number; y: number } | null = null;
   let boxTo: { x: number; y: number } | null = null;
-  let menuPoint: [number, number, number] | null = null;
+  let menuPoint: Spot | null = null;
 
   const track = () => editor.doc!.track;
   const exists = (i: number) => i >= 0 && i < (editor.doc?.track.boxes.length ?? 0);
@@ -63,9 +67,13 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
     return mid ? view.project(mid[0], mid[1], mid[2]) : view.project(b.ipos[0] + b.fraction[0] / 256, b.ipos[1] + b.fraction[1] / 256, ALTITUDE_SCALE * (b.ipos[2] + b.fraction[2] / 256));
   });
   const nearest = (p: { x: number; y: number }) => nearestOnScreen(screenPoints(), p, OBJECT_LIMIT, view.size);
-  const ground = (p: ViewPoint | null): [number, number, number] | null => {
+  /*
+    The ground under a point as ScreenToTerrainPoint gives it: whole ipos and steps, and the
+    1/256 fractions (0 on Classic 8-bit; the drive surface's own elsewhere, Traxx 1.7).
+  */
+  const ground = (p: ViewPoint | null): Spot | null => {
     const hit = p ? view.pick(p.clientX, p.clientY) : null;
-    return hit ? [Math.trunc(hit.point[0]), Math.trunc(hit.point[1]), Math.trunc(hit.point[2] / ALTITUDE_SCALE)] : null;
+    return hit ? { at: [...hit.ipos], fraction: [...hit.fraction] } : null;
   };
 
   const edit = (label: string, change: () => unknown) => {
@@ -89,11 +97,11 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
   };
 
   const insert = () => {
-    const at = menuPoint ?? ground(editor.lastPoint);
-    if (!at) return;
+    const spot = menuPoint ?? ground(editor.lastPoint);
+    if (!spot) return;
     if (track().boxes.length >= 4096) { void alertDialog("Insert", "Max. 4096 Objects!"); return; }
     let index: number | null = null;
-    edit("Insert Object", () => { index = insertObject(track(), at); });
+    edit("Insert Object", () => { index = insertObject(track(), spot.at, spot.fraction); });
     sel.clear();
     sel.select(index ?? -1);
     editor.selectionChanged();
@@ -102,15 +110,16 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
   const copy = () => {
     const b = track().boxes[sel.anchor];
     if (!b) return;
-    editor.clipboard.object = structuredClone(b);
+    // OnObjectCopy: on the drive surface the clipboard keeps the height pair (copyForClipboard).
+    editor.clipboard.object = copyForClipboard(track(), b);
     app.emit("commands", undefined);
   };
   const paste = (p: ViewPoint | null) => {
     const copyBox = editor.clipboard.object as TraxxBox | undefined;
-    const at = menuPoint ?? ground(p);
-    if (!copyBox || !at) return;
+    const spot = menuPoint ?? ground(p);
+    if (!copyBox || !spot) return;
     let result: ReturnType<typeof pasteObject> = { index: null, refusal: null };
-    edit("Paste Object", () => { result = pasteObject(track(), copyBox, at); });
+    edit("Paste Object", () => { result = pasteObject(track(), copyBox, spot.at, spot.fraction); });
     sel.clear();
     sel.select(result.index ?? -1);
     if (result.refusal) void alertDialog("Paste Object", result.refusal);
@@ -141,7 +150,7 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
     if (!selected().length || !geo) return;
     const ups = function* () { for (let i = 2; i < geo.raw.length; i += 3) yield geo.raw[i]; };
     const title = name.toUpperCase().replace(/^MODELS\\/, "");
-    nudge("Apply Model", (b) => applyModel(b, { title, keyframed: geo.frameNames.length > 0, baseZ: modelBaseZ(ups()) }));
+    nudge("Apply Model", (b) => applyModel(b, { title, keyframed: geo.frameNames.length > 0, baseZ: modelBaseZ(ups()) }, track()));
   }) as (...args: never[]) => unknown;
 
   /* The light pool shown for a box while a dialog edits its light (SetLightPreview). */
@@ -188,12 +197,12 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
     let base = "";
     const refresh = () => { view.refresh({ objects: true }); editor.selectionChanged(); };
     const result = await objectPropertiesDialog({
-      fields: objectFields(box),
+      fields: objectFields(box, t),
       modelName: box.modelName ? `MODELS\\${box.modelName}` : "",
       crushName: box.crushName,
       sitUnits: app.settings.show_sit_units,
       restingHeight: resting,
-      preview: (f) => { previewObject(box, t.heights, f); refresh(); },
+      preview: (f) => { previewObject(box, t, f); refresh(); },
       previewLight: (light, isLight) => { lightPreview = { box, light, isLight }; editor.selectionChanged(); },
       previewFog: (fog, isFog) => setFogPreview({ box, fog, isFog }),
       fogBox: () => box,
@@ -219,7 +228,7 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
     Object.assign(box, structuredClone(before));
     box.crushName = result.crushName;
     if (base) box.modelName = base;
-    const messages = applyObjectFields(t, i, result.fields, t.heights, result.wavs, before.heightAboveGround);
+    const messages = applyObjectFields(t, i, result.fields, t, result.wavs, before.heightAboveGround);
     if (box.type === 6) { sel.select(t.boxes.indexOf(box)); }
     editor.commit(rec);
     editor.selectionChanged();
@@ -238,10 +247,10 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
     const boxes = list.map((i) => t.boxes[i]!);
     const looks = boxes.map((b) => structuredClone(b));
     const restore = () => boxes.forEach((b, k) => Object.assign(b, structuredClone(looks[k]!)));
-    const start = groupStart(boxes);
+    const start = groupStart(boxes, t);
     const result = await groupPropertiesDialog(list.length, start, pickWav, (text) => {
       restore();
-      for (const b of boxes) applyLook(b, text, start.text, t.heights);
+      for (const b of boxes) applyLook(b, text, start.text, t);
       view.refresh({ objects: true });
       editor.selectionChanged();
     });
@@ -310,7 +319,7 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
       // A drag, not a click: the set stays a set.
       collapseOnUp = false;
       if (p.shift) dragRotate(boxes(), p.x - lastX);
-      else { const at = ground(p); if (at) dragObjects(track(), selected(), at); }
+      else { const spot = ground(p); if (spot) dragObjects(track(), selected(), spot.at, spot.fraction); }
       lastX = p.x;
       editor.emit("changed", touch);
     },
@@ -355,7 +364,7 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
       // Ctrl alone on C and V is Copy and Paste, never a nudge.
       if (ctrl && !shift && (e.code === "KeyC" || e.code === "KeyV")) return false;
       const sit = app.settings.show_sit_units;
-      const heights = () => track().heights;
+      const heights = () => track();
       switch (e.code) {
         case "KeyR": nudge("Turn", (b) => rotateObjects(b, nudgeTurn(shift, ctrl))); return true;
         case "KeyT": nudge("Turn", (b) => rotateObjects(b, -nudgeTurn(shift, ctrl))); return true;
@@ -407,7 +416,7 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
         if (isLight) {
           g.save();
           g.strokeStyle = "#00ffff";
-          for (const [a, b] of lightPoolLines(anchor, preview?.light ?? anchor.light, doc.track.heights)) {
+          for (const [a, b] of lightPoolLines(anchor, preview?.light ?? anchor.light, doc.track)) {
             const p = project(a![0], a![1], a![2]), q = project(b![0], b![1], b![2]);
             if (p && q) { g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); g.stroke(); }
           }

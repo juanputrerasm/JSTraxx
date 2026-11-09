@@ -17,7 +17,13 @@
       the .TXV beside it names a heights PNG, Traxx 1.7); the RAW's size gives the terrain mode.
 
   Art and models are then found by name as for a .TXX. Traxx looks only in its ART and MODELS
-  folders; JSTraxx looks in the TrackEd folder's own ART and MODELS first.
+  folders; JSTraxx looks in the TrackEd folder's own ART and MODELS first (cloneAssetSource).
+
+  Surface meshes (Traxx 1.7): LoadModels notes each model's source file (NoteSource,
+  TrackPODBinary.cpp), and Write POD packs the .SRF found beside it (FindSurfaceSidecar). So a
+  cloned model's .SRF is the one beside the .BIN it was read from: the TrackEd folder's
+  MODELS\<stem>.SRF for a model found there, the MODELS folder's or the same library pod's for
+  one found there, never one from another place.
 */
 import { parseMtmSit, parseMtmLvl } from "../../vendor/openphotex/mtm/sit.js";
 import { traxxSitFromParsed, TRAXX_BOX_CRUSH } from "../traxx/sit.ts";
@@ -32,12 +38,24 @@ import { applyTerrainHeightsImage, deriveBoxHeights, readGroundBoxes, resolveTer
 import { loadRaw, parseTerrainHeightsKey } from "../traxx/terrain16.ts";
 import { loadTrackAssets, type AssetSource } from "./load-txx.ts";
 import { findAsset } from "./names.ts";
+import { layeredModels } from "./surface-sidecar.ts";
 
 /** A TrackEd folder: files by their path below it, "WORLD\\X.SIT", any case. */
 export interface TrackedFolder {
   read(path: string): Promise<Uint8Array | null>;
   /** Whether a file exists (for picking the clone's stem). */
   has(path: string): boolean;
+}
+
+/**
+  The clone's art and models: the TrackEd folder's ART and MODELS, then `library` (Traxx's ART
+  and MODELS folders and the game library). A .SRF is read only from where its model came.
+*/
+export function cloneAssetSource(folder: TrackedFolder, library: AssetSource): AssetSource {
+  return {
+    art: async (p) => (await folder.read(`ART\\${p}`)) ?? library.art(p),
+    model: layeredModels([(p) => folder.read(`MODELS\\${p}`), (p) => library.model(p)]),
+  };
 }
 
 export class CloneError extends Error {

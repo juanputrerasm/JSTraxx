@@ -120,8 +120,11 @@ function qsortAxis(col: Uint16Array, box: QBox, axis: number, tmp: Uint16Array):
   col.set(tmp.subarray(0, box.count), box.start);
 }
 
-/** HDTexQuantize: a 256-entry palette (768-byte ACT) for `rgb` and an index per pixel. */
-export function quantize(rgb: Uint8Array, w: number, h: number): { indices: Uint8Array; act: Uint8Array } {
+/**
+  HDTexQuantizeN: a 256-entry palette (768-byte ACT) for `rgb` and an index per pixel, building at
+  most `maxbox` entries (HDTexQuantize builds 256; HDTexQuantizeKeyed 255, holding entry 0 back).
+*/
+export function quantize(rgb: Uint8Array, w: number, h: number, maxbox = 256): { indices: Uint8Array; act: Uint8Array } {
   const npix = w * h;
   const hist = new Int32Array(QHIST);
   const sum = new Int32Array(QHIST * 3);
@@ -144,7 +147,7 @@ export function quantize(rgb: Uint8Array, w: number, h: number): { indices: Uint
   const box: QBox[] = [{ lo: [0, 0, 0], hi: [0, 0, 0], start: 0, count: ncol, pixels: 0 }];
   qshrink(box[0]!, col, hist);
 
-  while (box.length < 256) {
+  while (box.length < maxbox) {
     let pick = -1, best = -1;
     for (let i = 0; i < box.length; i++) {
       if (box[i]!.count < 2) continue;
