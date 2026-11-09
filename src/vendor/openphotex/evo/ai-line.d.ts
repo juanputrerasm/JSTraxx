@@ -4,6 +4,8 @@ export interface EvoAiLine {
     lapTime: string;
     /** (x, height, z), in .SIT axes. */
     points: [number, number, number][];
+    /** Each sample's recorded speed, ft/s (EVO2_EXE_ANALYSIS.md 12); NaN where a sample has none. */
+    speeds: number[];
 }
 /** One AI line file: its header fields and the recorded positions, in .SIT axes. */
 export declare function parseEvoAiLine(bytes: Uint8Array): EvoAiLine;

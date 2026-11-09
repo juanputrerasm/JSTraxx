@@ -86,7 +86,23 @@ export class MenuBar {
         recent.forEach((r, i) => list.append(this.row(`&${i + 1} ${r.label}`, "", true, false, () => r.run())));
         continue;
       }
-      if (typeof item !== "string" && !("id" in item)) continue;
+      if (typeof item !== "string" && "items" in item) {
+        // A submenu (File > New, Special > Terrain Grid): its own dropdown beside the row, inside
+        // this one so a click in it is not a click elsewhere.
+        const sub = item.items;
+        const row = this.row(item.label, "\u25b8", true, false, () => {});
+        row.classList.add("menu-submenu");
+        row.addEventListener("mouseenter", () => {
+          list.querySelectorAll(":scope > .menu-dropdown").forEach((d) => d.remove());
+          const child = this.build(sub);
+          const r = row.getBoundingClientRect();
+          child.style.left = `${r.right - 2}px`;
+          child.style.top = `${r.top - 4}px`;
+          list.append(child);
+        });
+        list.append(row);
+        continue;
+      }
       const id = typeof item === "string" ? item : item.id;
       const c = this.registry.get(id);
       if (!c) continue;
@@ -101,7 +117,7 @@ export class MenuBar {
     return el("div", {
       class: `menu-item${enabled ? "" : " disabled"}`, role: "menuitem", tabindex: "-1",
       "aria-disabled": enabled ? null : "true",
-      onmouseup: () => { if (!enabled) return; this.close(); run(); },
+      onmouseup: (e: MouseEvent) => { if (!enabled || key === "\u25b8") return; e.stopPropagation(); this.close(); run(); },
       onmouseenter: (e: MouseEvent) => (e.currentTarget as HTMLElement).focus(),
     },
     el("span", { class: "check" }, checked ? "✓" : ""),

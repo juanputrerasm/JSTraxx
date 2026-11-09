@@ -20,6 +20,12 @@ import { alertDialog } from "../../ui/shell/dialog.ts";
 import { copyImage, pasteImage } from "../../shared/system-clipboard.ts";
 import { ALTITUDE_SCALE } from "../../core/view/camera.ts";
 import { devicePx } from "../../render/overlay.ts";
+import { lakeCommands, lakeErrors, lakeRefusal } from "./lake-commands.ts";
+import { adjustHeights16, applyStamp16, heightsChanged } from "../../core/traxx/surface.ts";
+import { refreshRaw, TERRAINMODE_CLASSIC8, TERRAINMODE_FINE } from "../../core/traxx/terrain16.ts";
+import { buildLakeGround } from "../../core/traxx/surface.ts";
+import { lakeMinHeight, lakeNearestLegalHeight, recomputeLakes, LAKE_MAX_HEIGHT, LAKE_NO_BASIN } from "../../core/traxx/lakes.ts";
+import type { Recording } from "../../core/edit/record.ts";
 
 export function terrainMode(ctx: ModeContext): ModeHandler {
   const { app, editor, view, registry } = ctx;
@@ -48,25 +54,56 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
     return hit ? hit.vertex : null;
   };
 
-  /* ApplyEditGrid at the brush's vertex, as one undo step. */
-  const apply = (label = "Terrain Edit") => {
+  /*
+    Every grid a terrain edit can touch, recorded over `rect`: raw, and on a 16-bit track h16 and
+    the mirror's shadow too, so an undo puts the fractions back and leaves nothing to fold.
+  */
+  const recordTerrain = (rect: { minX: number; minY: number; maxX: number; maxY: number }, label: string): Recording[] => {
+    const t = editor.doc!.track;
+    const recs = [recordGrid(t.heights, rect, label, (r) => ({ heights: r }))];
+    if (t.h16) recs.push(recordGrid(t.h16, rect, label, (r) => ({ heights: r })));
+    if (t.rawShadow) recs.push(recordGrid(t.rawShadow, rect, label, (r) => ({ heights: r })));
+    return recs;
+  };
+
+  /*
+    The lake guard (LakesRefuseTerrainEdit): commit the edit, or put it back with Traxx's message
+    when it gave a lake an error it did not have.
+  */
+  const commitGuarded = (label: string, what: string, recs: Recording[], before: number[]) => {
+    const refusal = lakeRefusal(editor.doc!.track, before, what);
+    const change = editor.commitAll(label, recs);
+    if (refusal && change) {
+      editor.undo();
+      void alertDialog(what, refusal);
+    }
+  };
+
+  /*
+    ApplyEditGrid at the brush's vertex, as one undo step. CLASSIC16 and Spline: the same brush
+    on h16 in v (ApplyStamp16, terraingridv), clipped at the map edge, then RefreshRaw. A Full Map
+    is brushed on its 8 ft points in Traxx; that brush is not ported, so it is refused here.
+  */
+  const apply = (label = "Terrain Edit", altitudeSign = 0) => {
     if (!vertex || !editor.doc) return;
-    const p = params();
-    const eg = grid();
-    const rect = p.tool === 7 ? brushRect(1, 1, vertex[0], vertex[1]) : brushRect(eg.width, eg.height, vertex[0], vertex[1]);
-    const rec = recordGrid(heights(), rect, label, (r) => ({ heights: r }));
-    applyEditGrid(heights(), eg, p, vertex[0], vertex[1]);
-    editor.commit(rec);
+    const t = editor.doc.track;
+    if (t.terrainMode === TERRAINMODE_FINE) { app.status("The 8 ft Full Map brush is not ported yet: convert to 16-bit Spline to edit with the brush."); return; }
+    const p = altitudeSign ? { ...params(), altitude: altitudeSign * app.settings.edit.altitude } : params();
+    const eg = altitudeSign ? grid() : grid();
+    const w = p.tool === 7 ? 1 : eg.width, h = p.tool === 7 ? 1 : eg.height;
+    const rect = brushRect(w, h, vertex[0], vertex[1]);
+    const before = lakeErrors(t);
+    const recs = recordTerrain(rect, label);
+    if (t.terrainMode !== TERRAINMODE_CLASSIC8 && t.h16) {
+      applyStamp16(t.h16, 256, 255, eg.gridV, w, h, vertex[0], vertex[1], p.tool, p.altitude * 256, p.tool === 5 ? t.h16.slice() : null, false);
+      refreshRaw(t);
+      heightsChanged(t);
+    } else applyEditGrid(heights(), eg, p, vertex[0], vertex[1]);
+    commitGuarded(label, "The terrain edit", recs, before);
   };
 
   /* Direct Edit: S / ] adds the altitude to the point, X / [ takes it off (TX_TERRAINAMPLITUDE). */
-  const direct = (sign: number) => {
-    if (!vertex) return;
-    const p = { ...params(), altitude: sign * app.settings.edit.altitude };
-    const rec = recordGrid(heights(), brushRect(1, 1, vertex[0], vertex[1]), "Direct Edit", (r) => ({ heights: r }));
-    applyEditGrid(heights(), grid(), p, vertex[0], vertex[1]);
-    editor.commit(rec);
-  };
+  const direct = (sign: number) => apply("Direct Edit", sign);
 
   const copyArea = () => {
     if (!vertex) return;
@@ -77,9 +114,10 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
   const pasteArea = () => {
     const block = editor.clipboard.terrain as TerrainBlock | undefined;
     if (!vertex || !block) return;
-    const rec = recordGrid(heights(), brushRect(block.width, block.height, vertex[0], vertex[1]), "Paste Area", (r) => ({ heights: r }));
+    const before = lakeErrors(editor.doc!.track);
+    const recs = recordTerrain(brushRect(block.width, block.height, vertex[0], vertex[1]), "Paste Area");
     pasteTerrain(heights(), block, vertex[0], vertex[1]);
-    editor.commit(rec);
+    commitGuarded("Paste Area", "Paste Area", recs, before);
   };
 
   /* Adjust Terrain Heights, with objects, truck starts, course ends and water as chosen. */
@@ -92,20 +130,40 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
     const r = await adjustHeightsDialog(min, max);
     if (!r) return;
     const t = doc.track;
-    const recs = [
-      recordGrid(h, { minX: 0, minY: 0, maxX: 255, maxY: 255 }, "Adjust Heights", (rect) => ({ heights: rect })),
-      recordFields(t, ["boxes", "trucks", "course", "extendedCourses", "waterLevel4"], "Adjust Heights", { objects: true, course: true, trucks: true, water: true }),
+    const before = lakeErrors(t);
+    const recs: Recording[] = [
+      ...recordTerrain({ minX: 0, minY: 0, maxX: 255, maxY: 255 }, "Adjust Heights"),
+      recordFields(t, ["boxes", "trucks", "course", "extendedCourses", "waterLevel4", "lakes", "fine"], "Adjust Heights", { objects: true, course: true, trucks: true, water: true }),
     ];
     const placed: Placed[] = [];
     if (r.movePlaced) {
       placed.push(...t.boxes, ...t.trucks);
       for (const course of [t.course, ...t.extendedCourses]) for (const seg of course ?? []) placed.push({ ipos: seg.cstart }, { ipos: seg.cend });
     }
-    const res = adjustHeights(h, r, placed, r.moveWater ? t.waterLevel4 : null);
+    // 16-bit tracks: the same factor and lift (taken from the 8-bit mirror) on h16 or the Full Map
+    // grid, inc * 256 (AdjustHeights16 / AdjustHeightsFine), so fractions survive.
+    const res = adjustHeights(h, r, placed, r.moveWater ? t.waterLevel4 : null,
+      t.fine || t.h16 ? (scale, inc, f) => adjustHeights16(t, scale, inc * 256, f) : undefined);
     if (res.water4 !== null) t.waterLevel4 = res.water4;
+    // The lakes are refitted whatever "move water" says: lifted 4N or scaled floor(H * f), then
+    // moved to the nearest height the basin legally holds.
+    if (t.lakes.length) {
+      for (const lake of t.lakes) {
+        const lh = r.scale ? Math.floor(lake.height * res.factor + 1e-9) : lake.height + 4 * res.inc;
+        lake.height = Math.max(0, Math.min(LAKE_MAX_HEIGHT, lh));
+      }
+      const g = buildLakeGround(t);
+      const st = recomputeLakes(g, t.lakes, t.waterLevel4);
+      t.lakes.forEach((lake, li) => {
+        const spill = st.lakes[li]!.spill;
+        if (spill === LAKE_NO_BASIN) return;
+        const n = lakeNearestLegalHeight(g, lake, lake.height, lakeMinHeight(g, t.waterLevel4, lake), spill);
+        if (n >= 0) lake.height = n;
+      });
+    }
     // Moved or not, every object's height above ground describes where it now is.
     deriveBoxHeights(t);
-    editor.commitAll("Adjust Heights", recs);
+    commitGuarded("Adjust Heights", "Adjust Terrain Heights", recs, before);
   };
 
   const copyBitmap = async () => {
@@ -119,9 +177,12 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
     try { img = await pasteImage(); } catch { img = null; }
     const data = img ? rgbaToHeights(img.rgba, img.width, img.height) : null;
     if (!data) { await alertDialog("Paste Terrain Bitmap", "Sorry, the bitmap must be 256 x 256 pixels. Copy a greyscale picture of that size first."); return; }
-    const rec = recordGrid(heights(), { minX: 0, minY: 0, maxX: 255, maxY: 255 }, "Paste Terrain Bitmap", (r) => ({ heights: r }));
+    const t = editor.doc!.track;
+    if (t.terrainMode === TERRAINMODE_FINE) return;
+    const before = lakeErrors(t);
+    const recs = recordTerrain({ minX: 0, minY: 0, maxX: 255, maxY: 255 }, "Paste Terrain Bitmap");
     heights().set(data);
-    editor.commit(rec);
+    commitGuarded("Paste Terrain Bitmap", "Paste Terrain Bitmap", recs, before);
   };
 
   const editable = () => editor.canEdit;
@@ -129,7 +190,8 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
   registry.bind("ID_TERRAIN_PASTE", pasteArea, { enabled: () => editable() && vertex !== null && Boolean(editor.clipboard.terrain) });
   registry.bind("ID_TERRAIN_RAISELOWER", adjust, { enabled: editable });
   registry.bind("ID_TERRAIN_COPYBITMAP", copyBitmap, { enabled: () => Boolean(editor.doc) });
-  registry.bind("ID_TERRAIN_PASTEBITMAP", pasteBitmap, { enabled: editable });
+  registry.bind("ID_TERRAIN_PASTEBITMAP", pasteBitmap, { enabled: () => editable() && editor.doc?.track.terrainMode !== TERRAINMODE_FINE });
+  const lakes = lakeCommands(ctx, () => vertex && [vertex[0] & 255, vertex[1] & 255]);
 
   const setEdit = (change: (e: typeof app.settings.edit) => void) => app.updateSettings((s) => change(s.edit));
 
@@ -144,7 +206,7 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
     },
     contextMenu(p) {
       vertex = locate(p) ?? vertex;
-      return { items: CONTEXT_MENUS.Terrain };
+      return { items: [...CONTEXT_MENUS.Terrain, ...lakes.menuItems()] };
     },
     keyDown(e) {
       const tool = app.settings.edit.tool;

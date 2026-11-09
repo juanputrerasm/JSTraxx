@@ -6,6 +6,18 @@ export declare const REPLAY_TICKS_PER_SECOND = 65536;
 /** The heading of the extension block after the counted records (see the top of this file), and its version. */
 export declare const REPLAY_SAMPLES_HEADING = "OpenMTM2 samples";
 export declare const REPLAY_SAMPLES_VERSION = 1;
+/** The heading of the crush block after the counted records, and its version. */
+export declare const REPLAY_CRUSH_HEADING = "OpenMTM2 crush";
+export declare const REPLAY_CRUSH_VERSION = 1;
+/** A top-crush car's crush from a moment on (the crush block). */
+export interface MtmReplayCrush {
+    /** In 1/65536 s. */
+    time: number;
+    /** The SIT's top-crush car, 0 the first. */
+    car: number;
+    /** 0 intact to 1 flat. */
+    share: number;
+}
 /** A vehicle's pose between two records (the extension block). */
 export interface MtmReplaySample {
     /** In 1/65536 s. */
@@ -57,6 +69,8 @@ export interface MtmReplay {
     records: MtmReplayRecord[];
     /** The extension block's samples, oldest first (none in a file the game wrote). */
     samples?: MtmReplaySample[];
+    /** The crush block's changes, oldest first (none in a file the game wrote). */
+    crush?: MtmReplayCrush[];
 }
 /** Read a replay; null when it is not one (no `demoLevel` header). */
 export declare function parseMtmReplay(input: Uint8Array | string): MtmReplay | null;

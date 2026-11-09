@@ -117,6 +117,7 @@ export function bindWritePod(registry: CommandRegistry, app: AppState, editor: E
     const notes: string[] = [];
     if (report.longFrames.length) notes.push(`These animation frame names are longer than 15 characters:\n\n${report.longFrames.join("\n")}\n\nThe engine stores each frame's name next to that frame's SOUND name, so a longer name overwrites the sound instead of truncating. Rename these to at most 15 characters including the extension (an 11-character stem with .RAW) and build again.`);
     if (report.badTextures.length) notes.push(`The pod was written, but these textures could not be packed properly:\n\n${report.badTextures.join("\n")}\n\nThe track will load, but these will be wrong or missing in game.`);
+    notes.push(...report.warnings);
     if (notes.length) await alertDialog("Write POD", notes.join("\n\n"));
     else app.status(`Wrote ${name} (${Math.round(bytes.length / 1024)} KB, ${report.entries.length} entries${report.omittedAny ? ", .SI2" : ""})`);
   }, { enabled: () => Boolean(editor.doc && !editor.doc.viewOnly) });

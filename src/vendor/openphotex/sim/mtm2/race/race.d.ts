@@ -54,6 +54,11 @@ export interface Race {
     /** Summit Rumble: the scoring state, and the round's length in seconds (§6.3); else null. */
     summit: Summit | null;
     roundSeconds: number;
+    /**
+     * 4x4 Evolution 2's checkpoint rule (EVO2_PHYSICS.md 12, 0x53a150): a gate counts driven through either way, any
+     * speed through it but 0. MTM2 and Evo 1 count it only forwards. Set by the caller from the physics rules.
+     */
+    twoWay?: boolean;
 }
 /** The checkpoints as boxes: gate and detector (§6.2), with the checkpoint's heading. */
 export declare function raceCheckpoints(cps: readonly Mtm2Checkpoint[]): Race["checkpoints"];
@@ -68,7 +73,7 @@ export declare function raceStarted(race: Race): boolean;
  * The checkpoint-mode hull test (§14.24 step 2): the deepest hull point that crossed the box's
  * back face (-z), with its depth and body point; null when none.
  */
-export declare function backFaceCrossing(s: Mtm2TruckState, p: Mtm2TruckParams, box: SimBox, dt: number): {
+export declare function backFaceCrossing(s: Mtm2TruckState, p: Mtm2TruckParams, box: SimBox, dt: number, twoWay?: boolean): {
     depth: number;
     point: V3;
 } | null;

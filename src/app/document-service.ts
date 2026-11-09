@@ -2,6 +2,8 @@
   The open track on the page side: holds the TrackDocument, its file name, whether it has
   unsaved changes, and runs the document commands through the asset worker. CTraxxDoc's role.
 */
+import { setMode } from "../core/traxx/surface.ts";
+import { TERRAINMODE_CLASSIC8 } from "../core/traxx/terrain16.ts";
 import { Emitter } from "../shared/emitter.ts";
 import type { WorkerClient } from "../shared/worker-client.ts";
 import type { TrackDocument } from "../core/doc/document.ts";
@@ -67,8 +69,11 @@ export class DocumentService extends Emitter<DocEvents> {
     this.emit("title", this.title);
   }
 
-  async newTrack(): Promise<void> {
-    this.set(await this.worker.call<TrackDocument>("doc.new"), null);
+  /** File > New; `mode` is File > New's terrain grid (OnNewDocument with m_newTerrainMode). */
+  async newTrack(mode = TERRAINMODE_CLASSIC8): Promise<void> {
+    const doc = await this.worker.call<TrackDocument>("doc.new");
+    if (mode !== TERRAINMODE_CLASSIC8) setMode(doc.track, mode);
+    this.set(doc, null);
   }
 
   async openTxx(source: string | File, fileName: string): Promise<TrackDocument> {

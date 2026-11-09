@@ -19,6 +19,8 @@ export interface EvoVehicleSpec {
     /** Damping derivatives: roll, pitch, yaw. */
     clp: number;
     cmq: number;
+    /** The rest sag setSprings gave (feet), which places the CG over the wheels (`createEvoParams`); unset before it ran. */
+    sagFt?: number;
     cnr: number;
     cgModifier: Triplet;
     /** When set, the CG itself (translated vehicles keep MTM2's); otherwise the rules' default plus `cgModifier`. */
@@ -79,6 +81,7 @@ export interface EvoGarage {
 export declare function evoSprings(spec: EvoVehicleSpec, s: number, defaultCgZ: number): {
     springRate: [number, number];
     damping: [number, number];
+    sagFt: number;
 };
 /** A vehicle's figures with the garage's settings applied, as the game's setters change them (EVO2_PHYSICS.md 2.2). */
 export declare function applyEvoGarage(spec: EvoVehicleSpec, garage: EvoGarage | null | undefined, defaultCgZ: number): EvoVehicleSpec;

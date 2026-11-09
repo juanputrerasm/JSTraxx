@@ -8,7 +8,8 @@
   backdrop, fog map, ground boxes, sounds, animations and the sun. Art and models are kept by
   name only; Traxx reloads them from its ART and MODELS folders.
 
-  The header names the generation, TRAXXV1 to TRAXXV11. Each one appends fields, and Traxx
+  The header names the generation, TRAXXV1 to TRAXXV17 (V12 to V17 are Traxx 1.7's: fog,
+  vegetation, lakes and the terrain modes). Each one appends fields, and Traxx
   writes the LOWEST generation the track's contents need (txxVersionFor), so a track that uses
   nothing new stays readable by an older Traxx. Every rule below says which generation adds it.
 
@@ -16,15 +17,34 @@
   keeps what fits the destination and consumes the rest, as LOADSTRINGN does.
 */
 import { f32 } from "./cformat.ts";
-import { traxxBoxDefaults, traxxLightDefaults, traxxTruckDefaults, traxxUiBitmapName, TRAXX_BOX_CRUSH, TRAXX_BOX_LIGHT } from "./sit.ts";
+import {
+  clampTraxxFog, traxxBoxDefaults, traxxFogEngineDefaults, traxxLightDefaults, traxxTruckDefaults, traxxUiBitmapName,
+  TRAXX_BOX_CRUSH, TRAXX_BOX_FOG, TRAXX_BOX_LIGHT,
+} from "./sit.ts";
 import type { TraxxArena, TraxxBox, TraxxCourseSegment, TraxxTruck } from "./sit.ts";
+import {
+  refreshRaw, syncFromRaw, wordsOf, RAWLEN_16BIT, RAWLEN_FINE, TERRAIN_FINE, TERRAINMODE_CLASSIC8, TERRAINMODE_FINE,
+} from "./terrain16.ts";
 
 /** The newest generation this port reads and writes. */
-export const TXX_LATEST_VERSION = 11;
+export const TXX_LATEST_VERSION = 17;
 
 const MISCFLAG_FOGMAP = 0x1;
 const MISCFLAG_SUNPOS = 0x2;
 const MISCFLAG_NORAWFALLBACK = 0x4;
+/** MISCFLAG_PNGHEIGHTS (1.7): Write POD packs the heights as DATA\<stem>_H.PNG (Special > Terrain Grid). */
+const MISCFLAG_PNGHEIGHTS = 0x8;
+/** CTrackPODBox::Load / Save: the fog generations (TrackPODBox.cpp). */
+const BOXBIN_VERSION_FOG = 12;
+const BOXBIN_VERSION_FOGLOOK = 13;
+const BOXBIN_VERSION_FOGBOT = 14;
+/** VEG_NLAYERS: trees (_V) then grass (_G). */
+export const VEG_LAYERS = 2;
+/** LoadBinary refuses a .VEG image longer than this as a corrupt file. */
+const VEG_IMAGE_MAX = 64 * 1024 * 1024;
+/** LAKE_MAX_LAKES, LAKE_MAX_SEEDS (Include/TrackPODLakes.h). */
+export const LAKE_MAX_LAKES = 255;
+export const LAKE_MAX_SEEDS = 8;
 const TERFILE_RAW = 0x1;
 const TERFILE_CLR = 0x2;
 const TERFILE_LTE = 0x4;
@@ -93,6 +113,26 @@ export interface TxxHdArt {
   data: Uint8Array;
 }
 
+/**
+  V15: the vegetation, kept as Traxx stores it and not interpreted: the two painted masks (trees
+  _V, grass _G), each with its extension, then the whole .VEG image BuildVEG made.
+*/
+export interface TxxVegetation {
+  masks: (TxxHdArt | null)[];
+  /** The .VEG bytes; null when the block held none (masks only). */
+  image: Uint8Array | null;
+}
+
+/** V16: one lake's authored part (the filled tiles are rebuilt from the terrain). */
+export interface TxxLake {
+  /** Water units (quarter steps, like waterLevel4). */
+  height: number;
+  /** LAKEFLAG_*: 0x1 reflective. */
+  flags: number;
+  /** Up to eight seed cells, [x, z]. */
+  seeds: [number, number][];
+}
+
 export interface TxxTrack {
   /** The generation read; writeTxx stamps txxVersionFor instead. */
   version: number;
@@ -154,6 +194,18 @@ export interface TxxTrack {
   animations: TxxAnimation[];
   /** Null in a file written before Traxx recorded the sun. */
   sun: TxxSun | null;
+  /** V17: TERRAINMODE_* (terrain16.ts); `heights` is then the 8-bit mirror of h16 or fine. */
+  terrainMode: number;
+  h16: Uint16Array | null;
+  fine: Uint16Array | null;
+  /** What the mirror last wrote into `heights` (rawshadow), for syncFromRaw. */
+  rawShadow: Uint8Array | null;
+  /** MISCFLAG_PNGHEIGHTS: Store heights as PNG. */
+  pngHeights: boolean;
+  /** V15, or null for none. */
+  vegetation: TxxVegetation | null;
+  /** V16. */
+  lakes: TxxLake[];
 }
 
 export class TxxError extends Error {
@@ -338,7 +390,58 @@ export function readTxx(bytes: Uint8Array): TxxTrack {
     sun = { vector, shadowIntensity, position, intensity: r.i32("the sun") };
   }
 
-  // The JSTraxx trailer, when there is one (see extraBackdrops).
+  // V15: the vegetation, masks first, then the image.
+  let vegetation: TxxVegetation | null = null;
+  if (version >= 15) {
+    const masks: (TxxHdArt | null)[] = [];
+    for (let layer = 0; layer < VEG_LAYERS; layer++) {
+      const ext = r.string(CAP.ext, "a vegetation mask extension");
+      const data = r.blob("a vegetation mask");
+      masks.push(data ? { ext, data } : null);
+    }
+    const length = r.i32("the vegetation image");
+    if (length < 0 || length > VEG_IMAGE_MAX) throw new TxxError("the vegetation image has an impossible length");
+    const image = length > 0 ? r.take(length, "the vegetation image") : null;
+    if (masks.some(Boolean) || image) vegetation = { masks, image };
+  }
+
+  // V16: the lakes (CTrackPODLakes::LoadTXX).
+  const lakes: TxxLake[] = [];
+  if (version >= 16) {
+    const n = r.i32("the lake count");
+    if (n < 0 || n > LAKE_MAX_LAKES) throw new TxxError("the lake count is out of range");
+    for (let i = 0; i < n; i++) {
+      const height = r.i32("a lake");
+      const flags = r.i32("a lake") & 0xffff;
+      const ns = r.i32("a lake");
+      if (ns < 0 || ns > LAKE_MAX_SEEDS) throw new TxxError("a lake has too many seeds");
+      const seeds: [number, number][] = [];
+      for (let s = 0; s < ns; s++) {
+        const x = r.i32("a lake seed"), z = r.i32("a lake seed");
+        if (x < 0 || x > 255 || z < 0 || z > 255) throw new TxxError("a lake seed is off the map");
+        seeds.push([x, z]);
+      }
+      lakes.push({ height, flags, seeds });
+    }
+  }
+
+  // V17: the terrain mode and its real heights (CTrackPODTerrain::LoadTXXHeights). The
+  // mid-file block held only the 8-bit mirror, which is rebuilt from them.
+  const t16 = { terrainMode: TERRAINMODE_CLASSIC8, h16: null as Uint16Array | null, fine: null as Uint16Array | null, rawShadow: null as Uint8Array | null, heights: terrain.heights };
+  if (version >= 17) {
+    const mode = r.i32("the terrain mode");
+    if (mode < TERRAINMODE_CLASSIC8 || mode > TERRAINMODE_FINE) throw new TxxError("the terrain mode is unknown");
+    if (mode !== TERRAINMODE_CLASSIC8) {
+      const fine = mode === TERRAINMODE_FINE;
+      const words = wordsOf(r.take(fine ? RAWLEN_FINE : RAWLEN_16BIT, "the terrain heights"), fine ? TERRAIN_FINE * TERRAIN_FINE : 256 * 256);
+      t16.terrainMode = mode;
+      if (fine) t16.fine = words; else t16.h16 = words;
+      t16.rawShadow = new Uint8Array(CELLS);
+      refreshRaw(t16);
+    }
+  }
+
+  // The JSTraxx trailer, when there is one (see extraBackdrops): after the last block Traxx reads.
   const extraBackdrops: string[] = [];
   if (r.pos + TRAILER_MAGIC.length <= bytes.length && cString(bytes.subarray(r.pos, r.pos + TRAILER_MAGIC.length)) === TRAILER_MAGIC) {
     r.take(TRAILER_MAGIC.length, "the JSTraxx trailer");
@@ -352,6 +455,8 @@ export function readTxx(bytes: Uint8Array): TxxTrack {
     detailExt, detailMap, maskExt, maskMap, uiHd, paletteName, palette, textures, models, boxes, course,
     extendedCourses, heights: terrain.heights, clr: terrain.clr, lte: terrain.lte, trucks, backdropName, extraBackdrops, arena,
     omitRawFallback: (miscflags & MISCFLAG_NORAWFALLBACK) !== 0, fogMap, groundBoxes, sounds, animations, sun,
+    terrainMode: t16.terrainMode, h16: t16.h16, fine: t16.fine, rawShadow: t16.rawShadow,
+    pngHeights: (miscflags & MISCFLAG_PNGHEIGHTS) !== 0, vegetation, lakes,
   };
 }
 
@@ -391,6 +496,24 @@ function readBox(r: Reader, version: number): TraxxBox {
   }
   if (version >= 5) box.light.bright = r.f32("a light");
   if (version >= 6) box.light.aimOffset = r.f32("a light");
+  if (version >= BOXBIN_VERSION_FOG) {
+    // Every box of a V12+ file carries the values; a box that is not a Fog keeps them as read.
+    const f = box.fog;
+    f.w = r.f32("a fog"); f.l = r.f32("a fog"); f.h = r.f32("a fog"); f.base = r.f32("a fog"); f.vis = r.f32("a fog");
+    f.r = r.f32("a fog"); f.g = r.f32("a fog"); f.b = r.f32("a fog");
+    f.half = r.f32("a fog"); f.edge = r.f32("a fog"); f.top = r.f32("a fog"); f.maxop = r.f32("a fog");
+    f.wmask = r.i32("a fog");
+    if (version >= BOXBIN_VERSION_FOGLOOK) {
+      f.round = r.f32("a fog"); f.wisp = r.f32("a fog"); f.wsize = r.f32("a fog"); f.wspeed = r.f32("a fog");
+    } else if (box.type === TRAXX_BOX_FOG) {
+      // A V12 Fog predates the look fields: the engine's defaults for them.
+      const e = traxxFogEngineDefaults();
+      f.round = e.round; f.wisp = e.wisp; f.wsize = e.wsize; f.wspeed = e.wspeed;
+    }
+    if (version >= BOXBIN_VERSION_FOGBOT) f.bot = r.f32("a fog");
+    else if (box.type === TRAXX_BOX_FOG) f.bot = 0;
+    clampTraxxFog(f);
+  } else if (box.type === TRAXX_BOX_FOG) box.fog = traxxFogEngineDefaults();
   return box;
 }
 
@@ -472,6 +595,11 @@ export function txxVersionFor(track: TxxTrack): number {
   if (track.detailMap || track.maskMap) version = 9;
   if (track.uiHd.some(Boolean)) version = 10;
   if (track.waterLevel4 % 4 !== 0) version = 11;
+  // Traxx 1.7: each simply set, never lowering what the rules above chose (V12 and V13 are read, not written).
+  if (track.boxes.some((b) => b.type === TRAXX_BOX_FOG)) version = 14;
+  if (track.vegetation && (track.vegetation.image || track.vegetation.masks.some(Boolean))) version = 15;
+  if (track.lakes.length) version = 16;
+  if (track.terrainMode !== TERRAINMODE_CLASSIC8) version = 17;
   return version;
 }
 
@@ -507,8 +635,12 @@ class Writer {
   }
 }
 
-/** Write a .TXX as Traxx's SaveBinary does, stamped with txxVersionFor. */
+/**
+  Write a .TXX as Traxx's SaveBinary does, stamped with txxVersionFor. Like SaveBinary it first
+  folds any 8-bit height edits into a 16-bit terrain (syncFromRaw), so the track is updated.
+*/
 export function writeTxx(track: TxxTrack): Uint8Array {
+  syncFromRaw(track);
   const version = txxVersionFor(track);
   const w = new Writer();
   const header = new Uint8Array(10);
@@ -585,6 +717,7 @@ export function writeTxx(track: TxxTrack): Uint8Array {
   let miscflags = MISCFLAG_SUNPOS;
   if (track.fogMap) miscflags |= MISCFLAG_FOGMAP;
   if (track.omitRawFallback) miscflags |= MISCFLAG_NORAWFALLBACK;
+  if (track.pngHeights) miscflags |= MISCFLAG_PNGHEIGHTS;
   w.i32(miscflags);
   if (track.fogMap) {
     const fog = new Uint8Array(32768);
@@ -622,6 +755,42 @@ export function writeTxx(track: TxxTrack): Uint8Array {
   for (const v of sun.position) w.i32(v);
   w.i32(sun.intensity);
 
+  // V15: vegetation (a lake-only or 16-bit track writes it empty: two empty masks and a 0).
+  if (version >= 15) {
+    const veg = track.vegetation;
+    for (let layer = 0; layer < VEG_LAYERS; layer++) {
+      const mask = veg?.masks[layer] ?? null;
+      w.string(mask ? mask.ext : "");
+      w.blob(mask ? mask.data : null);
+    }
+    w.blob(veg?.image ?? null);
+  }
+
+  // V16: lakes (CTrackPODLakes::SaveTXX), the seed count clamped to 0..8.
+  if (version >= 16) {
+    w.i32(track.lakes.length);
+    for (const lake of track.lakes) {
+      w.i32(lake.height);
+      w.i32(lake.flags);
+      const seeds = lake.seeds.slice(0, LAKE_MAX_SEEDS);
+      w.i32(seeds.length);
+      for (const [x, z] of seeds) { w.i32(x); w.i32(z); }
+    }
+  }
+
+  // V17: the terrain mode, then its heights (SaveTXXHeights: none for classic 8-bit).
+  if (version >= 17) {
+    w.i32(track.terrainMode);
+    const src = track.terrainMode === TERRAINMODE_CLASSIC8 ? null : track.fine ?? track.h16;
+    if (track.terrainMode !== TERRAINMODE_CLASSIC8) {
+      if (!src) throw new TxxError("a 16-bit terrain has no 16-bit heights");
+      const out = new Uint8Array(src.length * 2);
+      for (let i = 0; i < src.length; i++) { out[2 * i] = src[i] & 255; out[2 * i + 1] = src[i] >> 8; }
+      w.bytes(out);
+    }
+  }
+
+  // The JSTraxx trailer goes after everything Traxx reads, so Traxx stops before it.
   const extras = track.arena ? [] : track.extraBackdrops.filter(Boolean);
   if (extras.length) {
     w.bytes(latin1(TRAILER_MAGIC));
@@ -668,6 +837,13 @@ function writeBox(w: Writer, box: TraxxBox, version: number): void {
   }
   if (version >= 5) w.f32(box.light.bright);
   if (version >= 6) w.f32(box.light.aimOffset);
+  if (version >= BOXBIN_VERSION_FOG) {
+    const f = box.fog;
+    for (const v of [f.w, f.l, f.h, f.base, f.vis, f.r, f.g, f.b, f.half, f.edge, f.top, f.maxop]) w.f32(v);
+    w.i32(f.wmask);
+    if (version >= BOXBIN_VERSION_FOGLOOK) { w.f32(f.round); w.f32(f.wisp); w.f32(f.wsize); w.f32(f.wspeed); }
+    if (version >= BOXBIN_VERSION_FOGBOT) w.f32(f.bot);
+  }
 }
 
 function writeCourse(w: Writer, segments: readonly TxxCourseSegment[]): void {

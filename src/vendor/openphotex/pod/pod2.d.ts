@@ -4,6 +4,15 @@ import type { PodArchive } from "./types.ts";
  * The checksum POD2 uses for the archive and for each entry.
  */
 export declare function crc32Mpeg2(bytes: Uint8Array): number;
+/** The CRC-32/MPEG-2 starting value, for `crc32Mpeg2Update`. */
+export declare const CRC32_MPEG2_INIT = 4294967295;
+/**
+ * Continue a CRC-32/MPEG-2 over the next chunk, so a large archive can be checksummed while it is
+ * streamed. Start from `CRC32_MPEG2_INIT`; since there is no final XOR, the running value after
+ * the last chunk is the checksum: `crc32Mpeg2Update(crc32Mpeg2Update(INIT, a), b)` equals
+ * `crc32Mpeg2(a + b)`.
+ */
+export declare function crc32Mpeg2Update(crc: number, bytes: Uint8Array): number;
 export interface PodChecksumReport {
     /** Whether the stored archive CRC matches bytes 0x08..EOF. */
     archive: {
@@ -61,3 +70,11 @@ export interface Pod2AuditRecord {
  * @throws PodFormatError (ENTRY_OUT_OF_BOUNDS) when the trail would overlap the payloads.
  */
 export declare function readPod2AuditTrail(bytes: Uint8Array, archive: PodArchive): Pod2AuditRecord[];
+/**
+ * Decode audit records from the trail's own bytes, without the rest of the archive: the last
+ * `auditCount * 312` bytes of a POD2, which a caller can slice out of a large file. `baseOffset`
+ * is where the trail starts in the archive, so each record's `offset` stays absolute.
+ *
+ * @throws RangeError when `trail` is not a multiple of 312 bytes.
+ */
+export declare function readPod2AuditRecords(trail: Uint8Array, baseOffset?: number): Pod2AuditRecord[];

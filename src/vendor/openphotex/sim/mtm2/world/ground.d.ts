@@ -12,6 +12,8 @@ export interface Mtm2Ground {
     surface(x: number, y: number, z: number): number;
     /** The water level in feet, or null. */
     waterLevelFt: number | null;
+    /** The water level at (x, z) where it varies (Community Patch 4 lakes); `waterLevelFt` where absent. */
+    waterLevelAt?(x: number, z: number): number | null;
     /** Weather state 0..8. */
     weather: number;
     /** This frame's listed ramps, in list order; the caller keeps it up to date. */

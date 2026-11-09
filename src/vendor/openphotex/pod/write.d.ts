@@ -59,3 +59,5 @@ export declare function writePod1(comment: string, entries: readonly {
 }[]): Uint8Array;
 /** The directory entries of a parsed archive, in the form `buildPod1Directory` takes. */
 export declare function pod1DirectoryEntries(entries: readonly PodEntry[]): Pod1DirectoryEntry[];
+/** windows-1252 bytes of `text`, or PodWriteError BAD_TEXT. Shared with the POD2 writer. */
+export declare function encodeText(text: string, what: string, index?: number | null): Uint8Array;

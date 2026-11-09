@@ -11,7 +11,7 @@ import type { TrackDocument } from "../core/doc/document.ts";
 import { objectMatrix } from "../core/view/model-geometry.ts";
 import { gammaMap } from "../core/view/tiles.ts";
 import { remapIndices } from "../core/traxx/palette.ts";
-import { TRAXX_BOX_CRUSH, TRAXX_BOX_RAMP } from "../core/traxx/sit.ts";
+import { TRAXX_BOX_CRUSH, TRAXX_BOX_FOG, TRAXX_BOX_RAMP } from "../core/traxx/sit.ts";
 import type { ModelLibrary } from "./models.ts";
 
 /* The collider box and ramp (CTraxxView::BuildPoly): corners 0..3 bottom, 4..7 top, at
@@ -77,6 +77,8 @@ export class ObjectLayer {
         if (box.type === TRAXX_BOX_CRUSH && box.modelName && box.modelName !== drawName && this.models.meshesFor(box.modelName)) add(box.modelName, m);
         continue;
       }
+      // A model-less Fog is not drawn as a solid: its volume is its picture (DrawBoxOpenGL; render/fog-boxes.ts).
+      if (box.type === TRAXX_BOX_FOG) continue;
       if (box.type !== TRAXX_BOX_RAMP && this.hideColliders) continue;
       // The collider's corners are +-width, +-length, +-height in ipos before the squash.
       const scaled = m.clone().multiply(new THREE.Matrix4().makeScale(box.width, box.length, box.height));

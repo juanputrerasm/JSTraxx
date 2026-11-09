@@ -5,7 +5,9 @@
   objects (a double-click does the same).
 
   Toolbar: Load (from the MODELS folder, the game library or disk), Cut (the model goes; the
-  objects showing it lose it), Cut + Objects (they go too) and Purge.
+  objects showing it lose it), Cut + Objects (they go too) and Purge. The Load list can delete
+  files of the MODELS folder in browser storage (a JSTraxx addition): a copy there is read before
+  the library's, so an outdated one would keep coming back.
 */
 import { el } from "../../shared/dom.ts";
 import type { AppState } from "../../app/state.ts";
@@ -14,7 +16,7 @@ import type { DocumentService } from "../../app/document-service.ts";
 import type { WorkerClient } from "../../shared/worker-client.ts";
 import type { CommandRegistry } from "../shell/commands.ts";
 import type { FloatingPanel } from "../shell/panel.ts";
-import { alertDialog, openDialog } from "../shell/dialog.ts";
+import { alertDialog, confirmDialog, openDialog } from "../shell/dialog.ts";
 import type { TrackView } from "../../render/track-view.ts";
 import { ModelPreview } from "../../render/model-preview.ts";
 import { recordFields, type Recording } from "../../core/edit/record.ts";
@@ -169,10 +171,23 @@ export function modelsPanel(ctx: ModelsPanelContext): void {
     };
     filter.addEventListener("input", () => void refresh());
     await refresh();
+    // Delete: the picked files of the MODELS folder; library models are inside PODs and stay.
+    const remove = async () => {
+      const picked = [...choices.selectedOptions].map((o) => items[Number(o.value)]!).filter(Boolean);
+      const own = picked.filter((it) => it.source === "models");
+      if (!own.length) { await alertDialog("Delete Model", picked.length ? "Only models in the MODELS folder (browser storage) can be deleted; library models are inside the game PODs." : "Pick the models to delete first."); return; }
+      const used = own.filter((it) => findAsset(d.track.models.map((name) => ({ name })), `MODELS\\${it.file}`) >= 0);
+      const names = own.map((it) => it.file).join(", ");
+      const note = used.length ? `\n\n${used.map((it) => it.file).join(", ")} ${used.length === 1 ? "is" : "are"} in this track, which keeps what it loaded; reopened, it reads ${used.length === 1 ? "it" : "them"} from the library.` : "";
+      if (!(await confirmDialog("Delete Model", `Permanently delete ${names} from the MODELS folder in browser storage?${note}`, "Delete"))) return;
+      for (const it of own) await worker.call("models.delete", { file: it.file });
+      await refresh();
+    };
     const r = await openDialog({
       title: "Load BIN file",
       body: [el("div", { class: "opt-row" }, filter,
-        el("button", { type: "button", onclick: () => { fileInput.click(); } }, "From disk...")), choices],
+        el("button", { type: "button", onclick: () => { fileInput.click(); } }, "From disk..."),
+        el("button", { type: "button", title: "Delete the picked models from the MODELS folder in browser storage", onclick: () => void remove() }, "Delete...")), choices],
       buttons: [{ label: "Load", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }],
     });
     if (r !== "ok") return;

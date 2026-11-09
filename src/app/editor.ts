@@ -12,6 +12,7 @@ import type { EditMode } from "../core/settings.ts";
 import { History, group, type Change, type Touch } from "../core/edit/history.ts";
 import { ObjectSelection } from "../core/edit/object-selection.ts";
 import type { Recording } from "../core/edit/record.ts";
+import { heightsChanged } from "../core/traxx/surface.ts";
 import type { MenuItem } from "../ui/shell/commands.ts";
 import type { ContextMenuOptions } from "../ui/shell/context-menu.ts";
 import type { AppState } from "./state.ts";
@@ -131,6 +132,7 @@ export class Editor extends Emitter<EditorEvents> {
     const c = change && "finish" in change ? change.finish(label) : change;
     if (!c) return null;
     this.history.push(c);
+    this.heightsMoved(c.touch);
     this.docs.markModified();
     this.emit("changed", c.touch);
     this.app.emit("commands", undefined);
@@ -154,7 +156,13 @@ export class Editor extends Emitter<EditorEvents> {
     if (c) this.afterHistory(c);
   }
 
+  /** The drive surface's cache follows any height change, undo and redo included (HeightsChanged). */
+  private heightsMoved(touch: Touch): void {
+    if (touch.heights && this.docs.doc) heightsChanged(this.docs.doc.track);
+  }
+
   private afterHistory(c: Change): void {
+    this.heightsMoved(c.touch);
     this.docs.setModified(!this.history.atSavePoint);
     this.emit("changed", c.touch);
     this.emit("selection", undefined);

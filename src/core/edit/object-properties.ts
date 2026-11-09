@@ -4,11 +4,11 @@
     objectFields       what the dialog shows for a box (OnInitDialog)
     previewObject      ApplySettings: the place, height, angles and size, live while editing
     applyObjectFields  OnObjectProperties on OK: every field, the 500 height cap, the sounds,
-                       the checkpoint sequence and the caps on ramps, top-crush, movers, lights
+                       the checkpoint sequence and the caps on ramps, top-crush, movers, lights, fogs
     setObjectSound     SetObjectSound: a stock sound, one the track holds, or a WAV added
 */
 import type { TxxTrack } from "../traxx/txx.ts";
-import { traxxSignedSplit, TRAXX_BOX_CRUSH, TRAXX_BOX_LIGHT, TRAXX_BOX_RAMP, type TraxxBox, type TraxxLight } from "../traxx/sit.ts";
+import { traxxSignedSplit, TRAXX_BOX_CRUSH, TRAXX_BOX_FOG, TRAXX_BOX_LIGHT, TRAXX_BOX_RAMP, TRAXX_MAX_FOGS, type TraxxBox, type TraxxFog, type TraxxLight } from "../traxx/sit.ts";
 import { interpolateRawAtPoint } from "../traxx/terrain.ts";
 import { POD1_NAME_MAX } from "../traxx/pod-items.ts";
 import { STOCK_CONT_SOUNDS, STOCK_SOUNDS } from "../traxx/stock-data.ts";
@@ -23,7 +23,7 @@ const MAX_RAMPS = 100, MAX_TOP_CRUSH = 100, MAX_MOVERS = 100, MAX_LIGHTS = 100, 
 const HAG_MAX = 500;
 
 export interface ObjectFields {
-  /** The Type list's index (ObjectPropertiesDlg.h: Ramp 14, Top-Crush 15). */
+  /** The Type list's index (ObjectPropertiesDlg.h: Fog 14, Ramp 15, Top-Crush 16). */
   typeIndex: number;
   checkpoint: number;
   vx: number;
@@ -48,6 +48,8 @@ export interface ObjectFields {
   soundCont: string;
   soundImpact: string;
   light: TraxxLight;
+  /** The Fog Properties working copy (m_fog): carried for every type, only a Fog writes it. */
+  fog: TraxxFog;
 }
 
 const f32 = Math.fround;
@@ -89,6 +91,7 @@ export function objectFields(box: TraxxBox): ObjectFields {
     soundCont: stripExt(box.soundCont),
     soundImpact: stripExt(box.soundImpact),
     light: { ...box.light },
+    fog: { ...box.fog },
   };
 }
 
@@ -153,6 +156,8 @@ export function applyObjectFields(track: TxxTrack, index: number, f: ObjectField
   const messages: string[] = [];
   applyTypeIndex(box, f.typeIndex);
   box.light = { ...f.light };
+  // And the 'F' block (CTraxxView::OnObjectProperties): carried for every type, only a Fog writes it.
+  box.fog = { ...f.fog };
   box.bvel[0] = f.vx;
   box.bvel[1] = f.vy;
   box.width = f.sizeW;
@@ -207,5 +212,6 @@ export function applyObjectFields(track: TxxTrack, index: number, f: ObjectField
   const moves = (b: TraxxBox) => b.type === 10 || b.type === 13;
   if (moves(box) && count(moves) > MAX_MOVERS) { messages.push("Max. 100 Moving objects (Train and Moving combined)!"); box.type = 0; }
   if (box.type === TRAXX_BOX_LIGHT && count((b) => b.type === TRAXX_BOX_LIGHT) > MAX_LIGHTS) { messages.push("Max. 100 Lights!"); box.type = 0; }
+  if (box.type === TRAXX_BOX_FOG && count((b) => b.type === TRAXX_BOX_FOG) > TRAXX_MAX_FOGS) { messages.push(`Max. ${TRAXX_MAX_FOGS} Fog objects!`); box.type = 0; }
   return messages;
 }

@@ -11,6 +11,8 @@ export interface StepContext {
     difficulty: number;
     sonicTrack: boolean;
     dragMode?: boolean;
+    /** Community Patch 3's AI Speed for a computer truck (drivetrain.ts `deliveredTorque`). Default 1. */
+    aiSpeed?: number;
     /** The race's view of this truck, for the stuck checks (§10.3); none means no checks. */
     recovery?: RecoveryContext;
 }

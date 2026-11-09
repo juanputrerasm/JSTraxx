@@ -20,11 +20,12 @@ import { objectMatrix } from "../../core/view/model-geometry.ts";
 import { alertDialog, confirmDialog } from "../../ui/shell/dialog.ts";
 import { ALTITUDE_SCALE } from "../../core/view/camera.ts";
 import { OBJ_COL } from "../../core/settings.ts";
-import { TRAXX_BOX_LIGHT, type TraxxBox, type TraxxLight } from "../../core/traxx/sit.ts";
+import { TRAXX_BOX_FOG, TRAXX_BOX_LIGHT, type TraxxBox, type TraxxLight } from "../../core/traxx/sit.ts";
 import { applyObjectFields, objectFields, previewObject } from "../../core/edit/object-properties.ts";
 import { groupPropertiesDialog, objectPropertiesDialog } from "../../ui/dialogs/object-dialogs.ts";
 import { applyGroup, applyLook, groupStart } from "../../core/edit/group-properties.ts";
 import { lightPoolLines } from "../../core/view/light-pool.ts";
+import { effectiveFog, fogShapeLines, fogVolumeCentre, fogVolumeRing, type FogPreview } from "../../core/view/fog-volume.ts";
 import { arrowSegments, lightArrow } from "../../core/view/arrows.ts";
 import { openDialog } from "../../ui/shell/dialog.ts";
 import { el } from "../../shared/dom.ts";
@@ -55,7 +56,12 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
   const touch = { objects: true };
   const fields = ["boxes"] as const;
 
-  const screenPoints = () => track().boxes.map((b) => view.project(b.ipos[0] + b.fraction[0] / 256, b.ipos[1] + b.fraction[1] / 256, ALTITUDE_SCALE * (b.ipos[2] + b.fraction[2] / 256)));
+  // A Fog is picked at the middle of its volume, not at its origin (SelectNearestObject).
+  const screenPoints = () => track().boxes.map((b) => {
+    const { fog, isFog } = effectiveFog(b, fogPreview);
+    const mid = isFog ? fogVolumeCentre(b, fog) : null;
+    return mid ? view.project(mid[0], mid[1], mid[2]) : view.project(b.ipos[0] + b.fraction[0] / 256, b.ipos[1] + b.fraction[1] / 256, ALTITUDE_SCALE * (b.ipos[2] + b.fraction[2] / 256));
+  });
   const nearest = (p: { x: number; y: number }) => nearestOnScreen(screenPoints(), p, OBJECT_LIMIT, view.size);
   const ground = (p: ViewPoint | null): [number, number, number] | null => {
     const hit = p ? view.pick(p.clientX, p.clientY) : null;
@@ -140,6 +146,9 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
 
   /* The light pool shown for a box while a dialog edits its light (SetLightPreview). */
   let lightPreview: { box: TraxxBox; light: TraxxLight; isLight: boolean } | null = null;
+  /* The fog volume shown for a box while a dialog edits its fog (SetFogPreview). */
+  let fogPreview: FogPreview | null = null;
+  const setFogPreview = (p: FogPreview | null) => { fogPreview = p; view.setFogPreview(p); editor.selectionChanged(); };
 
   const wavInput = el("input", { type: "file", accept: ".wav", hidden: true }) as HTMLInputElement;
   document.body.append(wavInput);
@@ -186,6 +195,8 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
       restingHeight: resting,
       preview: (f) => { previewObject(box, t.heights, f); refresh(); },
       previewLight: (light, isLight) => { lightPreview = { box, light, isLight }; editor.selectionChanged(); },
+      previewFog: (fog, isFog) => setFogPreview({ box, fog, isFog }),
+      fogBox: () => box,
       pickWav,
       chooseCab: async () => {
         const keyframed = t.models.filter((m) => (view.modelGeometry(m)?.frameNames.length ?? 0) > 0);
@@ -198,6 +209,7 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
       },
     });
     lightPreview = null;
+    setFogPreview(null);
     if (!result || !editor.canEdit) {
       Object.assign(box, before);
       refresh();
@@ -381,7 +393,12 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
       if (!doc) return;
       g.strokeStyle = app.settings.colors[OBJ_COL];
       g.lineWidth = devicePx(g, 1);
-      for (const i of selected()) outlineObject(g, project, doc.track.boxes[i], (n) => view.modelGeometry(n));
+      for (const i of selected()) {
+        const box = doc.track.boxes[i]!;
+        // A Fog's outline and FOG label are on its volume, the box outline skipped (OverlayFogOutline).
+        if (box.type === TRAXX_BOX_FOG) { outlineFog(g, project, box, fogPreview); continue; }
+        outlineObject(g, project, box, (n) => view.modelGeometry(n));
+      }
       // OverlayLightPool for the anchor: its light, or the one a dialog is previewing.
       const anchor = exists(sel.anchor) ? doc.track.boxes[sel.anchor]! : null;
       if (anchor) {
@@ -416,6 +433,27 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
       return list.length > 1 ? `${list.length} objects` : `#${list[0]} ${name}`;
     },
   };
+}
+
+/* OverlayFogOutline: the volume in the selection colour (round-aware), "FOG" on its middle. */
+function outlineFog(g: CanvasRenderingContext2D, project: (x: number, y: number, z: number) => { x: number; y: number } | null, box: TraxxBox, preview: FogPreview | null): void {
+  const { fog, isFog } = effectiveFog(box, preview);
+  const ring = isFog ? fogVolumeRing(box, fog) : null;
+  if (!ring) return;
+  for (const [a, b] of fogShapeLines(ring)) {
+    const p = project(a[0], a[1], a[2]), q = project(b[0], b[1], b[2]);
+    if (p && q) { g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); g.stroke(); }
+  }
+  const mid = fogVolumeCentre(box, fog);
+  const at = mid ? project(mid[0], mid[1], mid[2]) : null;
+  if (!at) return;
+  g.save();
+  g.font = "12px system-ui, sans-serif";
+  g.textAlign = "center";
+  g.textBaseline = "alphabetic";
+  g.fillStyle = "#ffffff";
+  g.fillText("FOG", at.x, at.y);
+  g.restore();
 }
 
 /* One object's outline: its model's faces, or the box's twelve edges (OverlayOneObject). */

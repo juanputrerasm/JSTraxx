@@ -6,6 +6,10 @@
   Traxx's own: the fields Traxx keeps, in Traxx's units, and the values and number format it
   writes, so a track saved here is the file Traxx would write.
 
+  Traxx 1.7's 'F' fog block (a type 14 box's two lines after its '@' sound block) is not read or
+  written by OpenPhotex yet: sitFogLines reads it out of the text by OpenPhotex's own record
+  spans, and writeTraxxSit puts it into OpenPhotex's output where the 'L' block would go.
+
   Units (Include/TrackPOD.h): ipos x and y are half SIT units (2 per foot), with a 1/256-step
   fraction per axis on objects; ipos z is SIT height / 2 (one terrain step). A SIT triplet is
   (x, height, y). Object velocities are kept east, north, up.
@@ -25,12 +29,16 @@ import { parseMtmSit } from "../../vendor/openphotex/mtm/sit.js";
 import type { MtmSit, SitBox, SitCourse, SitCourseSegment } from "../../vendor/openphotex/mtm/sit.js";
 import { writeMtm2Sit } from "../../vendor/openphotex/mtm/write.js";
 import type { Mtm2Sit, Mtm2SitCourseSegment, Mtm2SitTruck, SitTriple } from "../../vendor/openphotex/mtm/write.js";
-import { cFixed, cTrunc, f32 } from "./cformat.ts";
+import { cAtof, cAtoi, cFixed, cTrunc, f32 } from "./cformat.ts";
 
 export const TRAXX_BOX_RAMP = 99;
 export const TRAXX_BOX_CRUSH = 98;
 export const TRAXX_BOX_CHECKPOINT = 6;
 export const TRAXX_BOX_LIGHT = 12;
+/** BOXTYPE_FOG (Traxx 1.7, Include/TrackPODBox.h): a fog volume, its properties in the .SIT 'F' block. */
+export const TRAXX_BOX_FOG = 14;
+/** MAXNPODFOGS: the tools' cap on fog objects (the engine holds 64, draws the nearest 16). */
+export const TRAXX_MAX_FOGS = 50;
 /** MAXNPODBOXES: ramps, boxes and top-crush cars share one array of this size. */
 export const TRAXX_MAX_BOXES = 4096;
 export const TRAXX_EXT_COURSES = 4;
@@ -70,6 +78,68 @@ export function traxxLightDefaults(): TraxxLight {
   };
 }
 
+/**
+  A fog volume's authored properties (TrackBoxFog, Include/TrackPODBox.h), in the engine's
+  field order. Every box carries one, as every box carries a light; only a Fog writes it out.
+  Feet, colours 0..1, wmask one bit per weather (511 = all nine).
+*/
+export interface TraxxFog {
+  w: number;
+  l: number;
+  h: number;
+  base: number;
+  vis: number;
+  r: number;
+  g: number;
+  b: number;
+  half: number;
+  edge: number;
+  top: number;
+  maxop: number;
+  wmask: number;
+  round: number;
+  wisp: number;
+  wsize: number;
+  wspeed: number;
+  bot: number;
+}
+
+/** The 'F' data line's fields, in order (wmask is the one int). */
+export const FOG_KEYS = ["w", "l", "h", "base", "vis", "r", "g", "b", "half", "edge", "top", "maxop", "wmask",
+  "round", "wisp", "wsize", "wspeed", "bot"] as const;
+
+/** FogDefaults: what a new object, or a box retyped to Fog, starts with (FOGDEF_*, round and wisp FOGNEW_*). */
+export function traxxFogDefaults(): TraxxFog {
+  return {
+    w: 0, l: 0, h: 0, base: 0, vis: 300, r: f32(0.75), g: f32(0.78), b: f32(0.82), half: 8, edge: 20, top: 5, maxop: 1,
+    wmask: 511, round: 1, wisp: 0.5, wsize: 40, wspeed: 3, bot: 0,
+  };
+}
+
+/** FogEngineDefaults: what a missing field means to the engine, the rectangular wisp-free look. */
+export function traxxFogEngineDefaults(): TraxxFog {
+  return { ...traxxFogDefaults(), round: 0, wisp: 0, bot: 0 };
+}
+
+/** ClampFog: the Fog dialog's ranges, NaN-safe (a NaN lands on the low end). */
+export function clampTraxxFog(fog: TraxxFog): void {
+  const clamp = (key: Exclude<keyof TraxxFog, "wmask">, lo: number, hi: number) => {
+    let v = fog[key];
+    if (!(v >= lo)) v = lo;
+    if (v > hi) v = hi;
+    fog[key] = f32(v);
+  };
+  clamp("w", 0, 100000); clamp("l", 0, 100000); clamp("h", 0, 100000);
+  clamp("base", -10000, 10000);
+  clamp("vis", 1, 100000);
+  clamp("r", 0, 1); clamp("g", 0, 1); clamp("b", 0, 1);
+  clamp("half", 0, 100000); clamp("edge", 0, 100000); clamp("top", 0, 100000);
+  clamp("maxop", 0, 1);
+  clamp("round", 0, 1); clamp("wisp", 0, 1);
+  clamp("wsize", 1, 100000); clamp("wspeed", 0, 100000);
+  clamp("bot", 0, 100000);
+}
+
 /** A CTrackPODBox: a ramp (type 99), a box, or a top-crush car (type 98). */
 export interface TraxxBox {
   type: number;
@@ -101,6 +171,8 @@ export interface TraxxBox {
   soundImpact: string;
   soundCont: string;
   light: TraxxLight;
+  /** Fog properties (Traxx 1.7): written to the .SIT for a type 14 box, and to a V12+ .TXX for every box. */
+  fog: TraxxFog;
   /** Pass order among the checkpoints (type 6); 0 on every other box, as Traxx leaves it. */
   checkpointSeq: number;
   /** height_above_gnd: kept in the .TXX, re-derived from the terrain when a track is opened. */
@@ -112,7 +184,7 @@ export function traxxBoxDefaults(): TraxxBox {
     type: 0, flags: 0, priority: 0, ipos: [8192, 8192, 100], fraction: [0, 0, 0],
     theta: 0, phi: 0, psi: 0, length: 64, width: 64, height: 20, mass: 0,
     bvel: [0, 0, 0], p: 0, q: 0, r: 0, modelName: "", crushName: "", crush: [0, 0, 0],
-    soundImpact: "NULL.WAV", soundCont: "NULL.WAV", light: traxxLightDefaults(), checkpointSeq: 0,
+    soundImpact: "NULL.WAV", soundCont: "NULL.WAV", light: traxxLightDefaults(), fog: traxxFogDefaults(), checkpointSeq: 0,
     heightAboveGround: 0,
   };
 }
@@ -237,11 +309,16 @@ export interface ReadTraxxSitOptions {
    * when its HD sibling is there as well. Without it, every entry exists.
    */
   hasEntry?: (name: string) => boolean;
+  /**
+   * The situation file itself, for the 'F' fog blocks OpenPhotex's reader does not keep
+   * (ParseSITFile's trailing-block loop). Without it every Fog gets the engine's defaults.
+   */
+  text?: Uint8Array | string;
 }
 
 /** Read a .SIT into Traxx's model. */
 export function readTraxxSit(bytes: Uint8Array | string, title = "", options: ReadTraxxSitOptions = {}): TraxxSit {
-  return traxxSitFromParsed(parseMtmSit(bytes, title), options);
+  return traxxSitFromParsed(parseMtmSit(bytes, title), { text: bytes, ...options });
 }
 
 /** OpenPhotex's reading of a SIT, as Traxx keeps it. */
@@ -282,11 +359,16 @@ export function traxxSitFromParsed(parsed: MtmSit, options: ReadTraxxSitOptions 
     truck.course = slot === 0 ? 0 : (source.courseToFollow ?? 0);
   });
 
-  // Ramps, boxes, then one record per top-crush car.
-  for (const source of parsed.boxes) {
-    if (source.type === TRAXX_BOX_CRUSH) continue;
-    sit.boxes.push(boxFrom(source));
-  }
+  // Ramps, boxes, then one record per top-crush car. Each box record's 'F' block, if any, is
+  // read out of the text by the same record spans (only the Boxes section has them).
+  const fog = options.text !== undefined ? sitFogLines(options.text) : null;
+  parsed.boxes.forEach((source, i) => {
+    if (source.type === TRAXX_BOX_CRUSH) return;
+    const box = boxFrom(source);
+    const lines = fog && i >= fog.ramps ? fog.boxes[i - fog.ramps] ?? [] : [];
+    applyFogBlocks(box, lines);
+    sit.boxes.push(box);
+  });
   parsed.topCrush.forEach((car) => {
     const box = traxxBoxDefaults();
     const [cfx, cfz, cfy] = car.positionFt.map(f32);
@@ -363,6 +445,124 @@ function boxFrom(source: SitBox): TraxxBox {
   return box;
 }
 
+/** The text one byte per character, so a writer's output can be edited and put back unchanged. */
+function byteText(input: Uint8Array | string): string {
+  if (typeof input === "string") return input;
+  let out = "";
+  for (let i = 0; i < input.length; i += 8192) out += String.fromCharCode(...input.subarray(i, i + 8192));
+  return out;
+}
+
+/** The record spans OpenPhotex reads a section by: count, then records opened by "********" lines. */
+function sectionRecords(lines: readonly string[], header: string): { start: number; end: number }[] {
+  const section = lines.indexOf(header);
+  if (section < 0 || section + 1 >= lines.length) return [];
+  const count = cAtoi(lines[section + 1]);
+  let sectionEnd = section + 2;
+  while (sectionEnd < lines.length && !/^\*\*\* \S/.test(lines[sectionEnd])) sectionEnd++;
+  let present = 0;
+  for (let i = section + 2; i < sectionEnd; i++) if (lines[i].startsWith("********")) present++;
+  const next = (from: number) => { for (let i = Math.max(0, from); i < lines.length; i++) if (lines[i].startsWith("********")) return i; return -1; };
+  const out: { start: number; end: number }[] = [];
+  let cursor = section + 2;
+  for (let i = 0; i < Math.min(count, present); i++) {
+    cursor = next(cursor);
+    if (cursor < 0) break;
+    const end = next(cursor + 1);
+    out.push({ start: cursor, end: end >= 0 ? end : lines.length });
+    cursor++;
+  }
+  return out;
+}
+
+/**
+  ParseSITFile's trailing blocks: after a box's priority value, every line up to the next one
+  starting with '*'; a line starting "Ffog" is followed by its data line. For each Boxes record,
+  the data lines of its 'F' blocks in order (a hand edit can have two; the later one wins), and
+  how many Ramps records come before the boxes in OpenPhotex's list.
+*/
+export function sitFogLines(input: Uint8Array | string): { ramps: number; boxes: string[][] } {
+  const lines = byteText(input).replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const ramps = sectionRecords(lines, "*** Ramps ***").length;
+  const boxes = sectionRecords(lines, "*** Boxes ***").map(({ start, end }) => {
+    const out: string[] = [];
+    let i = start + 1;
+    while (i < end && !lines[i].startsWith("priority")) i++;
+    for (i += 2; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.startsWith("*")) break;
+      if (line.startsWith("Ffog")) { out.push(lines[i + 1] ?? ""); i++; }
+    }
+    return out;
+  });
+  return { ramps, boxes };
+}
+
+/**
+  The fog part of ParseSITFile for one box: a Fog starts from the engine's defaults; an 'F'
+  block on any other box (a hand edit) also resets to them first. Fields are read tolerantly, in
+  order, until the line runs out of commas; a model-less Fog takes a positive w, l, h back as its
+  own size. Every box is clamped afterwards (ClampFog).
+*/
+export function applyFogBlocks(box: TraxxBox, dataLines: readonly string[]): void {
+  if (box.type === TRAXX_BOX_FOG) box.fog = traxxFogEngineDefaults();
+  for (const line of dataLines) {
+    if (box.type !== TRAXX_BOX_FOG) box.fog = traxxFogEngineDefaults();
+    const fields = line.split(",");
+    const fog = box.fog;
+    for (let k = 0; k < fields.length && k < FOG_KEYS.length; k++) {
+      const key = FOG_KEYS[k];
+      if (key === "wmask") fog.wmask = cAtoi(fields[k]);
+      else fog[key] = f32(cAtof(fields[k]));
+      if (k === 2 && box.type === TRAXX_BOX_FOG && !box.modelName && fog.w > 0 && fog.l > 0 && fog.h > 0) {
+        box.width = cTrunc(f32(fog.w + 0.5));
+        box.length = cTrunc(f32(fog.l + 0.5));
+        box.height = cTrunc(f32(fog.h + 0.5));
+      }
+    }
+  }
+  clampTraxxFog(box.fog);
+}
+
+/**
+  WriteSITFile's 'F' block, for a Fog only, where the 'L' block would go (right after the '@'
+  sound block): the header, then twelve %f, the weather mask %d and five %f. A model-less Fog
+  writes its own width, length and height as w, l, h.
+*/
+export function traxxFogLines(box: TraxxBox): [string, string] {
+  const fog = box.fog;
+  const model = box.modelName !== "";
+  const values = FOG_KEYS.map((key) => {
+    if (key === "wmask") return String(fog.wmask | 0);
+    if (!model && key === "w") return float(box.width);
+    if (!model && key === "l") return float(box.length);
+    if (!model && key === "h") return float(box.height);
+    return float(fog[key]);
+  });
+  return ["Ffog w,l,h,base,vis,r,g,b,half,edge,top,maxOp,wmask,round,wisp,wsize,wspd,bot", values.join(",")];
+}
+
+/** The 'F' blocks put into OpenPhotex's output: after the k-th box's "@sound effect entries" and its three lines. */
+function insertFogBlocks(bytes: Uint8Array, boxes: readonly TraxxBox[]): Uint8Array {
+  if (!boxes.some((b) => b.type === TRAXX_BOX_FOG)) return bytes;
+  const lines = byteText(bytes).split("\r\n");
+  let at = lines.indexOf("*** Boxes ***");
+  if (at < 0) return bytes;
+  const out = lines.slice(0, at);
+  for (const box of boxes) {
+    const sound = lines.indexOf("@sound effect entries", at);
+    if (sound < 0) break;
+    out.push(...lines.slice(at, sound + 4));
+    at = sound + 4;
+    if (box.type === TRAXX_BOX_FOG) out.push(...traxxFogLines(box));
+  }
+  out.push(...lines.slice(at));
+  const text = out.join("\r\n");
+  const result = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i++) result[i] = text.charCodeAt(i);
+  return result;
+}
+
 function segmentFrom(source: SitCourseSegment): TraxxCourseSegment {
   const point = ([x, height, y]: [number, number, number]): [number, number, number] =>
     [traxxSitToIpos(x)[0], traxxSitToIpos(y)[0], cTrunc(cTrunc(height) / 2)];
@@ -388,7 +588,9 @@ export interface WriteTraxxSitOptions {
 
 /** Write a .SIT exactly as Traxx's WriteSITFile does. */
 export function writeTraxxSit(sit: TraxxSit, options: WriteTraxxSitOptions = {}): Uint8Array {
-  return writeMtm2Sit(traxxSitToMtm2(sit, options));
+  // OpenPhotex writes the 'L' block; the 'F' block is put in after it, in the same place.
+  const boxes = sit.boxes.filter((b) => b.type !== TRAXX_BOX_RAMP && b.type !== TRAXX_BOX_CRUSH);
+  return insertFogBlocks(writeMtm2Sit(traxxSitToMtm2(sit, options)), boxes);
 }
 
 /** Traxx's model as OpenPhotex's SIT writer takes it, with every value in Traxx's format. */

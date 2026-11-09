@@ -33,7 +33,7 @@ import { TextureSelection } from "../../core/edit/texture-selection.ts";
 import { TEXTURE_TYPE_NAMES, addAnimationFrame, addTexture, findAnimation, findTexture, frameLabels, setTypeDepth } from "../../core/edit/texture-list.ts";
 import { deleteTexture } from "../../core/edit/textures.ts";
 import { gammaMap, legacyTileRgba, sourceTileRgba, type RgbaImage } from "../../core/view/tiles.ts";
-import { hdDimensions, indexImage } from "../../core/image/hd-texture.ts";
+import { hdDimensionRefusal, hdDimensions } from "../../core/image/hd-texture.ts";
 import { copyImage, pasteImage } from "../../shared/system-clipboard.ts";
 import type { TextureAsset } from "../../core/doc/document.ts";
 import type { ArtItem, ArtTile } from "../../worker/art-handlers.ts";
@@ -384,30 +384,47 @@ export function texturesPanel(ctx: TexturesPanelContext): void {
     display();
   }
 
+  /*
+    OnEditCopy. A texture with an HD source (PNG or TGA) copies that picture at its own size, as
+    the track and the game show it; Traxx's 8-bit tile is only for a texture that has no HD source.
+  */
   async function copy(): Promise<void> {
     const d = doc();
     const tex = d && sel.anchor >= 0 ? d.textures[sel.anchor] : null;
     if (!d || !tex) return;
-    const img = sourceTileRgba(tex, d.track.palette);
+    let img: RgbaImage | null = null;
+    if (tex.hd) { try { img = await decodeImage(tex.hd.data, tex.hd.ext, tex.name); } catch { img = null; } }
+    img ??= sourceTileRgba(tex, d.track.palette);
     if (!img) { await alertDialog("Textures", "Bad Texture!"); return; }
     try { await copyImage(new Uint8ClampedArray(img.rgba), img.width, img.height); } catch (err) { await alertDialog("Copy", `The clipboard would not take the picture: ${err instanceof Error ? err.message : String(err)}`); }
   }
 
-  /* OnEditPaste: a 64 or 256 square picture, named, written to the ART folder and loaded. */
+  /*
+    OnEditPaste. Traxx takes a 64 or 256 square bitmap and writes it as .RAW and .ACT. JSTraxx
+    takes any square picture of an HD size (32 to 1024, a power of two) and writes it to the ART
+    folder as a PNG, alpha kept; the 8-bit tile is built in memory, as for a loaded PNG, and Write
+    POD adds the .RAW fallback unless it is omitted.
+  */
   async function paste(): Promise<void> {
-    if (!editor.canEdit) return;
+    const d = doc();
+    if (!d || !editor.canEdit) return;
     let img: Awaited<ReturnType<typeof pasteImage>>;
     try { img = await pasteImage(); } catch { img = null; }
     if (!img) { await alertDialog("Paste Texture", "Can't get bitmap from clipboard"); return; }
-    if (img.width !== img.height || (img.width !== 64 && img.width !== 256)) { await alertDialog("Paste Texture", "Bitmap must be 64x64 or 256x256."); return; }
-    const name = await textureNameDialog("", async (n) => ((await worker.call<boolean[]>("art.exists", { names: [`${n}.RAW`] }))[0] ? `"${n}" is not unique.\nPlease try a different name.` : null));
+    const refusal = hdDimensionRefusal(null, img.width, img.height);
+    if (refusal) { await alertDialog("Paste Texture", refusal); return; }
+    const name = await textureNameDialog("", async (n) => {
+      if (findTexture(d, `${n}.RAW`) >= 0) return `The track already has a texture called ${n}.`;
+      const there = await worker.call<boolean[]>("art.exists", { names: ["RAW", "ACT", "PNG", "TGA"].map((e) => `${n}.${e}`) });
+      return there.some(Boolean) ? `"${n}" is not unique.\nPlease try a different name.` : null;
+    });
     if (!name) return;
-    const rgb = new Uint8Array(img.width * img.height * 3);
-    for (let i = 0; i < img.width * img.height; i++) rgb.set(img.rgba.subarray(i * 4, i * 4 + 3), i * 3);
-    const { indices, act } = indexImage(rgb, img.width, img.height);
-    const failed = await worker.call<string | null>("art.write", { files: [{ name: `${name}.ACT`, bytes: act }, { name: `${name}.RAW`, bytes: indices }] });
+    const canvas = new OffscreenCanvas(img.width, img.height);
+    canvas.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(img.rgba), img.width, img.height), 0, 0);
+    const png = new Uint8Array(await (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer());
+    const failed = await worker.call<string | null>("art.write", { files: [{ name: `${name}.PNG`, bytes: png }] });
     if (failed) { await alertDialog("Paste Texture", failed); return; }
-    const results = await worker.call<(TextureAsset | string)[]>("art.load", { items: [{ source: "art", file: `${name}.RAW`, ext: "RAW", stem: name }] });
+    const results = await worker.call<(TextureAsset | string)[]>("art.load", { items: [{ source: "art", file: `${name}.PNG`, ext: "PNG", stem: name }] });
     await addAll(results, "Paste Texture");
     void refreshFolder();
   }

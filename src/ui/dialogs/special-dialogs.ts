@@ -131,14 +131,14 @@ export async function trackPaletteDialog(app: AppState, registry: CommandRegistr
   return r === "ok" ? pe : null;
 }
 
-export interface TrackStats { textures: number; models: number; modelTextures: number; segments: number; groundBoxes: number; objects: number; ramps: number; moving: number; lights: number; sounds: number }
+export interface TrackStats { textures: number; models: number; modelTextures: number; segments: number; groundBoxes: number; objects: number; ramps: number; moving: number; lights: number; sounds: number; /** IDC_NFOGS (Traxx 1.7): the Fog objects. */ fogs?: number }
 
 /** IDD_STATS. */
 export async function statsDialog(s: TrackStats): Promise<void> {
   const rows: [string, number, string][] = [
     ["Textures", s.textures, "max 1024"], ["Models", s.models, "max 4096"], ["Model Textures", s.modelTextures, "max 4096"],
     ["Course segments", s.segments, ""], ["Ground Boxes", s.groundBoxes, "max 2048"], ["Scenery Objects", s.objects, "max 4096"],
-    ["Ramps", s.ramps, "(100)"], ["Moving", s.moving, "(100)"], ["Lights", s.lights, "(100)"], ["Sounds", s.sounds, "(512)"],
+    ["Ramps", s.ramps, "(100)"], ["Moving", s.moving, "(100)"], ["Lights", s.lights, "(100)"], ...(s.fogs !== undefined ? [["Fog", s.fogs, "(50)"] as [string, number, string]] : []), ["Sounds", s.sounds, "(512)"],
   ];
   await openDialog({
     title: "Track Statistics",

@@ -13,7 +13,8 @@
     - always an MTM2 track, with the stock palette, fog map and pictures; no stadium, no
       backdrop, no text, music or fog table;
     - every .TEX line is a texture slot ("ART\<name>"), duplicates included;
-    - RAW, RA0, RA1, CL0, CLR, TEX, TTY and LTE must all be there.
+    - RAW, RA0, RA1, CL0, CLR, TEX, TTY and LTE must all be there (the RAW may be missing when
+      the .TXV beside it names a heights PNG, Traxx 1.7); the RAW's size gives the terrain mode.
 
   Art and models are then found by name as for a .TXX. Traxx looks only in its ART and MODELS
   folders; JSTraxx looks in the TrackEd folder's own ART and MODELS first.
@@ -27,7 +28,8 @@ import { swapExt } from "../traxx/pod-items.ts";
 import { atoi, traxxLines } from "../traxx/lines.ts";
 import { resetTrack } from "./new-track.ts";
 import { emptyCarry, MTM2_ONLY, type TrackDocument } from "./document.ts";
-import { deriveBoxHeights, readGroundBoxes } from "./load-pod.ts";
+import { applyTerrainHeightsImage, deriveBoxHeights, readGroundBoxes, resolveTerrainFromTxv } from "./load-pod.ts";
+import { loadRaw, parseTerrainHeightsKey } from "../traxx/terrain16.ts";
 import { loadTrackAssets, type AssetSource } from "./load-txx.ts";
 import { findAsset } from "./names.ts";
 
@@ -97,9 +99,22 @@ export async function cloneFromSit(folder: TrackedFolder, sitPath: string, asset
   const lvl = parseMtmLvl(lvlBytes);
   if (!lvl) throw new CloneError(ERR.noLvl);
   const data = (name: string) => folder.read(`DATA\\${name.toUpperCase()}`);
+  // The .TXV beside the .RAW, read first: terrainHeights= says the heights are a PNG, and then
+  // the .RAW need not exist. Otherwise the .RAW's size decides (LoadRaw: 64 KB, 128 KB or 2 MB,
+  // anything else refused) and terrainGrid= can call a 256 x 256 grid spline.
+  const txvBytes = /\.RAW/i.test(lvl.rawName) ? await data(lvl.rawName.replace(/\.RAW/i, ".TXV")) : null;
+  const txv = txvBytes ? new TextDecoder("windows-1252").decode(txvBytes.subarray(0, 4096)) : null;
+  const heightsEntry = parseTerrainHeightsKey(txv);
   const raw = await data(lvl.rawName);
-  if (!raw) throw new CloneError(ERR.noRaw);
-  track.heights.set(raw.subarray(0, CELLS));
+  let rawLength = -1;
+  if (raw) {
+    if (loadRaw(track, raw)) rawLength = raw.length;
+    else if (!heightsEntry) {
+      throw new CloneError(`The terrain height file ${lvl.rawName.toUpperCase()} is ${raw.length} bytes. Traxx reads 65,536 (8-bit), 131,072 (16-bit) or 2,097,152 (16-bit Full Map) byte height files, or the file is damaged.`);
+    }
+  } else if (!heightsEntry) throw new CloneError(ERR.noRaw);
+  if (heightsEntry) applyTerrainHeightsImage(doc, txv, heightsEntry, await folder.read(heightsEntry.toUpperCase()), { length: rawLength, ok: rawLength >= 0 });
+  else if (/\.RAW/i.test(lvl.rawName)) resolveTerrainFromTxv(doc, txv, rawLength);
   const [ra0, ra1, cl0] = await Promise.all(["RA0", "RA1", "CL0"].map((ext) => data(swapExt(lvl.rawName, ext))));
   if (!ra0 || !ra1 || !cl0) throw new CloneError(ERR.noGroundBox);
   readGroundBoxes(doc, lvl.rawName, ra0, ra1, cl0);
@@ -137,7 +152,7 @@ export async function cloneFromSit(folder: TrackedFolder, sitPath: string, asset
   // The situation file, through the shared reader.
   const parsed = parseMtmSit(sitBytes, sitPath.slice(sitPath.lastIndexOf("\\") + 1));
   if (parsed.trackName === null) throw new CloneError(ERR.badSit);
-  const sit = traxxSitFromParsed(parsed);
+  const sit = traxxSitFromParsed(parsed, { text: sitBytes });
   const name = sit.trackName;
   track.trackName = name.length < 31 ? `${name}2` : `${name.slice(0, 30)}2`;
   track.localeName = sit.localeName;

@@ -9,6 +9,10 @@ export interface EvoRules extends Mtm2Rules {
     steerRearGripCut: boolean;
     /** Hull friction limit's factor on the support: 0.5 (Evo 1, as MTM2), 1.5 (Evo 2, 0x667090). */
     hullFrictionFactor: number;
+    /** A checkpoint counts either way through (Evo 2, 0x53a150) or forwards only (Evo 1, 0x5150f0); the race's `twoWay`. */
+    twoWayCheckpoints: boolean;
+    /** Roll and pitch damping coefficients forced over the .TRK's clp and cmq (Evo 2 -0.05, 0x5ed4b0); null keeps the .TRK's (Evo 1). */
+    rollPitchDamping: number | null;
 }
 export declare const EVO1_RULES: EvoRules;
 export declare const EVO2_RULES: EvoRules;

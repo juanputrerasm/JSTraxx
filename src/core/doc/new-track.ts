@@ -10,6 +10,7 @@ import type { TxxTrack } from "../traxx/txx.ts";
 import { traxxTruckDefaults } from "../traxx/sit.ts";
 import { applyMtm2Palette, emptyPalette } from "../traxx/palette.ts";
 import { CELLS, flatLte } from "../traxx/terrain.ts";
+import { TERRAINMODE_CLASSIC8 } from "../traxx/terrain16.ts";
 import { emptyCarry, MTM2_ONLY, type TrackDocument } from "./document.ts";
 
 export const TRACKTYPE_DRAG = 1;
@@ -58,6 +59,13 @@ export function resetTrack(): TxxTrack {
     sounds: [],
     animations: [],
     sun: { vector: [-46333, -46333, 0], shadowIntensity: 32768, position: [32000, -46333, 0], intensity: 64000 },
+    terrainMode: TERRAINMODE_CLASSIC8,
+    h16: null,
+    fine: null,
+    rawShadow: null,
+    pngHeights: false,
+    vegetation: null,
+    lakes: [],
   };
 }
 

@@ -10,7 +10,7 @@ const LINEAGE: [string, string, string][] = [
   ["1997", "Traxx", "SoftParts"],
   ["2005", "Traxx 1.5", "Richard Borchard III"],
   ["v1.6", "GL update", "Juan Pablo Utreras \"Kmaster\""],
-  ["v1.6", "CP3 updates", "Fila"],
+  ["v1.6", "CP3/4 Updates", "Fila"],
   ["2026", "JSTraxx", "Kmaster"],
 ];
 

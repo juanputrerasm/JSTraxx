@@ -44,6 +44,10 @@ export interface SitBox {
      * keeps what the author typed; `light` is the engine's reading of it, for type 12 only).
      */
     lightFields?: number[];
+    /** Community Patch 4 `BOX_FOG` (type 14): the `F` block read as the engine reads it, or its defaults. Fog boxes only. */
+    fog?: SitFog;
+    /** The `F` block's data line as written, field by field, on any box that carries one. */
+    fogFields?: number[];
     /** Top-crush parts: which record they came from, and which part they are. */
     crushGroup?: number;
     crushRole?: "body" | "cab";
@@ -73,6 +77,39 @@ export declare const BOX_MOVING = 13;
  * surplus ones ignored; `bright` snapped to 0.25 steps within 0.25..3.75 and `rad` clamped to 4095.
  */
 export declare function parseSitLight(line: string | null | undefined): SitLight;
+/**
+ * A Community Patch 4 fog volume (box type 14, never drawn as an object). Feet unless noted. The volume is w (the box's
+ * X) by l (its Z) by h, its floor `base` above the box origin; `vis` is the distance to about 95% opaque; density
+ * halves every `half` ft upward (0 uniform); `edge`, `top` and `bot` soften the sides, top and bottom; `maxOp` caps
+ * opacity (0..1); `wmask` is one bit per weather (511 all nine); `round` 0 rectangle .. 1 ellipse; `wisp` (0..1) and
+ * `wsize` (ft) the drifting wisps, moving at `wspd` ft/s along the box's heading. The colour (0..1) is darkened per
+ * weather by the engine. Traxx 1.7 places at most 50 per track; the engine tracks 64.
+ */
+export interface SitFog {
+    w: number;
+    l: number;
+    h: number;
+    base: number;
+    vis: number;
+    color: [number, number, number];
+    half: number;
+    edge: number;
+    top: number;
+    maxOp: number;
+    wmask: number;
+    round: number;
+    wisp: number;
+    wsize: number;
+    wspd: number;
+    bot: number;
+}
+export declare const BOX_FOG = 14;
+/** The F block's header line, exactly as Traxx writes it (the engine reads it with an 80-character fgets). */
+export declare const SIT_FOG_HEADER = "Ffog w,l,h,base,vis,r,g,b,half,edge,top,maxOp,wmask,round,wisp,wsize,wspd,bot";
+/** The `F` block's data line, read tolerantly (missing trailing fields keep their defaults) and clamped as Traxx's ClampFog. */
+export declare function parseSitFog(line: string | null | undefined): SitFog;
+/** The F block's data line as Traxx writes it: C's %f for every field but wmask (%d). */
+export declare function formatSitFogLine(fog: SitFog): string;
 export interface SitCourseSegment {
     /** Editor space, as sitWorldTriplet gives (2 units per foot horizontally, 2 ft height steps). */
     start: [number, number, number];
@@ -111,6 +148,40 @@ export interface SitTruck {
     positionFt?: [number, number, number];
     /** `!ap.courseToFollow`: the course this vehicle drives, 0 the primary and 1..4 the extended ones. */
     courseToFollow?: number;
+    /**
+     * The record's motion and race state (MONSTER.EXE's writer, 0x4c0360): zero in a level's own SIT, a race in
+     * progress in a saved game's. Null where the record has no `bvel` line (MTM1, CPR).
+     */
+    state?: SitTruckState | null;
+}
+/** A SIT truck record's live lines (0x4c0360); see `Mtm2SitTruckState` in write.ts for each field. */
+export interface SitTruckState {
+    bvel: [number, number, number];
+    rates: [number, number, number];
+    frontAxle: [number, number];
+    rearAxle: [number, number];
+    frontOnGround: [number, number];
+    rearOnGround: [number, number];
+    gear: number;
+    autopilot: number;
+    cnumber: number;
+    apControl: [number, number, number];
+    /** Null when the record has no `@damageCode` line (a level's own SIT). */
+    damageCode: number | null;
+    heli: [number, number, number, number];
+    heliPos: [number, number, number];
+    segments: number;
+    laps: number;
+    staged: number;
+    bonusLaps: number;
+    finished: number;
+    nextCheckpoint: number;
+    totalRaceTime: number;
+    fastestLap: number;
+    dragTimer: number;
+    /** 20 laps' times and each lap's 20 checkpoint times, as many as the record has. */
+    lapTimes: number[];
+    checkpointTimes: number[][];
 }
 export interface SitArena {
     modelName: string;
@@ -155,6 +226,12 @@ export interface MtmSit {
     flyBy: string | null;
     /** The engine's hidden hard-track switch: the Fly-By line reads `Sonic` (MONSTER.EXE 0x551f90). */
     sonicTrack: boolean;
+    /**
+     * `$racetime, raceStartTime, dragDebugTimer`: the race clock from the countdown's start, the moment of GO and the
+     * drag timer, seconds (0 in a level's own SIT, a race in progress in a saved game's); null where the SIT has no
+     * such line.
+     */
+    raceTimes: [number, number, number] | null;
     localeName: string | null;
     /**
      * The header's file names, as written, or null where the SIT has no such line: the track's picture on the game's
@@ -204,6 +281,16 @@ export interface MtmSit {
     } | null;
     /** The "Track Longtitude, Latitude" value as written. */
     longitudeLatitude: string | null;
+    /**
+     * The saved race-state lines a level's SIT carries and no reader interprets, as written, so a writer can carry them
+     * over: `viewmode,spotd,spotp,spoth,zoom`, `controlflag, autoShift, autoStage, bothStaged, bothStagedPrev` and
+     * `stageComFlag, bonusLapFlag`. Null where the line is absent.
+     */
+    viewState: string | null;
+    controlFlags: string | null;
+    stageFlags: string | null;
+    /** `backdropType` from the `backdropType,backdropCount` line; null when the file has no *** Backdrop *** section. */
+    backdropType: number | null;
     /** What does not add up, such as a section declaring more records than it holds. */
     warnings: string[];
 }

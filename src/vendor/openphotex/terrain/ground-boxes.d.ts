@@ -8,6 +8,10 @@ export declare function encodeClrWord(texture: number, mirror?: number, rotation
 /**
  * A .CLR texture grid: one little-endian word per cell, row by row. Returns null when the file
  * is shorter than the grid.
+ *
+ * A file of exactly one byte per cell is the narrow form Hellbender's loader (HELLBEND.EXE
+ * 0x412c3e) accepts by size: each byte is a texture index with no mirror or rotation. No shipped
+ * level uses it.
  */
 export declare function decodeClrGrid(bytes: Uint8Array, gridSize?: number): Uint16Array | null;
 /** The bytes of a .CLR texture grid. */
@@ -30,6 +34,9 @@ export interface GroundBox {
 /**
  * Decode a ground-box layer. Returns [] when a grid is shorter than the level's cell count;
  * `faces` may be null, leaving every face at texture -1.
+ *
+ * A face grid of exactly six bytes per cell is the narrow form Hellbender's loader accepts by
+ * size (HELLBEND.EXE 0x412c3e): each byte is a texture index with no mirror or rotation.
  */
 export declare function decodeGroundBoxes(ra0: Uint8Array, ra1: Uint8Array, cl0: Uint8Array | null, gridSize: number, heightOffset?: number): GroundBox[];
 /** What encodeGroundBoxes needs of a box: its cell, heights and six faces, as decodeGroundBoxes gives them. */

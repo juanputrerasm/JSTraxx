@@ -1,4 +1,5 @@
 import type { Vec3 } from "../truck/common.ts";
+import type { MtmSit, SitFog } from "./sit.ts";
 /**
  * A SIT value: a number is written with two decimals, as stock SITs write positions and angles;
  * a string is written as given, for a caller that has already formatted it.
@@ -15,6 +16,54 @@ export interface Mtm2SitTruck {
     orient: SitTriple;
     /** "!ap.courseToFollow": every racer follows extended course 2 in all fifteen stock levels. */
     courseToFollow?: number;
+    /**
+     * A truck in the middle of a race, as MONSTER.EXE's own writer (0x4c0360) prints it for "Save situation" and a
+     * saved game: its motion, gear, autopilot, damage and race progress. Without it the record is a stock grid slot,
+     * at rest with a zeroed race state and no `@damageCode` line.
+     */
+    state?: Mtm2SitTruckState;
+}
+/** A truck's live state in a SIT record (0x4c0360). Times are seconds; positions and speeds feet. */
+export interface Mtm2SitTruckState {
+    /** bvel: body-axis velocity, ft/s. */
+    bvel: readonly [number, number, number];
+    /** p, q, r: body rates, rad/s. */
+    rates: readonly [number, number, number];
+    /** faxle.angle, faxle.steering_angle and the rear axle's. */
+    frontAxle?: readonly [number, number];
+    rearAxle?: readonly [number, number];
+    /** The tires' on-ground flags, right then left, as the game keeps them (-1 and 1 at rest). */
+    frontOnGround?: readonly [number, number];
+    rearOnGround?: readonly [number, number];
+    /** xm.gear (`+0x58c`): 0 reverse ... 4 first; the game's numbering. */
+    gear: number;
+    /** ap.autopilot (1 on) and ap.cnumber, the course segment it follows. */
+    autopilot: number;
+    cnumber: number;
+    /** ap.speed_control, ap.course_control, ap.lasterror. */
+    apControl?: readonly [number, number, number];
+    /**
+     * `@damageCode` (`+0x1764`), the 32-bit crash damage code. Null for a level's own grid slot, which has no such line:
+     * the record is then written in the stock grid layout, with these values in it.
+     */
+    damageCode: number | null;
+    /** heliTimer, heliTheta, heliPhi, heliPsi, and heliPos. */
+    heli?: readonly [number, number, number, number];
+    heliPos?: readonly [number, number, number];
+    /** segments (`+0x8f0`), laps (`+0x8f4`), staged (`+0x8fc`), bonusLaps (`+0x900`), finishedRace (`+0x904`), nextcheckpoint (`+0xfa8`). */
+    segments: number;
+    laps: number;
+    staged?: number;
+    bonusLaps?: number;
+    finished: number;
+    nextCheckpoint: number;
+    /** totalracetime (`+0xfa4`), fastestLap (`+0xfa0`), dragTimer (`+0x90c`). */
+    totalRaceTime: number;
+    fastestLap: number;
+    dragTimer?: number;
+    /** Up to 20 laps' times (`+0xf50`), and each lap's up to 20 checkpoint times (`+0x910`); missing ones are 0. */
+    lapTimes: readonly number[];
+    checkpointTimes: readonly (readonly number[])[];
 }
 /** A *** Ramps *** record: a model, or a wedge's length, width and height. */
 export interface Mtm2SitRamp {
@@ -44,6 +93,8 @@ export interface Mtm2SitBox extends Mtm2SitRamp {
      * bright, aimOff), written after the sounds when given. Community Patch 3 reads it on type 12.
      */
     light?: readonly SitValue[];
+    /** Community Patch 4's `F` block (type 14 fog volumes), written after the sounds and any light block. */
+    fog?: SitFog;
 }
 /** A *** Top Crush *** record: the base model at `position`, the keyframed cab at `position2`. */
 export interface Mtm2SitTopCrush {
@@ -138,6 +189,32 @@ export interface Mtm2Sit {
     };
 }
 export declare function writeMtm2Sit(sit: Mtm2Sit): Uint8Array;
+/**
+ * A parsed MTM2 SIT (`parseMtmSit`) as `writeMtm2Sit` input, for an editor that reads a level, changes its data and
+ * writes it back: `writeMtm2Sit(mtm2SitFromParsed(parseMtmSit(bytes)))` reads back as the same level.
+ *
+ * Positions are taken in feet as the game loader keeps them (`positionFt`, `startFt`), so a negative x or z comes back
+ * wrapped by +8192, which the game reads as the same place. A course segment gets the game's track width
+ * (`trackWidthFt`, 32 when the file had no `&` line). Numbers are written in the stock layout (two decimals, six for
+ * mass, speeds and lengths), and the header lines no reader interprets are carried over as written.
+ *
+ * Throws on what `writeMtm2Sit` cannot express: a SIT that is not MTM2, or a top-crush car in the size form, which no
+ * stock MTM2 level uses.
+ */
+export declare function mtm2SitFromParsed(sit: MtmSit): Mtm2Sit;
+/**
+ * The lines of one SIT truck record (after its delimiter), as `writeMtm2Sit` writes it: for a caller that rewrites
+ * the vehicles of an existing SIT (`replaceSitVehicles`).
+ */
+export declare function sitTruckLines(vehicle: Mtm2SitTruck): string[];
+/**
+ * An existing SIT's text with its `*** Vehicles ***` section put in place of `vehicles`, and, when given, its
+ * `$racetime, raceStartTime, dragDebugTimer` line: what MONSTER.EXE's "Save situation" writer (0x553230) changes in a
+ * level's SIT, the live trucks and the race clock. The rest is kept line for line. Lines end CRLF.
+ */
+export declare function replaceSitVehicles(sitText: string, vehicles: readonly Mtm2SitTruck[], { raceTimes }?: {
+    raceTimes?: readonly number[];
+}): string;
 /** An MTM2 .LVL. Every name is written as given; the side files share the level's stem in stock levels. */
 export interface Mtm2Lvl {
     /** Line 1. */

@@ -5,13 +5,16 @@
 
   Left out because a browser has no use for them: Software Render Quality, Display
   Resolution, Use OpenGL Renderer, V-Sync, and "Let the Textures window go behind Traxx".
-  The Folders tab becomes Library: Traxx's ART and MODELS folders are the game PODs here.
+  The Folders tab becomes Library: Traxx's ART and MODELS folders are the game PODs here. The
+  project's own ART and MODELS folders in browser storage head the list, as they are read first,
+  with a Clear button (a JSTraxx addition, core/storage.ts).
 */
 import { el, clear } from "../../shared/dom.ts";
 import type { AppState } from "../../app/state.ts";
 import type { Library, LibraryEntry } from "../../app/library.ts";
 import { DEFAULT_COLORS, type TraxxSettings } from "../../core/settings.ts";
 import { openDialog, confirmDialog } from "../shell/dialog.ts";
+import type { StoreFolder } from "../../core/storage.ts";
 
 export type OptionsTab = "general" | "library" | "autosave" | "colors" | "advanced";
 
@@ -97,8 +100,23 @@ function libraryTab(library: Library, w: TraxxSettings): HTMLElement {
     w.library_order = rows.map((r) => r.name);
     w.library_disabled = rows.filter((r) => !r.enabled).map((r) => r.name);
   };
+  // The project's ART and MODELS folders in browser storage: always mounted, always first.
+  const storeInfo = el("span", { class: "lib-info" }, "reading...");
+  const storeRow = el("li", { class: "lib-row lib-store" },
+    el("input", { type: "checkbox", checked: true, disabled: true, title: "Always read first" }),
+    el("span", { class: "lib-name", title: "The ART and MODELS folders JSTraxx keeps in this browser (Extract Models and Art, imports). An opened .TXX reads a file here before any POD." }, "Browser storage (ART, MODELS)"),
+    storeInfo, el("span"), el("span"),
+    el("button", { type: "button", title: "Delete files from browser storage", "aria-label": "Clear browser storage", onclick: () => void clearStore(library).then(showStore) }, "Clear..."));
+  const showStore = async () => {
+    const s = await library.storeSummary();
+    const n = (k: number, one: string) => `${k} ${one}${k === 1 ? "" : "s"}`;
+    storeInfo.textContent = s.art.files + s.models.files === 0 ? "empty"
+      : `${n(s.art.files, "art file")}, ${n(s.models.files, "model")} · ${formatSize(s.art.bytes + s.models.bytes)} · read before the PODs`;
+  };
+  void showStore();
   const draw = () => {
     clear(list);
+    list.append(storeRow);
     if (rows.length === 0) list.append(el("li", { class: "lib-empty" }, "No game PODs yet. Add the .POD files from your Monster Truck Madness 2 folder."));
     rows.forEach((r, i) => {
       const on = el("input", { type: "checkbox", checked: r.enabled, title: "Mounted" });
@@ -159,6 +177,47 @@ function libraryTab(library: Library, w: TraxxSettings): HTMLElement {
   page.addEventListener("drop", (e) => { e.preventDefault(); page.classList.remove("drop"); add([...(e.dataTransfer?.files ?? [])]); });
   draw();
   return page;
+}
+
+/*
+  Clear browser storage: which folders, and a filter on the file names (empty is every file;
+  "VP" is *VP*). The files it picks are counted as the filter is typed, and deleted after a
+  confirmation. A track already open keeps what it loaded; it reads from the PODs when reopened.
+*/
+async function clearStore(library: Library): Promise<void> {
+  const art = el("input", { type: "checkbox", checked: true });
+  const models = el("input", { type: "checkbox", checked: true });
+  const filter = el("input", { type: "text", placeholder: "All files, or a name like VP or VPM*.BIN", class: "tex-filter store-filter", "aria-label": "File name filter" });
+  filter.addEventListener("keydown", (e) => e.stopPropagation());
+  const preview = el("p", { class: "opt-hint", "aria-live": "polite" });
+  const folders = (): StoreFolder[] => [...(art.checked ? ["art" as const] : []), ...(models.checked ? ["models" as const] : [])];
+  let seq = 0;
+  const update = async () => {
+    const mine = ++seq;
+    const picked = await library.storeMatch(folders(), filter.value);
+    if (mine !== seq) return;
+    const names = picked.slice(0, 6).map((f) => f.path).join(", ");
+    preview.textContent = picked.length ? `${picked.length} file${picked.length === 1 ? "" : "s"}: ${names}${picked.length > 6 ? ", ..." : ""}` : "No files match.";
+  };
+  for (const input of [art, models]) input.addEventListener("change", () => void update());
+  filter.addEventListener("input", () => void update());
+  void update();
+  const r = await openDialog({
+    title: "Clear Browser Storage",
+    body: [
+      el("p", { class: "opt-hint" }, "An opened .TXX reads art and models from here before the game PODs, so an old copy here hides a newer one in a POD. Deleted files are read from the PODs again."),
+      el("label", { class: "opt-check" }, art, " ART folder"),
+      el("label", { class: "opt-check" }, models, " MODELS folder"),
+      el("div", { class: "opt-row" }, filter),
+      preview,
+    ],
+    buttons: [{ label: "Delete", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }],
+  });
+  if (r !== "ok" || folders().length === 0) return;
+  const picked = await library.storeMatch(folders(), filter.value);
+  if (picked.length === 0) return;
+  if (!(await confirmDialog("Clear Browser Storage", `Permanently delete ${picked.length} file${picked.length === 1 ? "" : "s"} from browser storage? Your game folder and the library PODs are not touched. A track that is open keeps what it loaded until it is reopened.`, "Delete"))) return;
+  await library.clearStore(folders(), filter.value);
 }
 
 export async function showOptions(app: AppState, library: Library, start: OptionsTab = "general"): Promise<void> {

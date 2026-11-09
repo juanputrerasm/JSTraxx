@@ -20,8 +20,13 @@ import { isHdName, rawSide, resolveItemName, seekToItem, swapExt } from "../trax
 import { withSysColors } from "../traxx/palette.ts";
 import { CELLS, inferPrefixAuto, interpolateRawAtPoint, uiInfoName } from "../traxx/terrain.ts";
 import { atoi, traxxLines } from "../traxx/lines.ts";
+import { loadRaw, parseTerrainGridKey, parseTerrainHeightsKey, resolveTerrainMode, setModeOnLoad, refreshRaw, RAWLEN_8BIT, RAWLEN_16BIT, RAWLEN_FINE, TERRAINMODE_CLASSIC16, TERRAINMODE_CLASSIC8, TERRAINMODE_FINE, TERRAIN_FINE, type Terrain16 } from "../traxx/terrain16.ts";
 import { cText } from "../traxx/bytes.ts";
+import { decodePngSamples } from "../../vendor/openphotex/texture/png.js";
 import { resetTrack } from "./new-track.ts";
+import { vegetationFromPod } from "../traxx/veg.ts";
+import { buildLakeGround } from "../traxx/surface.ts";
+import { parseWtrLakes, recomputeLakes, LAKES_MISMATCH } from "../traxx/lakes.ts";
 import { emptyCarry, type ModelAsset, type TextureAsset, type TrackDocument } from "./document.ts";
 import { afterFirstSlash, findAsset } from "./names.ts";
 
@@ -117,10 +122,11 @@ export async function loadPodTrack(source: PodSource, which: number, fileName: s
   track.comment = source.archive.comment.slice(0, 79);
   doc.carry.situationIsSi2 = si2;
 
-  const parsed = parseMtmSit(await source.read(sitEntry), sitEntry.title);
+  const sitBytes = await source.read(sitEntry);
+  const parsed = parseMtmSit(sitBytes, sitEntry.title);
   // A UI picture counts as present when its HD sibling is (LoadUIArtHD before SeekToItem).
   const present = (name: string) => Boolean(seek(name)) || (/\.BMP$/i.test(name) && Boolean(seek(swapExt(name, "PNG")) || seek(swapExt(name, "TGA"))));
-  const sit = traxxSitFromParsed(parsed, { hasEntry: present });
+  const sit = traxxSitFromParsed(parsed, { hasEntry: present, text: sitBytes });
   track.prefix = sit.prefix;
   track.trackName = sit.trackName;
   track.localeName = sit.localeName;
@@ -160,11 +166,19 @@ export async function loadPodTrack(source: PodSource, which: number, fileName: s
   const lvlBytes = sit.prefix ? await fetchPodOnly(parsed.lvlName.toUpperCase()) : null;
   const resolve = (name: string) => resolveItemName(entries, name);
   const entryName = (name: string) => seek(name)?.name ?? null;
-  if (lvlBytes) await readLevel(lvlBytes, doc, fetchPodOnly, fetch, progress, resolve, entryName);
+  const raw = lvlBytes ? await readLevel(lvlBytes, doc, fetchPodOnly, fetch, progress, resolve, entryName) : { length: -1, ok: false };
 
   // The .TXV record, if the pod has one.
   const txv = entries.find((e) => /\.TXV$/i.test(e.name.slice(e.name.lastIndexOf("."))) && e.length >= 1 && e.length <= 65536);
   if (txv) doc.carry.txvText = new TextDecoder("windows-1252").decode(await source.read(txv));
+
+  // Now that the .RAW and the .TXV are both in, what the terrain is (Load, after the item loop).
+  const heightsEntry = parseTerrainHeightsKey(doc.carry.txvText);
+  if (heightsEntry) applyTerrainHeightsImage(doc, doc.carry.txvText, heightsEntry, await fetchPodOnly(heightsEntry.toUpperCase()), raw);
+  else if (raw.length >= 0 && raw.ok) resolveTerrainFromTxv(doc, doc.carry.txvText, raw.length);
+
+  // Traxx 1.7: WORLD\<stem>.VEG and its painted masks, WORLD\<stem>.WTR (Load, after the info pop-up).
+  await readVegetationAndLakes(doc, fetchPodOnly);
 
   // Models, in the order ParseSITFile loads them: each box's model, a crush car's base, cab and cab frame 0.
   progress(0.6, "Reading models");
@@ -188,6 +202,12 @@ export async function loadPodTrack(source: PodSource, which: number, fileName: s
       const cab = await loadModel(box.crushName);
       if (cab?.frameNames[0]) await loadModel(cab.frameNames[0]);
     }
+  }
+  // The vegetation's species models reach a pod only by being in the model list. Traxx loads
+  // the ones the .VEG names; until OpenPhotex reads .VEG, every other model the pod holds is
+  // loaded when it has vegetation, so none of them is lost on the next Write POD.
+  if (track.vegetation) {
+    for (const e of entries) if (/^MODELS\\.*\.BIN$/i.test(e.name)) await loadModel(e.name.toUpperCase());
   }
   const backdrops = new Set<unknown>();
   for (const name of [track.backdropName, ...track.extraBackdrops]) if (name) backdrops.add(await loadModel(name));
@@ -270,10 +290,11 @@ async function readLevel(
   progress: (f: number, label: string) => void,
   resolve: (name: string) => string,
   entryName: (name: string) => string | null,
-): Promise<void> {
+): Promise<{ length: number; ok: boolean }> {
   const track = doc.track;
   const lvl = parseMtmLvl(bytes);
-  if (!lvl) return;
+  const rawResult = { length: -1, ok: false };
+  if (!lvl) return rawResult;
   const up = (s: string | null) => (s ?? "").toUpperCase();
 
   if (lvl.textName) track.text = await fetchPodOnly(up(lvl.textName));
@@ -281,10 +302,22 @@ async function readLevel(
   progress(0.1, "Reading the terrain");
   const raw = await fetchPodOnly(`DATA\\${up(lvl.rawName)}`);
   if (raw) {
-    track.heights.set(raw.subarray(0, CELLS));
-    readGroundBoxes(doc, up(lvl.rawName), await fetchPodOnly(swapExt(up(lvl.rawName), "RA0")),
-      await fetchPodOnly(swapExt(up(lvl.rawName), "RA1")), await fetchPodOnly(swapExt(up(lvl.rawName), "CL0")));
+    // LoadRawLegacy: 65,536, 131,072 or 2,097,152 bytes by size; any other size the old way, as
+    // an 8-bit map from its first 64 KB (the rest at 100).
+    rawResult.length = raw.length;
+    rawResult.ok = loadRaw(track, raw);
+    if (!rawResult.ok) {
+      track.terrainMode = TERRAINMODE_CLASSIC8;
+      track.h16 = track.fine = track.rawShadow = null;
+      track.heights.fill(100);
+      track.heights.set(raw.subarray(0, CELLS));
+      doc.warnings.push(`The terrain height file ${up(lvl.rawName)} is ${raw.length.toLocaleString("en-US")} bytes. Traxx reads 65,536 (8-bit), 131,072 (16-bit) or 2,097,152 (16-bit Full Map) byte height files, so it was read as an 8-bit 256x256 map.`);
+    }
   }
+  // Read with or without the .RAW: a PNG-heights track packs none, and the ground boxes are
+  // found from the name the .LVL gives all the same.
+  readGroundBoxes(doc, up(lvl.rawName), await fetchPodOnly(swapExt(up(lvl.rawName), "RA0")),
+    await fetchPodOnly(swapExt(up(lvl.rawName), "RA1")), await fetchPodOnly(swapExt(up(lvl.rawName), "CL0")));
   const clr = await fetchPodOnly(up(lvl.clrName));
   if (clr) {
     const n = Math.min(CELLS, clr.length >> 1);
@@ -334,6 +367,122 @@ async function readLevel(
   doc.carry.levelValue = lvl.levelValue ?? 0;
   // The line after the level value must be the label (ParseLVLFile reads it there).
   if (lvl.waterHeight !== null) track.waterLevel4 = lvl.waterHeight;
+  return rawResult;
+}
+
+/**
+  ResolveTerrainFromTXV: the height file's size decided the data; the .TXV's terrainGrid key
+  can only call a 256 x 256 grid SPLINE, or disagree, which is reported once.
+*/
+export function resolveTerrainFromTxv(doc: TrackDocument, txv: string | null, rawLength: number): void {
+  const { mode, warning } = resolveTerrainMode(parseTerrainGridKey(txv), rawLength);
+  if (warning) doc.warnings.push(warning);
+  if (mode !== doc.track.terrainMode && !setModeOnLoad(doc.track, mode)) {
+    doc.warnings.push("This track could not be shown in the mode its files declare; it is open in the mode its height file gave it (Classic 8-bit, 16-bit or 16-bit Full Map). Check Special > Terrain Grid before saving.");
+  }
+}
+
+/**
+  ApplyTerrainHeightsImage: the terrainHeights= PNG decoded and turned into the bytes of the .RAW
+  it stands for (HeightImageToRaw: 8-bit 256 -> 65,536; 16-bit 256 -> 131,072; any 1024 ->
+  2,097,152, an 8-bit sample meaning b << 8), loaded in the mode that size gives and resolved
+  against terrainGrid= exactly as that .RAW would be. Grey or grey + alpha (the alpha ignored), 8
+  or 16 bits, 256 or 1024 square; anything else takes the fallback below.
+*/
+export function applyTerrainHeightsImage(doc: TrackDocument, txv: string | null, entry: string, png: Uint8Array | null, raw: { length: number; ok: boolean }): void {
+  let why = png ? "" : "The pod has no entry by that name.";
+  let bytes: Uint8Array | null = null;
+  if (png) {
+    try {
+      const img = decodePngSamples(png);
+      if (img.colorType !== 0 && img.colorType !== 4) why = "It is not a greyscale image.";
+      else if (img.width !== img.height || (img.width !== 256 && img.width !== 1024)) why = `It is ${img.width} x ${img.height}; a height image is 256 x 256 or 1024 x 1024.`;
+      else {
+        const n = img.width * img.height, ch = img.channels;
+        if (img.width === 256 && img.bitDepth === 8) {
+          bytes = new Uint8Array(n);
+          for (let i = 0; i < n; i++) bytes[i] = img.samples[i * ch]!;
+        } else {
+          bytes = new Uint8Array(n * 2);
+          for (let i = 0; i < n; i++) {
+            const v = img.bitDepth === 8 ? img.samples[i * ch]! << 8 : img.samples[i * ch]!;
+            bytes[2 * i] = v & 255;
+            bytes[2 * i + 1] = v >> 8;
+          }
+        }
+      }
+    } catch (err) {
+      why = `It could not be decoded (${(err as Error).message}).`;
+    }
+  }
+  if (bytes && loadRaw(doc.track, bytes)) {
+    doc.track.pngHeights = true;
+    resolveTerrainFromTxv(doc, txv, bytes.length);
+    return;
+  }
+  applyHeightsKeyUnsupported(doc, txv, entry, raw, why);
+}
+
+/**
+  ApplyTerrainHeightsImage's fallback, for an image that cannot be used. The track keeps "Store heights as PNG" set; the .RAW, when one was read, is the terrain;
+  without one the ground is flat at height 0 in the mode the track declares (16-bit, or a Full
+  Map under terrainGrid=fine), as the engine does.
+*/
+export function applyHeightsKeyUnsupported(doc: TrackDocument, txv: string | null, entry: string, raw: { length: number; ok: boolean }, why = ""): void {
+  const t = doc.track;
+  t.pngHeights = true;
+  let then: string;
+  if (raw.length >= 0) {
+    then = "The heights were read from the track's .RAW instead.";
+    if (raw.ok) resolveTerrainFromTxv(doc, txv, raw.length);
+  } else {
+    then = "There is no .RAW to fall back on, so the terrain is flat at height 0.";
+    const fine = parseTerrainGridKey(txv) === TERRAINMODE_FINE;
+    const flat: Terrain16 = t;
+    flat.terrainMode = fine ? TERRAINMODE_FINE : TERRAINMODE_CLASSIC16;
+    flat.h16 = fine ? null : new Uint16Array(256 * 256);
+    flat.fine = fine ? new Uint16Array(TERRAIN_FINE * TERRAIN_FINE) : null;
+    flat.rawShadow = new Uint8Array(RAWLEN_8BIT);
+    refreshRaw(flat);
+    resolveTerrainFromTxv(doc, txv, fine ? RAWLEN_FINE : RAWLEN_16BIT);
+  }
+  doc.warnings.push(`The track's heights are stored in ${entry} (terrainHeights= in its .TXV), which could not be used.${why ? ` ${why}` : ""} ${then}`);
+}
+
+/*
+  WORLD\<stem>.VEG, then the painted masks ART\<stem>_V / _G (.PNG then .TGA), then WORLD\<stem>.WTR
+  (TrackPODFile.cpp):
+
+    - the .VEG and the masks become the track's vegetation, which a .TXX keeps (V15) and Write
+      POD packs back. A mask is adopted only when the .VEG's RULE chunk names it
+      (vegetationFromPod, core/traxx/veg.ts);
+    - the .WTR gives the lakes' authored part (ParseWTR); the terrain and the water level are in
+      by now, so the tiles are recomputed, and a stored tile map that differs from the one Traxx
+      computes is said once. An unusable file leaves no lakes.
+*/
+async function readVegetationAndLakes(doc: TrackDocument, fetchPodOnly: (name: string) => Promise<Uint8Array | null>): Promise<void> {
+  const p = doc.track.prefix.toUpperCase();
+  if (!p) return;
+  const veg = await fetchPodOnly(`WORLD\\${p}.VEG`);
+  if (veg && veg.length > 0) {
+    const v = await vegetationFromPod(p, async (name) => (name === `WORLD\\${p}.VEG` ? veg : fetchPodOnly(name)));
+    doc.track.vegetation = { masks: v.masks.map((m) => (m ? { ext: m.ext, data: m.data } : null)), image: veg };
+  }
+  const wtr = await fetchPodOnly(`WORLD\\${p}.WTR`);
+  if (wtr && wtr.length > 0) {
+    const parsed = parseWtrLakes(wtr);
+    if (parsed) {
+      doc.track.lakes = parsed.lakes;
+      const st = recomputeLakes(buildLakeGround(doc.track), parsed.lakes, doc.track.waterLevel4);
+      if (!parsed.tmap || !sameBytes(parsed.tmap, st.tmap)) doc.warnings.push(LAKES_MISMATCH);
+    }
+  }
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 /*
@@ -457,7 +606,8 @@ async function loadTexture(name: string, fetch: (name: string) => Promise<Uint8A
   const bytes = await fetch(name);
   if (!bytes) return null;
   const stored = entryName?.(name) ?? (name.includes("\\") ? name : `ART\\${name}`);
-  const side = rawSide(bytes.length);
+  // An HD name is HD whatever its length: a PNG can happen to be a square number of bytes.
+  const side = isHdName(name) ? 0 : rawSide(bytes.length);
   if (side === 0) {
     if (!isHdName(name)) return null;
     const ext = name.toUpperCase().endsWith(".TGA") ? "TGA" : "PNG";

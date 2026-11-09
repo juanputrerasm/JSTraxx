@@ -14,7 +14,12 @@ import { buildLighting, sunPosition } from "../core/edit/lighting.ts";
 import { optimalPalette } from "../core/edit/optimal-palette.ts";
 import { traxxFogMap, withSysColors } from "../core/traxx/palette.ts";
 import { MTM2_ONLY } from "../core/doc/document.ts";
-import { TRAXX_BOX_LIGHT, TRAXX_BOX_RAMP } from "../core/traxx/sit.ts";
+import { TRAXX_BOX_FOG, TRAXX_BOX_LIGHT, TRAXX_BOX_RAMP } from "../core/traxx/sit.ts";
+import { terrainGenTarget } from "../core/edit/terrain-gen16.ts";
+import { refreshRaw } from "../core/traxx/terrain16.ts";
+import { heightsChanged } from "../core/traxx/surface.ts";
+import { lakeErrors, lakeRefusal } from "./modes/lake-commands.ts";
+import { alertDialog } from "../ui/shell/dialog.ts";
 
 export function bindSpecial(app: AppState, registry: CommandRegistry, editor: Editor, view: TrackView): void {
   const can = () => editor.canEdit;
@@ -24,13 +29,22 @@ export function bindSpecial(app: AppState, registry: CommandRegistry, editor: Ed
     if (!doc) return;
     const seed = app.settings.randseed;
     const a = app.settings.autoterrain;
-    const out = await terrainGenDialog({ mode: ((seed >> 8) & 255) > 1 ? 0 : (seed >> 8) & 255, seed: seed & 255, ground: a.left, hillHeight: a.right, valleyDepth: a.top, smoothness: a.bottom });
+    const t = doc.track;
+    const target = terrainGenTarget(t.terrainMode);
+    const out = await terrainGenDialog({ mode: ((seed >> 8) & 255) > 1 ? 0 : (seed >> 8) & 255, seed: seed & 255, ground: a.left, hillHeight: a.right, valleyDepth: a.top, smoothness: a.bottom }, target);
     if (!out || editor.doc !== doc || !editor.canEdit) return;
     const s = out.settings;
     app.updateSettings((st) => { st.randseed = (s.seed & 255) | (s.mode << 8); st.autoterrain = { left: s.ground, right: s.hillHeight, top: s.valleyDepth, bottom: s.smoothness }; });
-    const rec = recordGrid(doc.track.heights, { minX: 0, minY: 0, maxX: 255, maxY: 255 }, "Random Terrain", (r) => ({ heights: r }));
-    doc.track.heights.set(out.heights);
-    editor.commit(rec);
+    // A 16-bit result goes into the real grid (h16, or the Full Map's 1024), then the mirror follows.
+    const before = lakeErrors(t);
+    const rec = recordFields(t, ["heights", "h16", "fine", "rawShadow"], "Random Terrain", { heights: { minX: 0, minY: 0, maxX: 255, maxY: 255 } });
+    if (target.precise && out.v && t.fine && target.gridSize === 1024) t.fine.set(out.v);
+    else if (target.precise && out.v && t.h16 && target.gridSize === 256) t.h16.set(out.v);
+    else t.heights.set(out.heights);
+    if (target.precise) { refreshRaw(t); heightsChanged(t); }
+    const refusal = lakeRefusal(t, before, "Generate Terrain");
+    const change = editor.commit(rec);
+    if (refusal && change) { editor.undo(); await alertDialog("Generate Terrain", refusal); }
   }, { enabled: can });
 
   registry.bind("ID_EDIT_LIGHTING", async () => {
@@ -84,6 +98,7 @@ export function bindSpecial(app: AppState, registry: CommandRegistry, editor: Ed
       ramps: t.boxes.filter((b) => b.type === TRAXX_BOX_RAMP).length,
       moving: t.boxes.filter((b) => b.type === 10 || b.type === 13).length,
       lights: t.boxes.filter((b) => b.type === TRAXX_BOX_LIGHT).length,
+      fogs: t.boxes.filter((b) => b.type === TRAXX_BOX_FOG).length,
       sounds: t.sounds.length,
     });
   }, { enabled: () => Boolean(editor.doc) });

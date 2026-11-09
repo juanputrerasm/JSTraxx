@@ -8,3 +8,4 @@ export declare function encodeRawTexture(rgba: Uint8Array, width: number, height
     raw: Uint8Array;
     act: Uint8Array;
 };
+export declare function quantizeToPalette(rgba: Uint8Array, width: number, height: number, act: Uint8Array): Uint8Array;

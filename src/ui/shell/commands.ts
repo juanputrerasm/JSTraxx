@@ -70,7 +70,24 @@ export class CommandRegistry {
 /* Traxx's string table entries, as [id, label, prompt, tip, shortcut]. */
 const TABLE: [string, string, string?, string?, string?][] = [
   // File
-  ["ID_FILE_NEW", "&New", "Create a track for MTM2", "New MTM2", "Ctrl+N"],
+  ["ID_FILE_NEW", "Classic 8-bit", "Create a track for MTM2", "New MTM2", "Ctrl+N"],
+  ["ID_FILE_NEW_CLASSIC16", "16-bit", "Create a track with 16-bit terrain heights", "New 16-bit"],
+  ["ID_FILE_NEW_SPLINE", "16-bit Spline", "Create a track with a smoothed 16-bit terrain surface", "New 16-bit Spline"],
+  ["ID_FILE_NEW_FINE", "16-bit Full Map", "Create a track with the 16-bit Full Map terrain grid", "New 16-bit Full Map"],
+  ["ID_TERRAIN_IMPORTRAW", "&Import Heightmap (.RAW/.PNG/.TGA)...", "Replace the terrain heights from a heightmap: 16-bit or 8-bit .RAW, or a grayscale PNG or TGA"],
+  ["ID_TERRAIN_EXPORTRAW", "&Export Heightmap...", "Save the terrain heights as a grayscale PNG (16-bit or 8-bit) or a heightmap .RAW file (16-bit files are little-endian)"],
+  ["ID_TERRAIN_GRID_CLASSIC8", "Classic 8-bit", "Convert the terrain to the Classic 8-bit grid (2 ft height steps, 32 ft triangles)"],
+  ["ID_TERRAIN_GRID_CLASSIC16", "16-bit", "Convert the terrain to 16-bit heights on the 32 ft triangle grid"],
+  ["ID_TERRAIN_GRID_SPLINE", "16-bit Spline", "Convert the terrain to 16-bit heights with a smoothed surface"],
+  ["ID_TERRAIN_GRID_FINE", "16-bit Full Map", "Convert the terrain to the 16-bit Full Map 8 ft grid"],
+  ["ID_TERRAIN_SMOOTHFINE", "Smooth Full Map from 32 ft grid...", "Rebuild every 8 ft point from the 32 ft points with the game's spline"],
+  ["ID_TERRAIN_HEIGHTSPNG", "Store heights as PNG", "Write POD stores this track's heights as a grayscale PNG (16-bit, or 8-bit on Classic 8-bit)."],
+  ["ID_EDIT_VEGETATION", "&Vegetation...", "Author trees and grass from painted masks", "Vegetation"],
+  ["ID_VIEW_VEGETATION", "Show &Vegetation", "Show or hide the trees in the OpenGL view", "Show Vegetation"],
+  ["ID_VIEW_GRASS", "Show &Grass", "Show or hide the grass near the camera in the OpenGL view", "Show Grass"],
+  ["ID_VIEW_VEGMASK", "Vegetation &Mask Wash", "Wash the ground with the painted vegetation masks", "Vegetation Mask Wash"],
+  ["ID_VIEW_VEGAIDS", "Vegetation &Aids", "Show trunk collision cylinders and the AI corridor", "Vegetation Aids"],
+  ["ID_VIEW_LAKEWALLS", "Show &Lake Walls", "Show the ring of wall tiles round each lake in the OpenGL view", "Show Lake Walls"],
   ["ID_FILE_OPEN", "&Open...", "Open an existing Track", "Open", "Ctrl+O"],
   ["ID_FILE_SAVE", "&Save", "Save the active Track", "Save", "Ctrl+S"],
   ["ID_FILE_SAVE_AS", "Save &As...", "Save the active Track with a new name", "Save As"],
@@ -216,10 +233,12 @@ export function registerTraxxCommands(registry: CommandRegistry): void {
 */
 export type MenuItem = string | { label: string; items: MenuItem[] } | { id: string; label: string };
 export const MAIN_MENU: { label: string; items: MenuItem[] }[] = [
-  { label: "&File", items: ["ID_FILE_NEW", "ID_FILE_OPEN", "ID_FILE_SAVE", "ID_FILE_SAVE_AS", "ID_FILE_CLOSE", "-", "ID_FILE_CLONE", "ID_FILE_VIEWPOD", "ID_FILE_IMPORT", "ID_FILE_WRITEPOD", "-", "ID_FILE_DOWNLOAD", "ID_FILE_PRINT", "-", "@recent"] },
-  { label: "&Edit", items: ["ID_EDIT_UNDO", "ID_EDIT_REDO", "-", "ID_EDIT_CUT", "ID_EDIT_COPY", "ID_EDIT_PASTE", "-", "ID_VIEW_COMPONENTS", "-", "ID_TERRAIN_COPYBITMAP", "ID_TERRAIN_PASTEBITMAP", "ID_TERRAIN_RAISELOWER", "-", "ID_EDIT_EXTRACT"] },
-  { label: "&Special", items: ["ID_EDIT_WEATHERMASK", "ID_EDIT_GENTERRAIN", "ID_EDIT_LIGHTING", "ID_EDIT_TRANSITIONS", "ID_EDIT_PALETTE"] },
-  { label: "&View", items: ["ID_VIEW_TOOLBAR", "ID_VIEW_STATUS_BAR", "ID_VIEW_VIEWCONTROL", "ID_VIEW_EDITCONTROL", "-", "ID_VIEW_TEXTURES", "ID_VIEW_PATTERNS", "ID_VIEW_OBJECTS", "-", "ID_VIEW_OPTIONS", "ID_VIEW_LIBRARY", "ID_VIEW_STATS"] },
+  { label: "&File", items: [{ label: "&New", items: ["ID_FILE_NEW", "ID_FILE_NEW_CLASSIC16", "ID_FILE_NEW_SPLINE", "ID_FILE_NEW_FINE"] }, "ID_FILE_OPEN", "ID_FILE_SAVE", "ID_FILE_SAVE_AS", "ID_FILE_CLOSE", "-", "ID_FILE_CLONE", "ID_FILE_VIEWPOD", "ID_FILE_IMPORT", "ID_FILE_WRITEPOD", "-", "ID_FILE_DOWNLOAD", "ID_FILE_PRINT", "-", "@recent"] },
+  { label: "&Edit", items: ["ID_EDIT_UNDO", "ID_EDIT_REDO", "-", "ID_EDIT_CUT", "ID_EDIT_COPY", "ID_EDIT_PASTE", "-", "ID_VIEW_COMPONENTS", "-", "ID_TERRAIN_COPYBITMAP", "ID_TERRAIN_PASTEBITMAP", "ID_TERRAIN_IMPORTRAW", "ID_TERRAIN_EXPORTRAW", "ID_TERRAIN_RAISELOWER", "-", "ID_EDIT_EXTRACT"] },
+  { label: "&Special", items: ["ID_EDIT_WEATHERMASK", "ID_EDIT_GENTERRAIN", "ID_EDIT_LIGHTING", "ID_EDIT_TRANSITIONS", "ID_EDIT_PALETTE", "ID_EDIT_VEGETATION", "-",
+    { label: "Terrain &Grid", items: ["ID_TERRAIN_GRID_CLASSIC8", "ID_TERRAIN_GRID_CLASSIC16", "ID_TERRAIN_GRID_SPLINE", "ID_TERRAIN_GRID_FINE", "-", "ID_TERRAIN_SMOOTHFINE", "-", "ID_TERRAIN_HEIGHTSPNG"] }] },
+  { label: "&View", items: ["ID_VIEW_TOOLBAR", "ID_VIEW_STATUS_BAR", "ID_VIEW_VIEWCONTROL", "ID_VIEW_EDITCONTROL", "-", "ID_VIEW_TEXTURES", "ID_VIEW_PATTERNS", "ID_VIEW_OBJECTS", "-", "ID_VIEW_OPTIONS", "ID_VIEW_LIBRARY", "ID_VIEW_STATS", "-",
+    { label: "Ve&getation", items: ["ID_VIEW_VEGETATION", "ID_VIEW_GRASS", "ID_VIEW_VEGMASK", "ID_VIEW_VEGAIDS", "-", "ID_VIEW_LAKEWALLS"] }] },
   { label: "&Navigation", items: ["ID_FUNCTION_2", "ID_FUNCTION_3", "-", "ID_FUNCTION_4", "-", "ID_FUNCTION_5", "ID_FUNCTION_6", "ID_FUNCTION_7", "ID_FUNCTION_8", "ID_FUNCTION_9"] },
   { label: "&Help", items: ["ID_HELP_CONTENTS", "ID_HELP_KEYBOARD", "-", "ID_APP_ABOUT"] },
 ];
@@ -234,7 +253,7 @@ export const CONTEXT_MENUS: Record<string, MenuItem[]> = {
   Object: ["ID_OBJECT_INSERT", "ID_OBJECT_DELETE", "-", "ID_OBJECT_PROPERTIES", "ID_OBJECT_GROUPPROPERTIES", { label: "Set &Type", items: ["@types"] }, "-", "ID_OBJECT_COPY", "ID_OBJECT_PASTE", "-", "ID_OBJECT_DISPLAYBOX"],
   Bitmap: ["ID_BITMAP_COPY", "ID_BITMAP_PASTE", "-", "ID_BITMAP_LOAD", "ID_BITMAP_STOCK", "ID_BITMAP_SAVEAS", "-", "ID_BITMAP_VIEW"],
   Music: ["ID_MUSIC_LOAD", "ID_MUSIC_SAVEAS", "-", "ID_MUSIC_PLAY"],
-  Terrain: ["ID_TERRAIN_COPY", "ID_TERRAIN_PASTE", "-", { id: "ID_TERRAIN_RAISELOWER", label: "Adjust Heights..." }, "-", { id: "ID_TERRAIN_COPYBITMAP", label: "Copy Terrain as Bitmap" }, { id: "ID_TERRAIN_PASTEBITMAP", label: "Paste Terrain Bitmap" }],
+  Terrain: ["ID_TERRAIN_COPY", "ID_TERRAIN_PASTE", "-", { id: "ID_TERRAIN_RAISELOWER", label: "Adjust Heights..." }, "-", { id: "ID_TERRAIN_COPYBITMAP", label: "Copy Terrain as Bitmap" }, { id: "ID_TERRAIN_PASTEBITMAP", label: "Paste Terrain Bitmap" }, { id: "ID_TERRAIN_IMPORTRAW", label: "Import Heightmap (.RAW/.PNG/.TGA)..." }, { id: "ID_TERRAIN_EXPORTRAW", label: "Export Heightmap..." }],
   Building: ["ID_BUILDING_INSERT", "ID_BUILDING_DELETE", "-", "ID_BUILDING_ROT90", "ID_BUILDING_MIRROR", "-", "ID_BUILDING_CUT", "ID_BUILDING_COPY", "ID_BUILDING_PASTE", "-", "ID_TEXTURE_DISPLAYBOX"],
   Backdrop: ["ID_BACKDROP_LOAD", "ID_BACKDROP_ARENA"],
   Truck: ["ID_TRUCK_REVERSE", "ID_TRUCK_PROPERTIES"],

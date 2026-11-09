@@ -13,6 +13,9 @@ export declare function evoDriveInertia(spec: EvoVehicleSpec, gear: number, fina
 export interface EvoGearbox {
     gear: number;
     shiftRequest: number;
+    /** The automatic box takes requests too (MTM2's `GearboxState.autoOverride`). */
+    autoOverride?: boolean;
+    shiftHold?: boolean;
     brakeFront: number;
     brakeRear: number;
 }

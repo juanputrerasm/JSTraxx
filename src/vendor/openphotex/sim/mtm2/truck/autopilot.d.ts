@@ -30,6 +30,11 @@ export interface AutopilotContext {
     rubberBand?: boolean;
     /** Every truck in the race, this one included, for traffic (§14.25); none, no traffic. */
     traffic?: readonly TrafficTruck[];
+    /**
+     * Community Patch 3's AI Speed for a computer truck (OpenMTM2 docs/CP3_EXE_ANALYSIS.md 5): the
+     * target speed is multiplied by it last, after the 17 ft/s floor and the speed limit. Default 1.
+     */
+    aiSpeed?: number;
 }
 /**
  * **Hypothesis** (MTM2_PHYSICS.md 14.22): the game was tuned at about 30 frames per second, and

@@ -1,7 +1,8 @@
 /*
   JSTraxx chrome. A quiet desktop look in the spirit of Traxx's Windows frame: light panels,
-  compact controls, the 3D view taking the rest. Traxx's toolbar art is black line work, so
-  button faces stay light in both themes.
+  compact controls, the 3D view taking the rest. Toolbar and tool buttons sit on the panel
+  with no face of their own. Traxx's button art is black line work, so the dark theme inverts
+  it (--icon-filter) to keep it readable.
 */
 :root {
   --face: #ecebe8;
@@ -15,6 +16,7 @@
   --accent-soft: #d6e4fa;
   --view-bg: #000;
   --button-face: #f4f3f1;
+  --icon-filter: invert(0);
   --shadow: 0 6px 24px rgb(0 0 0 / 0.22);
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-size: 12px;
@@ -32,12 +34,14 @@
     --accent: #6ea0f0;
     --accent-soft: #2c3e5c;
     --button-face: #dcdad6;
+    --icon-filter: invert(1) hue-rotate(180deg);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --face: #2b2c2f; --face-2: #333438; --face-3: #232427; --text: #e6e5e2; --text-dim: #a19f9a;
   --line: #45464b; --line-strong: #5d5e64; --accent: #6ea0f0; --accent-soft: #2c3e5c; --button-face: #dcdad6;
+  --icon-filter: invert(1) hue-rotate(180deg);
   color-scheme: dark;
 }
 
@@ -81,17 +85,17 @@ a { color: var(--accent); }
 
 /* Toolbars */
 .toolbar-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 3px 4px; border-bottom: 1px solid var(--line); background: var(--face); }
-/* Each toolbar is one strip in the colour of the button art's own face, so the black line
-   work reads in both themes and the buttons sit on it without boxes of their own. */
-.toolbar { display: flex; align-items: center; gap: 1px; padding: 1px 3px; background: var(--button-face); border: 1px solid var(--line); border-radius: 4px; }
+/* Toolbars have a transparent background; a thin line separates neighbouring groups. */
+.toolbar { display: flex; align-items: center; gap: 1px; padding: 1px 3px; }
+.toolbar-row > .toolbar + .toolbar { border-left: 1px solid var(--line); padding-left: 6px; }
 .tb-button {
   width: 26px; height: 24px; display: grid; place-items: center; padding: 0;
   background: transparent; border: 1px solid transparent; border-radius: 3px;
 }
 .tb-button:hover:not(:disabled) { border-color: var(--line-strong); }
-.tb-button:active:not(:disabled), .tb-button.checked { background: #c9d8f2; border-color: var(--accent); }
-.tb-button:disabled .tb-icon { opacity: 0.3; filter: grayscale(1); }
-.tb-icon { width: 16px; height: 15px; background-repeat: no-repeat; image-rendering: pixelated; }
+.tb-button:active:not(:disabled), .tb-button.checked { background: var(--accent-soft); border-color: var(--accent); }
+.tb-button:disabled .tb-icon { opacity: 0.3; filter: var(--icon-filter) grayscale(1); }
+.tb-icon { width: 16px; height: 15px; background-repeat: no-repeat; image-rendering: pixelated; filter: var(--icon-filter); }
 .tb-sep { width: 1px; height: 16px; margin: 0 3px; background: var(--line-strong); }
 
 /* Work area */
@@ -120,11 +124,11 @@ a { color: var(--accent); }
 .bar-radios { display: flex; flex-direction: column; gap: 2px; }
 .terrain-map-frame { border: 1px solid var(--line-strong); background: #000; line-height: 0; }
 .terrain-map { width: 100%; aspect-ratio: 1; image-rendering: pixelated; cursor: crosshair; }
-.tool-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 2px; background: var(--button-face); border: 1px solid var(--line); border-radius: 4px; }
+.tool-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 2px; }
 .tool-button { padding: 2px; aspect-ratio: 1; display: grid; place-items: center; background: transparent; border: 1px solid transparent; border-radius: 3px; }
 .tool-button:hover { border-color: var(--line-strong); }
-.tool-button img { width: 100%; max-width: 32px; height: auto; image-rendering: pixelated; }
-.tool-button[aria-pressed="true"] { background: #c9d8f2; border-color: var(--accent); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.2); }
+.tool-button img { width: 100%; max-width: 32px; height: auto; image-rendering: pixelated; filter: var(--icon-filter); }
+.tool-button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.2); }
 
 /* Status bar */
 .statusbar { display: flex; gap: 3px; padding: 2px 4px; border-top: 1px solid var(--line); background: var(--face); font-size: 11px; }
@@ -140,7 +144,7 @@ a { color: var(--accent); }
 .panel-title { display: flex; align-items: center; justify-content: space-between; padding: 3px 4px 3px 8px; background: var(--face-3); border-bottom: 1px solid var(--line); cursor: move; font-weight: 600; }
 .panel-close { width: 20px; height: 18px; padding: 0; border: 0; background: none; border-radius: 3px; font-size: 14px; line-height: 1; }
 .panel-close:hover { background: #d9534f; color: #fff; }
-.floating-panel > .toolbar { border-left: 0; border-bottom: 1px solid var(--line); padding: 2px 4px; }
+.floating-panel > .toolbar { border-bottom: 1px solid var(--line); padding: 2px 4px; }
 .panel-body { flex: 1; min-height: 0; overflow: auto; }
 .panel-empty { margin: 16px; color: var(--text-dim); text-align: center; }
 .panel-grip { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize;
@@ -181,6 +185,9 @@ a { color: var(--accent); }
 .lib-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lib-info { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
 .lib-empty { padding: 16px; color: var(--text-dim); text-align: center; }
+.lib-store { background: var(--button-face); border-bottom: 2px solid var(--line-strong); }
+.lib-store .lib-name { font-style: italic; }
+.tex-filter.store-filter { width: 100%; min-width: 24ch; }
 .about { display: flex; flex-direction: column; gap: 6px; user-select: text; min-width: min(400px, 100%); }
 .about p { margin: 0; }
 .about-head { display: flex; gap: 12px; align-items: center; margin-bottom: 4px; }

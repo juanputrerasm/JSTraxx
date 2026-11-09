@@ -7,7 +7,7 @@
 */
 import type { TrackDocument } from "../doc/document.ts";
 import type { TxxTrack } from "../traxx/txx.ts";
-import { traxxBoxDefaults, traxxSignedSplit, TRAXX_BOX_CRUSH, TRAXX_BOX_LIGHT, TRAXX_BOX_RAMP, type TraxxBox } from "../traxx/sit.ts";
+import { traxxBoxDefaults, traxxSignedSplit, TRAXX_BOX_CRUSH, TRAXX_BOX_FOG, TRAXX_BOX_LIGHT, TRAXX_BOX_RAMP, TRAXX_MAX_FOGS, type TraxxBox } from "../traxx/sit.ts";
 import { interpolateRawAtPoint } from "../traxx/terrain.ts";
 
 export const MAX_OBJECTS = 4096;
@@ -15,37 +15,42 @@ export const TYPE_TRAIN = 10;
 export const TYPE_MOVING = 13;
 export const CHECKPOINT = 6;
 
-/* The Type list (IDC_TYPECOMBO): indices 0..13 are the engine's box types, then Ramp and Top-Crush. */
-export const OBJECT_TYPE_NAMES = ["Default", "Sign", "Barricade", "Tree", "Cone", "Vehicle", "Checkpoint", "No collide", "No collide (facing)", "Collide (facing)", "Train", "Post", "Light", "Moving", "Ramp", "Top-Crush"];
-export const TYPEIDX_RAMP = 14;
-export const TYPEIDX_CRUSH = 15;
+/*
+  The Type list (IDC_TYPECOMBO, ObjectPropertiesDlg.h): indices 0..14 are the engine's box types
+  (Traxx 1.7 added Fog at 14), then Ramp and Top-Crush, pushed from 14/15 to 15/16.
+*/
+export const OBJECT_TYPE_NAMES = ["Default", "Sign", "Barricade", "Tree", "Cone", "Vehicle", "Checkpoint", "No collide", "No collide (facing)", "Collide (facing)", "Train", "Post", "Light", "Moving", "Fog", "Ramp", "Top-Crush"];
+export const TYPEIDX_FOG = 14;
+export const TYPEIDX_RAMP = 15;
+export const TYPEIDX_CRUSH = 16;
 
 export function typeToIndex(type: number): number {
   if (type === TRAXX_BOX_RAMP) return TYPEIDX_RAMP;
   if (type === TRAXX_BOX_CRUSH) return TYPEIDX_CRUSH;
-  return type < 0 || type > TYPE_MOVING ? 0 : type;
+  return type < 0 || type > TYPEIDX_FOG ? 0 : type;
 }
 
 export function indexToType(index: number): number {
   if (index === TYPEIDX_RAMP) return TRAXX_BOX_RAMP;
   if (index === TYPEIDX_CRUSH) return TRAXX_BOX_CRUSH;
-  return index < 0 || index > TYPE_MOVING ? 0 : index;
+  return index < 0 || index > TYPEIDX_FOG ? 0 : index;
 }
 
 const moves = (t: number) => t === TYPE_TRAIN || t === TYPE_MOVING;
 
-/* The engine's budgets (BoxTypeBudgetGroup / Cap): 20 checkpoints, 100 ramps, 100 top crush, 100 Train + Moving together, 100 lights. */
+/* The engine's budgets (BoxTypeBudgetGroup / Cap): 20 checkpoints, 100 ramps, 100 top crush, 100 Train + Moving together, 100 lights, 50 fogs. */
 export function budgetGroup(type: number): number {
   if (type === CHECKPOINT) return 1;
   if (type === TRAXX_BOX_RAMP) return 2;
   if (type === TRAXX_BOX_CRUSH) return 3;
   if (moves(type)) return 4;
   if (type === TRAXX_BOX_LIGHT) return 5;
+  if (type === TRAXX_BOX_FOG) return 6;
   return 0;
 }
 
 export function budgetCap(group: number): number {
-  return [MAX_OBJECTS, 20, 100, 100, 100, 100][group] ?? MAX_OBJECTS;
+  return [MAX_OBJECTS, 20, 100, 100, 100, 100, TRAXX_MAX_FOGS][group] ?? MAX_OBJECTS;
 }
 
 /** OnObjectInsert: a default box on the ground point (whole ipos, steps truncated). Null when the track is full. */
@@ -234,6 +239,7 @@ export function pasteObject(track: TxxTrack, copy: TraxxBox, at: [number, number
   else if (copy.type === TRAXX_BOX_CRUSH && count((t) => t === TRAXX_BOX_CRUSH) > 100) refusal = "Max. 100 Top-Crush!";
   else if (moves(copy.type) && count(moves) > 100) refusal = "Max. 100 Moving objects (Train and Moving combined)!";
   else if (copy.type === TRAXX_BOX_LIGHT && count((t) => t === TRAXX_BOX_LIGHT) > 100) refusal = "Max. 100 Lights!";
+  else if (copy.type === TRAXX_BOX_FOG && count((t) => t === TRAXX_BOX_FOG) > TRAXX_MAX_FOGS) refusal = `Max. ${TRAXX_MAX_FOGS} Fog objects!`;
   if (refusal) box.type = 0;
   return { index, refusal };
 }

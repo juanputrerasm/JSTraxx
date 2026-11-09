@@ -36,6 +36,7 @@ import { bindComponents } from "./app/components-command.ts";
 import { bindWritePod } from "./app/write-pod-command.ts";
 import { startAutosave } from "./app/autosave.ts";
 import { bindSpecial } from "./app/special-commands.ts";
+import { bindTerrainCommands } from "./app/terrain-commands.ts";
 import { keyboardSummary } from "./ui/dialogs/keyboard-summary.ts";
 
 
@@ -210,6 +211,7 @@ function bindView(app: AppState, registry: CommandRegistry, shell: Shell, docs: 
   // The Models window draws with the view's models, so it listens after the view does.
   modelsPanel({ app, editor, docs, registry, panel: shell.panels.models, worker: assetWorker(), view });
   bindSpecial(app, registry, editor, view);
+  bindTerrainCommands(app, registry, editor, view);
 }
 
 start().catch((err) => {

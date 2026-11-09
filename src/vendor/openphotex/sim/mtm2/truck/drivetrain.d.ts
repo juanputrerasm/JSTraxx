@@ -18,6 +18,8 @@ export interface TorqueDriver {
     autoShift: boolean;
     difficulty: number;
     sonicTrack: boolean;
+    /** Community Patch 3's AI Speed (OpenMTM2 docs/CP3_EXE_ANALYSIS.md 5): computer trucks' torque times it. Default 1. */
+    aiSpeed?: number;
 }
 /** Engine torque delivered at this rpm and throttle, with the driver gains, lb ft. */
 export declare function deliveredTorque(rpm: number, throttle: number, driver: TorqueDriver): number;
@@ -27,6 +29,12 @@ export interface GearboxState {
     gear: number;
     /** Manual request, +1 or -1, cleared by the gearbox. */
     shiftRequest: number;
+    /**
+     * Optional handling (not the game's): with the automatic box, a shift request is still taken. The chosen gear then
+     * holds (`shiftHold`) until the engine reaches its redline (up) or falls under the downshift rpm (down).
+     */
+    autoOverride?: boolean;
+    shiftHold?: boolean;
     brakeFront: number;
     brakeRear: number;
 }
@@ -47,3 +55,8 @@ export interface GearboxContext {
 export declare function stepGearbox(box: GearboxState, ctx: GearboxContext): void;
 /** Below this speed a tire holds the truck still (static hold, §5.2). */
 export declare const STATIC_HOLD_SPEED = 14.67;
+/** `autoOverride`'s hold: set by a taken request, ended by the automatic box's own next shift. */
+export declare function holdAfterShift(box: {
+    gear: number;
+    shiftHold?: boolean;
+}, taken: boolean, autoShift: boolean, gearBefore: number): void;

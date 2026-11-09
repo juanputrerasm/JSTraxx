@@ -1,15 +1,20 @@
 /*
   Generate Terrain (IDD_TERRAINGEN): Classic or Fractal, four sliders, the seed with Apply and
   Rand, and a greyscale preview that is rebuilt on every change. Resolves with the heights and
-  the settings to remember, or null.
+  the settings to remember, or null. Traxx 1.7: a 16-bit target (terrainGenTarget) generates in v
+  with TerrainGenV on its own grid (1024 on a Full Map), returned as `v`, and the dialog says
+  which grid it is for.
 */
 import { el } from "../../shared/dom.ts";
 import { openDialog } from "../shell/dialog.ts";
 import { generateTerrain, type TerrainGenSettings } from "../../core/edit/terrain-gen.ts";
+import { terrainGenPreview, terrainGenV, type TerrainGenTarget } from "../../core/edit/terrain-gen16.ts";
 
-export async function terrainGenDialog(start: TerrainGenSettings): Promise<{ heights: Uint8Array; settings: TerrainGenSettings } | null> {
+export async function terrainGenDialog(start: TerrainGenSettings, target: TerrainGenTarget | null = null): Promise<{ heights: Uint8Array; v: Uint16Array | null; settings: TerrainGenSettings } | null> {
   const s = { ...start };
-  const preview = el("canvas", { width: 256, height: 256, class: "gen-preview" }) as HTMLCanvasElement;
+  const side = target?.precise ? target.gridSize : 256;
+  const preview = el("canvas", { width: side, height: side, class: "gen-preview" }) as HTMLCanvasElement;
+  let v: Uint16Array | null = null;
   const slider = (min: number, max: number, value: number) => el("input", { type: "range", min, max, value }) as HTMLInputElement;
   const ground = slider(0, 255, s.ground), hill = slider(0, 255, s.hillHeight), valley = slider(0, 255, s.valleyDepth), smooth = slider(0, 100, s.smoothness);
   const groundLabel = el("span", {}), hillLabel = el("span", {}), valleyLabel = el("span", {}), smoothLabel = el("span", {});
@@ -36,9 +41,13 @@ export async function terrainGenDialog(start: TerrainGenSettings): Promise<{ hei
     s.valleyDepth = Number(valley.value);
     s.smoothness = Number(smooth.value);
     labels();
-    heights = generateTerrain(s);
-    const img = new ImageData(256, 256);
-    for (let i = 0; i < 65536; i++) img.data.set([heights[i]!, heights[i]!, heights[i]!, 255], i * 4);
+    let grey: Uint8Array;
+    if (target?.precise) {
+      v = terrainGenV(s, side);
+      grey = v ? terrainGenPreview(v) : new Uint8Array(side * side);
+    } else grey = heights = generateTerrain(s);
+    const img = new ImageData(side, side);
+    for (let i = 0; i < side * side; i++) img.data.set([grey[i]!, grey[i]!, grey[i]!, 255], i * 4);
     preview.getContext("2d")!.putImageData(img, 0, 0);
   };
   for (const c of [ground, hill, valley, smooth]) c.addEventListener("input", rebuild);
@@ -56,11 +65,12 @@ export async function terrainGenDialog(start: TerrainGenSettings): Promise<{ hei
         el("label", { class: "gen-row" }, hillLabel, hill),
         el("label", { class: "gen-row" }, valleyLabel, valley),
         el("label", { class: "gen-row" }, smoothLabel, smooth),
-        el("fieldset", { class: "opt-group" }, el("legend", {}, "Seed"), el("div", { class: "opt-row" }, seed, apply, random))),
+        el("fieldset", { class: "opt-group" }, el("legend", {}, "Seed"), el("div", { class: "opt-row" }, seed, apply, random)),
+        target ? el("div", {}, target.forText) : null),
       preview),
     buttons: [{ label: "OK", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }],
   });
   if (r !== "ok") return null;
   rebuild();
-  return { heights, settings: { ...s } };
+  return { heights, v, settings: { ...s } };
 }

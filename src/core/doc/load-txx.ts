@@ -108,13 +108,18 @@ export async function loadTrackAssets(doc: TrackDocument, assets: AssetSource, p
 async function loadModel(name: string, assets: AssetSource, doc: TrackDocument): Promise<ModelAsset> {
   const title = pathTitle(name);
   const rel = stripFolder(name, "MODELS");
+  let from = title;
   let bytes = await assets.model(title);
-  if (!bytes && rel !== name) bytes = await assets.model(rel);
+  if (!bytes && rel !== name) { bytes = await assets.model(rel); from = rel; }
   if (!bytes || bytes.length === 0) {
     doc.missingModels.push(name);
     return { name, bytes: null, textureNames: [], frameNames: [], bad: true };
   }
   const model = modelAsset(name, bytes);
+  // FindSurfaceSidecar: the source path with its extension swapped for .SRF (either case).
+  const dot = from.lastIndexOf("."), cut = dot > from.lastIndexOf("\\") && dot > from.lastIndexOf("/") ? dot : from.length;
+  const srf = (await assets.model(`${from.slice(0, cut)}.SRF`)) ?? (await assets.model(`${from.slice(0, cut)}.srf`));
+  if (srf && srf.length > 0) model.srf = srf;
   for (const recorded of model.textureNames) {
     const tstr = recorded.toUpperCase();
     const existing = findModelTexture(doc.modelTextures, tstr);

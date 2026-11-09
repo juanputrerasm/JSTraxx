@@ -29,6 +29,12 @@ export interface Mtm2Rules {
     wheelSpinClimb: number;
     /** Whether a tire's spin counts in that climb only while it is on the ground. */
     wheelSpinNeedsGround: boolean;
+    /** Pitch from the pedals with all four wheels off: rad/s² for a full throttle (nose up) or full brakes (nose down). Default 0. */
+    airPitchControl?: number;
+    /** The aero damping of the roll, pitch and yaw rates with all four wheels off, as a share of the game's. Default 1. */
+    airRotationDamping?: number;
+    /** The aero damping of the yaw rate with a wheel down, as a share of the game's. Default 1. */
+    groundYawDamping?: number;
 }
 export declare const MTM2_RULES: Mtm2Rules;
 export declare const MTM1_RULES: Mtm2Rules;

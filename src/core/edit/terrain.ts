@@ -41,6 +41,11 @@ export interface EditGrid {
   height: number;
   /** Offsets, row by row: grid[j * width + i]. */
   grid: Int16Array;
+  /**
+    terraingridv: the same brush in v (1/256 step), ROUNDF(fvalv * 256), for the 16-bit grids
+    (Traxx 1.7). The Altitude here is whole steps, so fvalv is fval before its rounding.
+  */
+  gridV: Int32Array;
 }
 
 /** MakeEditGrid. `random` stands in for rand() (0..1), for Bumps. */
@@ -75,6 +80,7 @@ export function makeEditGrid(p: BrushParams, random: () => number = Math.random)
   }
   const power = [0.2, 0.5, 0.75, 1, 1.4, 2, 3][p.curvature] ?? 1;
   const grid = new Int16Array(Math.max(0, width * height));
+  const gridV = new Int32Array(Math.max(0, width * height));
   for (let j = 0; j < height; j++) {
     for (let i = 0; i < width; i++) {
       const roti = f(f(cosarg * (i - halfwidth)) - f(sinarg * (j - halfheight)));
@@ -104,9 +110,10 @@ export function makeEditGrid(p: BrushParams, random: () => number = Math.random)
       }
       // terraingrid is short.
       grid[j * width + i] = roundf(fval);
+      gridV[j * width + i] = Number.isNaN(fval) ? 0 : roundf(f(fval * 256));
     }
   }
-  return { width, height, grid };
+  return { width, height, grid, gridV };
 }
 
 /** The cells a brush covers around vertex (gi, gj), inclusive and clamped to the map. */
@@ -237,17 +244,20 @@ export function adjustHeights(
   heights: Uint8Array,
   opts: { scale: boolean; increment: number; factor: number; avoidClip: boolean },
   placed: Placed[], water4: number | null,
-): { water4: number | null } {
+  /** A 16-bit track: adjust its real grid with the factor and the whole-step lift instead (AdjustHeights16 / Fine). */
+  grid16?: (scale: boolean, inc: number, factor: number) => void,
+): { water4: number | null; factor: number; inc: number } {
   let min = 255, max = 0;
   for (const h of heights) { if (h < min) min = h; if (h > max) max = h; }
   const factor = effectiveScale(opts.factor, max, opts.avoidClip);
   const inc = effectiveIncrement(opts.increment, min, max, opts.avoidClip);
   const ground = placed.map((p) => interpolateRawAtPoint(heights, p.ipos[0], p.ipos[1]));
-  for (let i = 0; i < heights.length; i++) heights[i] = opts.scale ? scaleHeight(heights[i], factor) : liftHeight(heights[i], inc);
+  if (grid16) grid16(opts.scale, inc, factor);
+  else for (let i = 0; i < heights.length; i++) heights[i] = opts.scale ? scaleHeight(heights[i], factor) : liftHeight(heights[i], inc);
   placed.forEach((p, i) => { p.ipos[2] += interpolateRawAtPoint(heights, p.ipos[0], p.ipos[1]) - ground[i]; });
-  if (water4 === null) return { water4: null };
+  if (water4 === null) return { water4: null, factor, inc };
   const w = opts.scale ? Math.floor(water4 * factor + 1e-9) : water4 + 4 * inc;
-  return { water4: Math.min(4 * 255, Math.max(0, w)) };
+  return { water4: Math.min(4 * 255, Math.max(0, w)), factor, inc };
 }
 
 /*

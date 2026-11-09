@@ -16,7 +16,7 @@ On first run, open **View > Game Library** and add the `.POD` files from your MT
 
 Tracks open as in Traxx: **New**, **Open** (a saved `.TXX`), **View POD** (read-only), and **Clone TrackEd Track** (pick the TrackEd folder holding WORLD, LEVELS and DATA). **Import Viewed POD as Track** turns a viewed POD into an editable track: it extracts the art and models, then saves a `.TXX`.
 
-Storage in OPFS mirrors Traxx's folders: `jstraxx/art` and `jstraxx/models` are its ART and MODELS folders (shared by every track), `jstraxx/tracks` holds saved `.TXX` files, and `jstraxx/library` the game PODs. A track's art and models are looked up in the ART and MODELS folders, then in the library.
+Storage in OPFS mirrors Traxx's folders: `jstraxx/art` and `jstraxx/models` are its ART and MODELS folders (shared by every track), `jstraxx/tracks` holds saved `.TXX` files, and `jstraxx/library` the game PODs. A track's art and models are looked up in the ART and MODELS folders, then in the library. A copy in those folders therefore wins over a newer one in a POD: the Game Library lists them first as **Browser storage**, with **Clear...** to delete all of them or the files a filter picks, and the Models window's Load list can delete single models from the MODELS folder.
 
 ## The 3D view
 

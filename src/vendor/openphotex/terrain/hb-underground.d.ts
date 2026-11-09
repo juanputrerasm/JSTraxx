@@ -1,5 +1,5 @@
 /** Altitude bias on the cavern grids, in heightfield steps. */
-export declare const HB_UNDERGROUND_BIAS = -256;
+export declare const HB_UNDERGROUND_BIAS = -255;
 /** A Hellbender level's cavern: floor and ceiling heights (unbiased bytes), the draw mask, and textures. */
 export interface HbUnderground {
     gridSize: number;

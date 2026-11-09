@@ -54,19 +54,25 @@ export class WaterLayer {
     this.group.add(this.lines, this.fill);
   }
 
-  rebuild(heights: Uint8Array, level4: number): void {
+  /**
+    `surface`: a 16-bit track's tile minima and maxima in u (tileMinMaxU), which decide the two
+    pictures instead of the 8-bit corners (SurfaceWaterGridWet, SurfaceWaterFillWet).
+  */
+  rebuild(heights: Uint8Array, level4: number, surface: { min: Int32Array; max: Int32Array } | null = null): void {
     const z = (ALTITUDE_SCALE * level4) / 4;
     const lp: number[] = [], lc: number[] = [], fp: number[] = [], fc: number[] = [];
     if (level4 > 0) {
       for (let j = 0; j < 255; j++) {
         for (let i = 0; i < 255; i++) {
-          const under = [heights[i + (j << 8)], heights[i + 1 + (j << 8)], heights[i + 1 + ((j + 1) << 8)], heights[i + ((j + 1) << 8)]].map((h) => 4 * h < level4);
+          const under = [heights[i + (j << 8)], heights[i + 1 + (j << 8)], heights[i + 1 + ((j + 1) << 8)], heights[i + ((j + 1) << 8)]].map((h) => 4 * h! < level4);
           const x0 = i * 64, y0 = j * 64, x1 = x0 + 64, y1 = y0 + 64;
-          if (under.every(Boolean)) {
+          const all = surface ? surface.max[i + (j << 8)]! < 32 * level4 : under.every(Boolean);
+          const any = surface ? surface.min[i + (j << 8)]! <= 32 * level4 : under.some(Boolean);
+          if (all) {
             lp.push(x0, y0, z, x1, y0, z, x1, y0, z, x1, y1, z, x1, y1, z, x0, y1, z, x0, y1, z, x0, y0, z);
             for (let k = 0; k < 8; k++) lc.push(i, j);
           }
-          if (under.some(Boolean)) {
+          if (any) {
             fp.push(x0, y0, z, x1, y0, z, x1, y1, z, x0, y0, z, x1, y1, z, x0, y1, z);
             for (let k = 0; k < 6; k++) fc.push(i, j);
           }
@@ -101,5 +107,87 @@ export class WaterLayer {
     this.fill.geometry.dispose();
     this.lineMaterial.dispose();
     this.fillMaterial.dispose();
+  }
+}
+
+/** The six lake tints (OpenGLTerrainRenderer.cpp lakeTint); a lake in error is drawn magenta. */
+const LAKE_TINT: [number, number, number][] = [[30, 100, 200], [0, 160, 170], [40, 170, 120], [60, 130, 230], [0, 120, 140], [90, 190, 200]];
+
+const lakeVertex = /* glsl */ `
+  in vec3 position;
+  in vec2 cell;
+  in vec3 tint;
+  uniform mat4 modelViewMatrix;
+  uniform mat4 projectionMatrix;
+  flat out vec2 vCell;
+  flat out vec3 vTint;
+  void main() { vCell = cell; vTint = tint; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+`;
+const lakeFragment = /* glsl */ `
+  precision highp float;
+  uniform vec4 window;
+  uniform float opacity;
+  flat in vec2 vCell;
+  flat in vec3 vTint;
+  out vec4 outColor;
+  void main() {
+    if (vCell.x < window.x || vCell.y < window.y || vCell.x >= window.z || vCell.y >= window.w) discard;
+    outColor = vec4(vTint, opacity);
+  }
+`;
+
+/**
+  The lakes (COpenGLTerrainRenderer::DrawLakes, the sheets): a flat quad at each lake's height
+  over every tile its fill holds, in the lake's tint at the water opacity, depth-tested and not
+  written. The wall rings (Show Lake Walls) are not drawn.
+*/
+export class LakesLayer {
+  readonly material = new THREE.RawShaderMaterial({
+    glslVersion: THREE.GLSL3, vertexShader: lakeVertex, fragmentShader: lakeFragment, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: { window: { value: new THREE.Vector4(0, 0, 256, 256) }, opacity: { value: 0.5 } },
+  });
+  readonly mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.material);
+
+  constructor() {
+    this.mesh.renderOrder = 10;
+    this.mesh.frustumCulled = false;
+  }
+
+  /** tmap: lake index + 1 per tile; heights in water units; errors per lake. */
+  rebuild(tmap: Uint8Array | null, heights: readonly number[], errors: readonly number[]): void {
+    const p: number[] = [], c: number[] = [], t: number[] = [];
+    if (tmap) {
+      for (let j = 0; j < 255; j++) {
+        for (let i = 0; i < 255; i++) {
+          const l = tmap[i + (j << 8)]!;
+          if (l === 0 || l > heights.length) continue;
+          const z = (ALTITUDE_SCALE * heights[l - 1]!) / 4;
+          const tint = errors[l - 1] ? [255, 0, 255] : LAKE_TINT[(l - 1) % 6]!;
+          const x0 = i * 64, y0 = j * 64, x1 = x0 + 64, y1 = y0 + 64;
+          p.push(x0, y0, z, x1, y0, z, x1, y1, z, x0, y0, z, x1, y1, z, x0, y1, z);
+          for (let k = 0; k < 6; k++) { c.push(i, j); t.push(tint[0]! / 255, tint[1]! / 255, tint[2]! / 255); }
+        }
+      }
+    }
+    this.mesh.geometry.dispose();
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(p, 3));
+    g.setAttribute("cell", new THREE.Float32BufferAttribute(c, 2));
+    g.setAttribute("tint", new THREE.Float32BufferAttribute(t, 3));
+    this.mesh.geometry = g;
+  }
+
+  setWindow(w: THREE.Vector4): void {
+    this.material.uniforms.window.value.copy(w);
+  }
+
+  setOpacity(percent: number): void {
+    this.material.uniforms.opacity.value = Math.round((Math.min(100, Math.max(0, percent)) * 255 + 50) / 100) / 255;
+    this.mesh.visible = percent > 0;
+  }
+
+  dispose(): void {
+    this.mesh.geometry.dispose();
+    this.material.dispose();
   }
 }

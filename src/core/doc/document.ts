@@ -43,6 +43,11 @@ export interface ModelAsset {
   /** An animated model's frame models. */
   frameNames: string[];
   bad: boolean;
+  /**
+    Traxx 1.7: the surface-mesh .SRF found beside the model's source file (FindSurfaceSidecar),
+    packed beside it by Write POD. A model read out of a pod has no source file and none.
+  */
+  srf?: Uint8Array | null;
 }
 
 /** What an opened POD carried that a .TXX does not keep. */
@@ -107,11 +112,13 @@ export function documentBuffers(doc: TrackDocument): ArrayBuffer[] {
   const seen = new Set<ArrayBuffer>();
   const add = (a: Uint8Array | Uint16Array | null | undefined) => { if (a && a.buffer instanceof ArrayBuffer) seen.add(a.buffer); };
   const t = doc.track;
-  [t.logoBmp, t.mapBmp, t.music, t.text, t.infoBmp, t.infoText, t.detailMap, t.maskMap, t.palette, t.heights, t.clr, t.lte, t.fogMap].forEach(add);
+  [t.logoBmp, t.mapBmp, t.music, t.text, t.infoBmp, t.infoText, t.detailMap, t.maskMap, t.palette, t.heights, t.clr, t.lte, t.fogMap,
+    t.h16, t.fine, t.rawShadow, t.vegetation?.image].forEach(add);
+  t.vegetation?.masks.forEach((m) => add(m?.data));
   t.uiHd.forEach((h) => add(h?.data));
   t.sounds.forEach((s) => add(s.data));
   for (const tex of [...doc.textures, ...doc.modelTextures]) { add(tex?.indices); add(tex?.act); add(tex?.hd?.data); }
-  doc.models.forEach((m) => add(m.bytes));
+  doc.models.forEach((m) => { add(m.bytes); add(m.srf); });
   add(doc.carry.fogFog);
   return [...seen];
 }

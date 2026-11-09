@@ -43,3 +43,18 @@ export interface HeightGrid {
     heightUnitScale?: number;
 }
 export declare function heightAtCell(terrain: HeightGrid | null | undefined, raw: Uint8Array | null | undefined, cx: number, cz: number): number;
+/** Which diagonal splits each terrain cell. */
+export type CellSplit = "fixed" | "checkerboard";
+/**
+ * The height at fractions (fx, fz) in [0, 1] of a cell with corner heights h00 (cx, cz),
+ * h10 (cx + 1, cz), h11 (cx + 1, cz + 1) and h01 (cx, cz + 1), on its triangle. `otherDiagonal`
+ * is true for a cell split from (cx + 1, cz) to (cx, cz + 1).
+ */
+export declare function cellTriangleHeight(h00: number, h10: number, h11: number, h01: number, fx: number, fz: number, otherDiagonal: boolean): number;
+/** True when cell (cx, cz) is split along (cx + 1, cz) to (cx, cz + 1) under `split`. */
+export declare function cellUsesOtherDiagonal(cx: number, cz: number, split: CellSplit): boolean;
+/**
+ * The legacy height at a point (x, z) in cells, on the triangles of its cell. Corners are
+ * clamped to the grid, as heightAtCell does.
+ */
+export declare function heightAtPoint(terrain: HeightGrid | null | undefined, raw: Uint8Array | null | undefined, x: number, z: number, split?: CellSplit): number;

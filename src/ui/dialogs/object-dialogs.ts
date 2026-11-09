@@ -1,7 +1,7 @@
 /*
   Object Properties (IDD_OBJECT_PROPERTIES), Light Properties (IDD_LIGHT_PROPERTIES) and the
   stock sound list (StockSoundsDlg), from Traxx/ObjectPropertiesDlg.cpp, LightPropertiesDlg.cpp
-  and StockSoundsDlg.cpp.
+  and StockSoundsDlg.cpp. Fog Properties is in fog-dialog.ts.
 
   Object Properties shows its changes on the object as they are made (ApplySettings), through
   `preview`; the caller puts the object back on Cancel.
@@ -11,11 +11,15 @@ import { alertDialog, openDialog } from "../shell/dialog.ts";
 import { OBJECT_TYPE_NAMES, TYPEIDX_CRUSH, TYPEIDX_RAMP, TYPE_MOVING, TYPE_TRAIN, CHECKPOINT } from "../../core/edit/objects.ts";
 import type { ObjectFields } from "../../core/edit/object-properties.ts";
 import { STOCK_CONT_SOUNDS, STOCK_SOUNDS } from "../../core/traxx/stock-data.ts";
-import { traxxLightDefaults, type TraxxLight } from "../../core/traxx/sit.ts";
+import { traxxLightDefaults, type TraxxFog, type TraxxLight } from "../../core/traxx/sit.ts";
+import type { FogBox } from "../../core/edit/fog-properties.ts";
+import { fogPropertiesDialog } from "./fog-dialog.ts";
 import { LIGHT_RADIUS_MAX } from "../../core/view/light-pool.ts";
 import { GP_HEIGHT, GP_MASS, GP_NAMES, GP_ANGLE, GP_PITCH, GP_TILT, GP_SIZEH, GP_SIZEL, GP_SIZEW, parses, type GroupFields, type GroupResult } from "../../core/edit/group-properties.ts";
 
 const TYPEIDX_LIGHT = 12;
+/** TYPEIDX_FOG (ObjectPropertiesDlg.h). */
+const TYPEIDX_FOG = 14;
 const LIGHT_BRIGHT_MIN = 0.25, LIGHT_BRIGHT_MAX = 3.75;
 
 const stop = (i: HTMLElement) => { i.addEventListener("keydown", (e) => e.stopPropagation()); return i; };
@@ -130,6 +134,10 @@ export interface ObjectDialogOptions {
   preview: (f: ObjectFields) => void;
   /** The light pool's preview while Light Properties is open or after it closed. */
   previewLight: (l: TraxxLight, isLight: boolean) => void;
+  /** The fog volume's preview (RefreshFogPreview): the working copy, and whether the Type is Fog. */
+  previewFog: (fog: TraxxFog, isFog: boolean) => void;
+  /** The box as the fields have it now (its Size and height are applied live), for Fog Properties. */
+  fogBox: () => FogBox;
   /** Pick a WAV file for a sound. */
   pickWav: () => Promise<File | null>;
   /** The cab "..." button: choose a keyframed model; resolves with its title, or null. */
@@ -185,6 +193,13 @@ export async function objectPropertiesDialog(o: ObjectDialogOptions): Promise<Ob
     if (l) f.light = l;
     o.previewLight(f.light, Number(type.value) === TYPEIDX_LIGHT);
   } }, "Light...");
+  /* OnFogProps: the dialog reads the size and height off the box and drives the preview. */
+  const fogButton = el("button", { type: "button", onclick: async () => {
+    const fog = await fogPropertiesDialog(f.fog, o.fogBox(), (p) => o.previewFog(p, true));
+    if (fog) f.fog = fog;
+    // Back onto this dialog's working copy either way: the new values after OK, the old after Cancel.
+    o.previewFog(f.fog, Number(type.value) === TYPEIDX_FOG);
+  } }, "Fog...");
   const cabButton = el("button", { type: "button", class: "mini", onclick: async () => {
     const t = await o.chooseCab();
     if (t) { crushName = t; crushText.value = t; }
@@ -201,6 +216,7 @@ export async function objectPropertiesDialog(o: ObjectDialogOptions): Promise<Ob
     checkpoint.disabled = t !== CHECKPOINT;
     vx.disabled = vy.disabled = !(t === TYPE_TRAIN || t === TYPE_MOVING);
     lightButton.disabled = t !== TYPEIDX_LIGHT;
+    fogButton.disabled = t !== TYPEIDX_FOG;
     const fixed = t === TYPEIDX_RAMP || t === TYPEIDX_CRUSH;
     if (fixed) levels[0]!.checked = true;
     levels.forEach((r) => { r.disabled = fixed; });
@@ -211,6 +227,7 @@ export async function objectPropertiesDialog(o: ObjectDialogOptions): Promise<Ob
     crushText.disabled = !crush;
     modelLabel.textContent = o.modelName ? (crush ? "Base" : "Model") : "";
     o.previewLight(f.light, t === TYPEIDX_LIGHT);
+    o.previewFog(f.fog, t === TYPEIDX_FOG);
   };
   type.addEventListener("change", typeChanged);
 
@@ -283,7 +300,7 @@ export async function objectPropertiesDialog(o: ObjectDialogOptions): Promise<Ob
         row("Impact", soundImpact, soundSel[2]!, soundSel[3]!)),
       el("fieldset", { class: "opt-group" }, el("legend", {}, "Level"),
         ...levels.map((r, i) => el("label", { class: "opt-check" }, r, ["Sparse", "Normal", "Complex"][i]!)))),
-    row("Sequence", checkpoint, lightButton),
+    row("Sequence", checkpoint, lightButton, fogButton),
     row("Cab offset", ...crushOff),
     row("Cab", crushText, cabButton),
     reset);
@@ -296,6 +313,12 @@ export async function objectPropertiesDialog(o: ObjectDialogOptions): Promise<Ob
     className: "live",
     body,
     buttons: [{ label: "OK", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }],
+    // OnBnClickedOk: a Fog is always a model-less box; refused with the dialog left open.
+    beforeClose: async (v) => {
+      if (v !== "ok" || Number(type.value) !== TYPEIDX_FOG || !o.modelName) return true;
+      await alertDialog("Object Properties", "Fog objects are model-less boxes. To take the model off, set this object to Ramp first (that clears it), then to Fog - or place a new box and set that to Fog.");
+      return false;
+    },
   });
   if (r !== "ok") return null;
   read();

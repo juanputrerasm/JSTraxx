@@ -10,6 +10,7 @@
     art.write   new files into the ART folder, refused when one exists (CREATE_NEW)
     art.exists  which of some names the ART folder holds
     art.delete / art.rename   the pane's context menu, for files in the ART folder only
+    art.forget  the thumbnails dropped, after Options > Library cleared files from the folder
 
   Library art is read-only, as files inside a POD are.
 */
@@ -170,6 +171,11 @@ export function artHandlers(vfs: () => Vfs) {
 
     async "art.exists"(payload: { names: string[] }): Promise<boolean[]> {
       return Promise.all(payload.names.map((n) => exists(artPath(n))));
+    },
+
+    /* The folder's thumbnails forgotten, after files went from it some other way (Options > Library). */
+    async "art.forget"(): Promise<void> {
+      thumbCache.clear();
     },
 
     /* OnTFolderDelete: the file and, for a .RAW, its .ACT. */

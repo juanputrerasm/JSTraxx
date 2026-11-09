@@ -10,6 +10,8 @@ import { alertDialog, confirmDialog, openDialog } from "../ui/shell/dialog.ts";
 import { el } from "../shared/dom.ts";
 import { askSaveChanges, listMessage, openTrack, pickFiles, saveAs, selectSit, selectTrack } from "../ui/dialogs/file-dialogs.ts";
 import type { AppState } from "./state.ts";
+import { TERRAINMODE_CLASSIC16 } from "../core/traxx/terrain16.ts";
+import { LAKES_MISMATCH } from "../core/traxx/lakes.ts";
 
 export function bindFileCommands(registry: CommandRegistry, docs: DocumentService, app: AppState): { openRecent: (path: string) => Promise<void> } {
   const hasDoc = () => docs.doc !== null;
@@ -58,6 +60,7 @@ export function bindFileCommands(registry: CommandRegistry, docs: DocumentServic
     }
     if (doc.missingTextures.length) await listMessage("Error loading texture(s)", "These textures were not found in the ART folder or the game library:", doc.missingTextures);
     if (doc.missingModels.length) await listMessage("Error loading model(s)", "These models were not found in the MODELS folder or the game library:", doc.missingModels);
+    if (doc.warnings.includes(LAKES_MISMATCH)) await alertDialog("Lakes", LAKES_MISMATCH);
     for (const w of doc.warnings.filter((x) => !/count \d+ and real/.test(x))) app.status(w);
   }
 
@@ -70,6 +73,15 @@ export function bindFileCommands(registry: CommandRegistry, docs: DocumentServic
     await docs.newTrack();
     app.status("New track");
   }));
+  /*
+    File > New > 16-bit / 16-bit Spline / 16-bit Full Map (CTraxxApp::OnFileNewGrid): File > New,
+    then the fresh track's terrain switched to that mode without a word and without marking it modified.
+  */
+  (["ID_FILE_NEW_CLASSIC16", "ID_FILE_NEW_SPLINE", "ID_FILE_NEW_FINE"] as const).forEach((id, i) => registry.bind(id, run(async () => {
+    if (!(await saveModified())) return;
+    await docs.newTrack(TERRAINMODE_CLASSIC16 + i);
+    app.status("New track");
+  })));
 
   registry.bind("ID_FILE_OPEN", run(async () => {
     if (!(await saveModified())) return;

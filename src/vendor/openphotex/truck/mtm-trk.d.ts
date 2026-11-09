@@ -50,11 +50,18 @@ export interface MtmTrk {
     waveFiles: string[];
     numberOfLights: number | null;
     lights: MtmTrkLight[];
+    /**
+     * Community Patch 4's custom 3D cockpit: the .CPT a truck names with its last two non-blank lines, `COCKPIT` then
+     * `<name>.CPT` (5..31 characters, no \ / or :), or null (OpenMTM2 docs/CP4_EXE_ANALYSIS.md 6, FUN_1401fc220).
+     */
+    cockpit: string | null;
     /** Any other label/value pair, verbatim, last occurrence wins. */
     unknownFields: Record<string, string>;
 }
 /** The four wheel anchor keys: front pair first, right before left, as the TRK lists them. */
 export declare const MTM_WHEEL_KEYS: readonly ["faxle.rtire.static_bpos", "faxle.ltire.static_bpos", "raxle.rtire.static_bpos", "raxle.ltire.static_bpos"];
+/** The .CPT named by a TRK's last two non-blank lines, `COCKPIT` then the file name, or null. */
+export declare function mtmTrkCockpit(lines: readonly string[]): string | null;
 /**
  * Parse an MTM1/MTM2 TRK already split by `truckManifestLines`.
  *

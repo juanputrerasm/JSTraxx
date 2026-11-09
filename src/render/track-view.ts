@@ -19,7 +19,11 @@ import { decodeHd } from "./hd-decode.ts";
 import { ModelLibrary } from "./models.ts";
 import { ObjectLayer } from "./objects.ts";
 import { GroundBoxLayer } from "./ground-boxes.ts";
-import { WaterLayer } from "./water.ts";
+import { FogBoxLayer } from "./fog-boxes.ts";
+import { effectiveFog, fogDriftArrow, FOG_DRIFT_COLOUR, type FogPreview } from "../core/view/fog-volume.ts";
+import { WaterLayer, LakesLayer } from "./water.ts";
+import { tileMinMaxU } from "../core/traxx/surface.ts";
+import { trackLakes } from "../core/traxx/lakes.ts";
 import { BackdropLayer } from "./backdrop.ts";
 import { CourseLayer } from "./course.ts";
 import { Overlay2D } from "./overlay.ts";
@@ -43,8 +47,12 @@ export class TrackView {
   private objects: ObjectLayer | null = null;
   private groundBoxes: GroundBoxLayer | null = null;
   private water = new WaterLayer();
+  private lakes = new LakesLayer();
   private backdrop = new BackdropLayer();
   private course = new CourseLayer();
+  private fogBoxes = new FogBoxLayer();
+  /** The fog a properties dialog is previewing (CTraxxView::SetFogPreview), or null. */
+  private fogPreview: FogPreview | null = null;
   readonly overlay: Overlay2D;
   /** The truck selected in Course mode (1..8), or -1. */
   selectedTruck = -1;
@@ -62,7 +70,7 @@ export class TrackView {
     this.app = app;
     this.viewport = new Viewport(host);
     this.viewport.onBeforeRender(() => this.step());
-    this.viewport.scene.add(this.water.group, this.backdrop.arena, this.course.group);
+    this.viewport.scene.add(this.water.group, this.lakes.mesh, this.backdrop.arena, this.course.group, this.fogBoxes.group);
     this.overlay = new Overlay2D(host, this.viewport.camera);
     this.viewport.onAfterRender(() => this.overlay.draw());
     this.overlay.add((g, project) => this.drawLabels(g, project));
@@ -89,7 +97,8 @@ export class TrackView {
     this.viewport.scene.add(this.terrain.group);
     this.groundBoxes = new GroundBoxLayer(this.terrain.siblingMaterial());
     this.viewport.scene.add(this.groundBoxes.mesh);
-    this.water.rebuild(doc.track.heights, doc.track.waterLevel4);
+    this.rebuildWater();
+    this.fogBoxes.rebuild(doc.track.boxes, this.fogPreview);
     this.buildModels();
     this.rebuildTiles();
     this.applySettings(this.app.settings);
@@ -120,9 +129,12 @@ export class TrackView {
     this.models?.dispose();
     this.terrain = null; this.groundBoxes = null; this.objects = null; this.models = null; this.tiles = null;
     this.water.rebuild(new Uint8Array(65536), 0);
+    this.lakes.rebuild(null, [], []);
     this.backdrop.scene.clear();
     this.backdrop.arena.clear();
     this.course.group.clear();
+    this.fogPreview = null;
+    this.fogBoxes.rebuild([], null);
     this.viewport.backdrop = null;
     this.hd.clear();
     this.modelHd.clear();
@@ -185,6 +197,20 @@ export class TrackView {
         if (p) g.fillText(String(i), p.x, p.y + 5);
       });
     }
+    // OverlayFogDrift: every fog's wisp drift arrow while the fog volumes are drawn.
+    if (mode === EDIT_OBJECTS || s.always_objects) {
+      g.save();
+      g.strokeStyle = FOG_DRIFT_COLOUR;
+      for (const box of t.boxes) {
+        const { fog, isFog } = effectiveFog(box, this.fogPreview);
+        const arrow = isFog ? fogDriftArrow(box, fog) : null;
+        if (arrow) for (const [a, b] of arrow) {
+          const pa = project(a[0], a[1], a[2]), pb = project(b[0], b[1], b[2]);
+          if (pa && pb) { g.beginPath(); g.moveTo(pa.x, pa.y); g.lineTo(pb.x, pb.y); g.stroke(); }
+        }
+      }
+      g.restore();
+    }
     if (mode === EDIT_OBJECTS) {
       let cp = 0;
       for (const box of t.boxes) {
@@ -233,8 +259,9 @@ export class TrackView {
       const doc = this.doc;
       void this.models?.loadHd().then((any) => { if (any && this.doc === doc) { this.buildModels(); this.viewport.requestRender(); } });
     }
+    if (touch.heights) this.terrain?.updateLevels();
     for (const r of [touch.heights, touch.clr]) if (r) this.terrain?.updateCells(r.minX, r.minY, r.maxX, r.maxY);
-    if (touch.heights || touch.water) this.water.rebuild(this.doc.track.heights, this.doc.track.waterLevel4);
+    if (touch.heights || touch.water) this.rebuildWater();
     if (touch.objects || touch.groundBoxes || touch.heights) this.objectsChanged();
     if (touch.course || touch.trucks) this.rebuildCourse();
     if (touch.track && !touch.palette) this.buildModels();
@@ -303,6 +330,17 @@ export class TrackView {
       .map((x) => x.i);
   }
 
+  /** Body 0 (on the drive surface outside Classic 8-bit) and the lakes, for the track as it is. */
+  private rebuildWater(): void {
+    if (!this.doc) return;
+    const t = this.doc.track;
+    this.water.rebuild(t.heights, t.waterLevel4, tileMinMaxU(t));
+    if (t.lakes.length) {
+      const st = trackLakes(t);
+      this.lakes.rebuild(st.tmap, t.lakes.map((l) => l.height), st.lakes.map((l) => l.errors));
+    } else this.lakes.rebuild(null, [], []);
+  }
+
   /** The terrain under a point of the view (client pixels), or null. */
   pick(clientX: number, clientY: number): TerrainHit | null {
     if (!this.doc) return null;
@@ -340,7 +378,7 @@ export class TrackView {
   /** Cells changed by an edit, inclusive bounds in cells. */
   cellsChanged(minX: number, minY: number, maxX: number, maxY: number): void {
     this.terrain?.updateCells(minX, minY, maxX, maxY);
-    if (this.doc) this.water.rebuild(this.doc.track.heights, this.doc.track.waterLevel4);
+    if (this.doc) this.rebuildWater();
     this.viewport.requestRender();
   }
 
@@ -349,6 +387,14 @@ export class TrackView {
     this.objectWindow = "";
     this.updateWindow();
     if (this.doc && this.groundBoxes) this.groundBoxes.rebuild(this.doc.track.groundBoxes, this.tiles);
+    if (this.doc) this.fogBoxes.rebuild(this.doc.track.boxes, this.fogPreview);
+    this.viewport.requestRender();
+  }
+
+  /** SetFogPreview: a dialog's working copy drawn in place of the box's own fog; null ends it. */
+  setFogPreview(preview: FogPreview | null): void {
+    this.fogPreview = preview;
+    if (this.doc) this.fogBoxes.rebuild(this.doc.track.boxes, preview);
     this.viewport.requestRender();
   }
 
@@ -360,6 +406,7 @@ export class TrackView {
     const g = gammaMap(s.gamma);
     this.terrain.setLook({ wireMode: s.edit.wireframe, wire: s.colors[WIRE_COL], overlay: s.colors[WIREO_COL], background: s.colors[BG_COL], fallback: [p[0], p[1], p[2]], diagonals: s.wire_diagonals, width: s.wire_width });
     this.water.setLook([g[p[252 * 3]], g[p[252 * 3 + 1]], g[p[252 * 3 + 2]]], s.water_opacity, s.edit.wireframe !== 1);
+    this.lakes.setOpacity(s.water_opacity);
     if (this.shown.gamma !== s.gamma) { this.shown.gamma = s.gamma; this.rebuildTiles(); this.buildModels(); }
     else if (this.shown.transparency !== s.model_transparency || this.shown.colliders !== s.hide_colliders) this.buildModels();
     this.terrain.setMask(this.mask, s.show_mask_overlay);
@@ -373,8 +420,10 @@ export class TrackView {
     const s = this.app.settings, mode = this.app.mode;
     this.course.group.visible = mode === EDIT_COURSE || s.always_course;
     if (this.objects) this.objects.group.visible = mode === EDIT_OBJECTS || s.always_objects;
+    this.fogBoxes.group.visible = mode === EDIT_OBJECTS || s.always_objects;
     if (this.groundBoxes) this.groundBoxes.mesh.visible = mode === EDIT_BUILDINGS || s.always_buildings;
     this.water.group.visible = s.show_water;
+    this.lakes.mesh.visible = s.show_water && s.water_opacity > 0;
     const backdrop = s.show_backdrop && s.edit.wireframe !== 1 && !this.doc?.track.arena;
     this.viewport.backdrop = backdrop ? this.backdrop.scene : null;
     this.backdrop.arena.visible = s.show_backdrop;
@@ -388,6 +437,7 @@ export class TrackView {
     this.terrain?.setWindow(gridx, gridy, gridsize);
     const half = (gridsize - 1) >> 1;
     this.water.setWindow(new THREE.Vector4(gridx - half, gridy - half, gridx + half, gridy + half));
+    this.lakes.setWindow(new THREE.Vector4(gridx - half, gridy - half, gridx + half, gridy + half));
     // Objects: the window capped at 256 cells, in ipos, rebuilt only when it moves.
     const oh = (Math.min(gridsize, OBJECT_CULL_GRID) - 1) >> 1;
     const key = `${gridx},${gridy},${oh}`;
