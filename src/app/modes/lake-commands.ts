@@ -4,6 +4,10 @@
   built in TraxxViewInteract.cpp for the highlighted tile). Each is one undo step, recorded only
   once it has succeeded, so a refusal or a Cancel leaves the history as it was.
 
+  Traxx 1.7.1: the lakes are derived with the spillway notches the waterfalls cut (trackLakes),
+  the Lake window's "Holds up to" is HoldsUpTo, a lake's deletion turns its falls into springs at
+  its height (LakeDeleted, with Traxx's message), and the undo records the falls with the lakes.
+
   Also the lake guard every terrain edit passes (LakesRefuseTerrainEdit): an edit that gives a
   lake an error it did not have is put back, with Traxx's message.
 */
@@ -16,9 +20,10 @@ import { lakeDialog } from "../../ui/dialogs/lake-dialog.ts";
 import { cG } from "../../core/traxx/veg.ts";
 import { buildLakeGround } from "../../core/traxx/surface.ts";
 import {
-  distinctHeights, trackLakes, lakeAt, lakeErrorText, lakeFitHeight, lakeMinHeight, lakeSpill, seedIndex,
+  distinctHeights, trackLakes, lakeAt, lakeErrorText, lakeFitHeight, lakeHoldsUpTo, lakeMinHeight, lakeSpill, seedIndex,
   LAKE_MAX_LAKES, LAKE_MAX_SEEDS, LAKE_NO_BASIN, LAKEERR_TOO_MANY, LAKEFLAG_REFLECTIVE, type LakesState,
 } from "../../core/traxx/lakes.ts";
+import { fallsLakeDeleted, fallsOnLake, trackNotches } from "../../core/traxx/falls.ts";
 
 /** RecomputeLakes: the derived state for the track as it is now. */
 export function lakesNow(t: TxxTrack): LakesState {
@@ -59,14 +64,20 @@ export function lakeCommands(ctx: ModeContext, tile: () => [number, number] | nu
     const backup = structuredClone(lake);
     const ok = await lakeDialog(idx, lake, {
       changed: () => { changed(); return lakesNow(t).lakes[idx]!; },
-      minHeight: () => lakeMinHeight(buildLakeGround(t), t.waterLevel4, lake),
+      minHeight: () => lakeMinHeight(buildLakeGround(t), t.waterLevel4, lake, trackNotches(t), idx),
       distinctHeights: () => distinctHeights(t.lakes, t.waterLevel4),
+      capacity: () => lakeHoldsUpTo(buildLakeGround(t), t.lakes, lakesNow(t), t.waterLevel4, idx),
     });
     if (!ok) {
       if (creating) t.lakes.splice(idx, 1);
       else t.lakes[idx] = backup;
       changed();
       return;
+    }
+    // Waterfalls on this lake follow its height by themselves (EffectiveHeight): said in the status line.
+    if (!creating && lake.height !== backup.height) {
+      const nf = fallsOnLake(t.falls, idx);
+      if (nf > 0) app.status(`${nf} waterfall(s) follow this lake's new height`);
     }
     const after = structuredClone(t.lakes);
     t.lakes = before;
@@ -84,6 +95,7 @@ export function lakeCommands(ctx: ModeContext, tile: () => [number, number] | nu
     const g = buildLakeGround(t);
     const tmap = lakesNow(t).tmap;
     const s = lakeSpill(g, tmap, t.waterLevel4, x, z, -1);
+    // (a new lake owns no notch yet: FitHeight without one, as Traxx's lake index is past the list)
     if (s === LAKE_NO_BASIN) {
       if (t.waterLevel4 > 0 && lakeSpill(g, tmap, 0, x, z, -1) !== LAKE_NO_BASIN) await alertDialog("Traxx", "This square drains into the main water.");
       else await alertDialog("Traxx", "No basin here - the ground falls away.");
@@ -109,12 +121,19 @@ export function lakeCommands(ctx: ModeContext, tile: () => [number, number] | nu
     await runDialog(idx, false, structuredClone(track().lakes));
   };
 
-  const remove = () => {
+  const remove = async () => {
     const idx = here();
     if (idx < 0 || !editable()) return;
-    const rec = recordFields(track(), ["lakes"], "Delete Lake", { water: true });
-    track().lakes.splice(idx, 1);
+    // No confirmation: Undo covers it, the falls too. Falls on this lake become springs at its
+    // height; later lakes shift down one, and so do the falls' sources (LakeDeleted).
+    const t = track();
+    const rec = recordFields(t, ["lakes", "falls"], "Delete Lake", { water: true, falls: true });
+    const lakeheight = t.lakes[idx]!.height;
+    const fallsonlake = fallsOnLake(t.falls, idx);
+    t.lakes.splice(idx, 1);
+    fallsLakeDeleted(t.falls, idx, lakeheight);
     editor.commit(rec);
+    if (fallsonlake > 0) await alertDialog("Traxx", `${fallsonlake} waterfall(s) on this lake now have no source lake; they keep its height.`);
   };
 
   const removeSeed = () => {

@@ -96,7 +96,9 @@ test("InterpolateRawAtPoint splits cells along a checkerboard diagonal", () => {
   assert.equal(interpolateRawAtPoint(raw, 16, 32), 0, "its upper triangle, through (64,64), (0,64) and (0,0), does not touch the raised corner");
   const ramp = new Uint8Array(65536).map((_, i) => i & 255);
   assert.equal(interpolateRawAtPoint(ramp, 10 * 64 + 32, 5 * 64 + 20), 10, "truncated");
-  assert.equal(interpolateRawAtPoint(ramp, 255 * 64 + 10, 0), 255, "the last column reads its corner");
+  // Traxx 1.7.1 (992ef9f): cell 255 interpolates into column 0 (the world wraps), 255 - 10 * 255 / 64.
+  assert.equal(interpolateRawAtPoint(ramp, 255 * 64 + 10, 0), 215, "the last column reaches column 0");
+  assert.equal(interpolateRawAtPoint(ramp, 255 * 64, 0), 255, "at its own corner");
 });
 
 test("RemapTexture picks the nearest of the first 246 colours, first on ties", () => {

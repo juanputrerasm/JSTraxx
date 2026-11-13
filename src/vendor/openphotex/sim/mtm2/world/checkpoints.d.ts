@@ -42,3 +42,11 @@ export declare function speedThroughCheckpoint(b: CheckpointBox, worldVelocity: 
 export declare function checkpointCrossingTime(raceTime: number, depth: number, speedThrough: number): number;
 /** Whether a point lies inside a checkpoint box (helper for tests and tools). */
 export declare function pointInCheckpointBox(b: CheckpointBox, p: ArrayLike<number>): boolean;
+export declare const CHECKPOINT_FOOTPRINT_TYPE = 11;
+/** Whether a point lies in a checkpoint gate's footprint, by the game's test above. */
+export declare function inCheckpointFootprint(gate: CheckpointBox, p: ArrayLike<number>): boolean;
+/**
+ * A level box's type after the footprint rule: 11 for a type 0 box whose position lies in any
+ * checkpoint's footprint, else its own. The caller skips it in Summit Rumble.
+ */
+export declare function checkpointFootprintType(box: Pick<CheckpointBoxInput, "type" | "positionFt">, checkpoints: readonly Mtm2Checkpoint[]): number;

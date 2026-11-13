@@ -1,7 +1,8 @@
 /*
   The terrain, as Traxx's GL view draws it (COpenGLTerrainRenderer::CompileTerrainFillDisplayList):
 
-    - 255 x 255 cells, each its own quad of two triangles split along the checkerboard
+    - 256 x 256 cells (Traxx 1.7.1, 992ef9f: cell 255 is textured and its far corners are
+      column / row 0, the world wraps), each its own quad of two triangles split along the checkerboard
       diagonal ((gx + gy) & 1, the same split InterpolateRawAtPoint uses);
     - heights at ALTITUDESCALE (3) units per step, x and y at 64 units per cell;
     - each cell's tile and orientation from its CLR word (core/view/tiles.ts);
@@ -24,6 +25,13 @@
   A chunk is 16 x 16 cells (4 x 4 tiles); when the camera's tile moves, only the chunks whose
   tiles changed level or straightened sides are rebuilt (the tile stamp). Traxx's fast draw
   (display-list / VBO caching and grouping) draws the same picture and is not ported.
+
+  The world-wrap border (Traxx 1.7.1, 3f26cfc .. 45727cb): past each edge a tinted, read-only
+  copy of the opposite edge, 3 cells deep (cells -3..258), corners included. Each chunk on an
+  edge is drawn again, shifted by 256 cells, from the same geometry (Traxx draws the source
+  tile's list at the destination origin), trimmed to the band and washed 0.35 of
+  (0.70, 0.80, 0.95) over 0.65 of the picture, untextured cells too. Nothing is stored; picks on
+  it do nothing (core/view/pick.ts).
 */
 import * as THREE from "three";
 import type { TileSet } from "../core/view/tiles.ts";
@@ -32,9 +40,9 @@ import { ALTITUDE_SCALE } from "../core/view/camera.ts";
 import type { Terrain16 } from "../core/traxx/terrain16.ts";
 import { TERRAINMODE_CLASSIC8 } from "../core/traxx/terrain16.ts";
 import { cornerV } from "../core/traxx/surface.ts";
-import { hasFineLod, surfaceTileStamp, SurfaceTileGrids, SURFACE_LOD_8FT, TILE_SIZE } from "../core/view/surface-tiles.ts";
+import { hasFineLod, surfaceTileStamp, SurfaceTileGrids, SURFACE_LOD_8FT, SURFACE_WRAP_BORDER_CELLS, TILE_SIZE, WRAP_BORDER_TINT, WRAP_BORDER_TINT_WEIGHT } from "../core/view/surface-tiles.ts";
 
-const CELLS = 255;
+const CELLS = 256;
 const CHUNK = 16;
 const CHUNKS = Math.ceil(CELLS / CHUNK);
 
@@ -75,13 +83,20 @@ const fragmentShader = /* glsl */ `
   uniform vec3 backgroundColor;
   uniform sampler2D maskWash;
   uniform bool maskOn;
+  uniform vec2 shift;         // a world-wrap border copy's offset in cells (0 for the real terrain)
+  uniform bool border;
+  uniform vec3 borderTint;
+  uniform float borderWeight;
+  uniform float borderCells;
   in vec2 vUv;
   flat in vec2 vTile;
   flat in vec3 vCell;    // the 32 ft cell, and its wire steps a side (1, or 4 on an 8 ft tile)
   in vec2 vLocal;        // in wire steps from the cell's corner: 0 .. vCell.z
   out vec4 outColor;
   void main() {
-    if (vCell.x < window.x || vCell.y < window.y || vCell.x >= window.z || vCell.y >= window.w) discard;
+    vec2 at = vCell.xy + shift;
+    if (at.x < window.x || at.y < window.y || at.x >= window.z || at.y >= window.w) discard;
+    if (border && (at.x < -borderCells || at.y < -borderCells || at.x >= 256.0 + borderCells || at.y >= 256.0 + borderCells)) discard;
     vec3 colour;
     if (vTile.x < -0.5) colour = fallbackColor;
     else if (vTile.x < 0.5) colour = texture(smallTiles, vec3(vUv, vTile.y)).rgb;
@@ -109,6 +124,7 @@ const fragmentShader = /* glsl */ `
       if (wireMode == 1) colour = mix(backgroundColor, wireColor, line);
       else colour = mix(colour, overlayColor, line);
     }
+    if (border) colour = mix(colour, borderTint, borderWeight);
     outColor = vec4(colour, 1.0);
   }
 `;
@@ -120,7 +136,7 @@ export interface TerrainSource extends Partial<Terrain16> {
 
 /** The view's z of a 32 ft corner: ALTITUDESCALE per step, v / 256 steps on a 16-bit track. */
 function cornerZ(src: TerrainSource, vx: number, vy: number): number {
-  if (!src.terrainMode || src.terrainMode === TERRAINMODE_CLASSIC8) return ALTITUDE_SCALE * src.heights[Math.min(255, vx) + (Math.min(255, vy) << 8)]!;
+  if (!src.terrainMode || src.terrainMode === TERRAINMODE_CLASSIC8) return ALTITUDE_SCALE * src.heights[(vx & 255) + ((vy & 255) << 8)]!;
   return (ALTITUDE_SCALE * cornerV(src as Terrain16, vx, vy)) / 256;
 }
 
@@ -147,6 +163,9 @@ export class TerrainMesh {
   private source: TerrainSource;
   /** The camera's cell the levels are for (DrawTerrainScene's lastgridx, lastgridy). */
   private camera: [number, number] = [128, 128];
+  /** The world-wrap border's copies of the edge chunks, each sharing its chunk's geometry. */
+  private copies = new Map<THREE.Mesh, THREE.Mesh[]>();
+  private borderMaterials = new Map<string, THREE.RawShaderMaterial>();
 
   constructor(source: TerrainSource) {
     this.source = source;
@@ -169,6 +188,11 @@ export class TerrainMesh {
         backgroundColor: { value: new THREE.Color(0, 0, 0) },
         maskWash: { value: null },
         maskOn: { value: false },
+        shift: { value: new THREE.Vector2(0, 0) },
+        border: { value: false },
+        borderTint: { value: new THREE.Color(...WRAP_BORDER_TINT) },
+        borderWeight: { value: WRAP_BORDER_TINT_WEIGHT },
+        borderCells: { value: SURFACE_WRAP_BORDER_CELLS },
       },
     });
     for (let cy = 0; cy < CHUNKS; cy++) {
@@ -181,8 +205,48 @@ export class TerrainMesh {
         this.build(mesh, this.stampOf(data));
         this.chunks.push(mesh);
         this.group.add(mesh);
+        this.addCopies(mesh);
       }
     }
+  }
+
+  /*
+    The border copies of a chunk: shifted +256 cells when it holds cells within 3 of the low
+    edge, -256 when within 3 of the high one, on each axis and both in a corner (the border
+    tiles -1 and 64, SurfaceBorderTileSource, at cell rather than tile grain).
+  */
+  private addCopies(mesh: THREE.Mesh): void {
+    const { x0, y0, w, h } = mesh.userData as ChunkData;
+    const b = SURFACE_WRAP_BORDER_CELLS;
+    const sx = [0, ...(x0 < b ? [256] : []), ...(x0 + w > 256 - b ? [-256] : [])];
+    const sy = [0, ...(y0 < b ? [256] : []), ...(y0 + h > 256 - b ? [-256] : [])];
+    const list: THREE.Mesh[] = [];
+    for (const dy of sy) {
+      for (const dx of sx) {
+        if (!dx && !dy) continue;
+        const copy = new THREE.Mesh(mesh.geometry, this.borderMaterial(dx, dy));
+        copy.position.set(dx * 64, dy * 64, 0);
+        copy.frustumCulled = true;
+        list.push(copy);
+        this.group.add(copy);
+      }
+    }
+    if (list.length) this.copies.set(mesh, list);
+  }
+
+  /* One material per shift, every other uniform shared with the terrain's (as siblingMaterial). */
+  private borderMaterial(dx: number, dy: number): THREE.RawShaderMaterial {
+    const key = `${dx},${dy}`;
+    let m = this.borderMaterials.get(key);
+    if (!m) {
+      const u = this.material.uniforms;
+      m = new THREE.RawShaderMaterial({
+        glslVersion: THREE.GLSL3, vertexShader, fragmentShader, side: THREE.DoubleSide,
+        uniforms: { ...u, shift: { value: new THREE.Vector2(dx, dy) }, border: { value: true } },
+      });
+      this.borderMaterials.set(key, m);
+    }
+    return m;
   }
 
   /* The stamps of the chunk's tiles (SurfaceTileStampFor's level and straightened sides). */
@@ -246,6 +310,7 @@ export class TerrainMesh {
     g.setIndex(new THREE.BufferAttribute(index, 1));
     mesh.geometry.dispose();
     mesh.geometry = g;
+    for (const c of this.copies.get(mesh) ?? []) c.geometry = g;
     d.stamp = stamp;
     this.write(mesh, 0, 0, d.w, d.h, null);
   }
@@ -301,14 +366,29 @@ export class TerrainMesh {
     // The spline moves the surface up to two cells round an edited point.
     const spread = this.source.terrainMode === 2 ? 2 : 1;
     const grids = isClassic(this.source) ? null : new SurfaceTileGrids(this.source as Terrain16, this.camera[0], this.camera[1]);
+    // A height change moves the cells on both sides of a vertex, so widen by one; a tile's
+    // straightened side reads its corners, so whole tiles are rewritten. The world wraps
+    // (ComputeTerrainWindowStamp folds & 255, df1daa5): an edit at column 0 rewrites tile 63,
+    // whose far corners read it.
+    const ranges = (lo: number, hi: number): [number, number][] => {
+      lo = (lo - spread) & ~3; hi = (hi + spread) | 3;
+      if (hi - lo >= 255) return [[0, 255]];
+      const out: [number, number][] = [[Math.max(0, lo), Math.min(255, hi)]];
+      if (lo < 0) out.push([lo + 256, 255]);
+      if (hi > 255) out.push([0, hi - 256]);
+      return out;
+    };
+    const xs = ranges(minX, maxX), ys = ranges(minY, maxY);
     for (const mesh of this.chunks) {
       const { x0, y0, w, h } = mesh.userData as ChunkData;
-      // A height change moves the cells on both sides of a vertex, so widen by one; a tile's
-      // straightened side reads its corners, so whole tiles are rewritten.
-      const i0 = Math.max(0, ((minX - spread) & ~3) - x0), j0 = Math.max(0, ((minY - spread) & ~3) - y0);
-      const i1 = Math.min(w, ((maxX + spread) | 3) - x0 + 1), j1 = Math.min(h, ((maxY + spread) | 3) - y0 + 1);
-      if (i0 >= i1 || j0 >= j1) continue;
-      this.write(mesh, i0, j0, i1, j1, grids);
+      for (const [ya, yb] of ys) {
+        for (const [xa, xb] of xs) {
+          const i0 = Math.max(0, xa - x0), j0 = Math.max(0, ya - y0);
+          const i1 = Math.min(w, xb - x0 + 1), j1 = Math.min(h, yb - y0 + 1);
+          if (i0 >= i1 || j0 >= j1) continue;
+          this.write(mesh, i0, j0, i1, j1, grids);
+        }
+      }
     }
   }
 
@@ -357,7 +437,7 @@ export class TerrainMesh {
     const u = this.material.uniforms;
     return new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader, fragmentShader, side: THREE.DoubleSide,
-      uniforms: { ...u, maskOn: { value: false }, wireCells: { value: false } },
+      uniforms: { ...u, maskOn: { value: false }, wireCells: { value: false }, shift: { value: new THREE.Vector2(0, 0) }, border: { value: false } },
     });
   }
 
@@ -411,6 +491,7 @@ export class TerrainMesh {
   dispose(): void {
     for (const m of this.chunks) m.geometry.dispose();
     this.material.dispose();
+    for (const m of this.borderMaterials.values()) m.dispose();
     this.smallTex?.dispose();
     this.largeTex?.dispose();
   }

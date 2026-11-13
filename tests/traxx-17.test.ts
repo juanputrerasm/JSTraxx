@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { parsePod } from "../src/vendor/openphotex/pod/parse.js";
 import { readPodEntry } from "../src/vendor/openphotex/pod/lookup.js";
 import { readTxx, txxVersionFor, writeTxx } from "../src/core/traxx/txx.ts";
+import { fallDefaults } from "../src/core/traxx/falls.ts";
 import type { TxxTrack } from "../src/core/traxx/txx.ts";
 import {
   readTraxxSit, traxxBoxDefaults, traxxFogEngineDefaults, writeTraxxSit, TRAXX_BOX_FOG,
@@ -91,6 +92,40 @@ test("the version is the lowest that holds the track: fog 14, vegetation 15, lak
   t.h16 = new Uint16Array(65536);
   t.rawShadow = new Uint8Array(65536);
   assert.equal(txxVersionFor(t), 17);
+  // Traxx 1.7.1: waterfalls are V18, on any terrain (V18 is a superset of V17).
+  const fall = fallDefaults();
+  fall.npoints = 2;
+  t.falls = [fall];
+  assert.equal(txxVersionFor(t), 18);
+  t.terrainMode = TERRAINMODE_CLASSIC8;
+  t.h16 = null;
+  t.rawShadow = null;
+  assert.equal(txxVersionFor(t), 18);
+  const back = readTxx(writeTxx(t));
+  assert.equal(back.version, 18);
+  assert.equal(back.terrainMode, TERRAINMODE_CLASSIC8);
+  assert.deepEqual(back.falls, [fall]);
+  t.falls = [];
+  assert.equal(txxVersionFor(t), 14, "back to the fog box's generation");
+});
+
+test("TXX V18: a fall block of an unknown version, or a fall past the limits, refuses the file", () => {
+  const t = resetTrack();
+  const fall = fallDefaults();
+  fall.npoints = 2;
+  t.falls = [fall];
+  const bytes = writeTxx(t);
+  // The block starts right after the V17 mode (classic: the mode alone, an int 0).
+  const at = bytes.length - (8 + (5 + 16 + 5) * 4 + 32);
+  const view = new DataView(bytes.buffer);
+  assert.equal(view.getInt32(at, true), 2);
+  view.setInt32(at, 3, true);
+  assert.throws(() => readTxx(bytes), /waterfalls block/);
+  view.setInt32(at, 1, true); // block version 1: no mist size fields, read as 100
+  assert.equal(readTxx(bytes).falls[0]!.mistdepth, 100);
+  view.setInt32(at, 2, true);
+  view.setInt32(at + 8 + 4, 9, true); // npoints 9
+  assert.throws(() => readTxx(bytes), /waterfall is corrupt/);
 });
 
 test("a lake-only track writes an empty V15 block, and the JSTraxx trailer goes after the last block", () => {

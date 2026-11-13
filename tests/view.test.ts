@@ -172,7 +172,8 @@ test("picking finds the first terrain cell along the ray", async () => {
   assert.ok(Math.abs(down.point[2] - 30) < 1e-6);
   // A slanted ray from outside the map hits a wall of high ground.
   const wall = new Uint8Array(65536).fill(0);
-  for (let j = 0; j < 256; j++) for (let i = 100; i < 256; i++) wall[i + (j << 8)] = 200;
+  // (The plateau stops short of the east edge: the world-wrap border would show it west of cell 0.)
+  for (let j = 0; j < 256; j++) for (let i = 100; i < 250; i++) wall[i + (j << 8)] = 200;
   const hit = pickTerrain(wall, [-500, 3000, 300], [1, 0, -0.01]);
   assert.ok(hit);
   assert.equal(hit.cell[0], 99, "the slope up to the plateau starts in cell 99");

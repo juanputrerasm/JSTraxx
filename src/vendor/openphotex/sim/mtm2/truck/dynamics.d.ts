@@ -15,6 +15,13 @@ export interface StepContext {
     aiSpeed?: number;
     /** The race's view of this truck, for the stuck checks (§10.3); none means no checks. */
     recovery?: RecoveryContext;
+    /** A network game: Community Patch 4's computer-truck grip (`aiGrip`) applies only offline. */
+    online?: boolean;
+    /**
+     * Not the game's (a host choice, OpenMTM2's): a tire held up by an object never stands on water or deep water
+     * from the terrain under it (truck/object-support.ts). Off, every tire reads the terrain as the game does.
+     */
+    dryOnObjects?: boolean;
 }
 /** Total weight, lb: body, both axles and the (zero in stock trucks) +0x5a0 term (§14.1). */
 export declare function truckWeight(p: Mtm2TruckParams): number;

@@ -258,16 +258,23 @@ export function terrainConvertMessage(from: number, to: number): string {
 /*
   The lakes' ground (BuildLakeGround). CLASSIC8 hands over raw; the drive surface hands over each
   32 ft tile's lowest point in u = v >> 1 and the CORNER_AT_H test of its mode.
+
+  Traxx 1.7.1 (the spillway notches, 423373b): the individual ground points too. `step` is how
+  many lattice steps a tile is wide (1 on Classic 16-bit, the corners; 4 on Spline and Full Map,
+  the 5 x 5 fine points), `pointU` the ground at lattice point (px, pz) in u, both wrapped
+  (Coarse4PointU, FinePointU). Classic 8-bit reads raw and leaves them 0 / null.
 */
 export interface LakeGround {
   raw: Uint8Array | null;
   tilemin: Int32Array | null;
   groundAtLevel: ((tile: number, u: number) => boolean) | null;
+  step?: number;
+  pointU?: ((px: number, pz: number) => number) | null;
 }
 
 /** BuildLakeGround (after LakeGroundFor's SyncFromRaw). Null when there is no surface to fill on. */
 export function buildLakeGround(t: Terrain16): LakeGround | null {
-  if (t.terrainMode === TERRAINMODE_CLASSIC8) return { raw: t.heights, tilemin: null, groundAtLevel: null };
+  if (t.terrainMode === TERRAINMODE_CLASSIC8) return { raw: t.heights, tilemin: null, groundAtLevel: null, step: 0, pointU: null };
   if (t.terrainMode === TERRAINMODE_CLASSIC16 || t.terrainMode === TERRAINMODE_SPLINE) syncFromRaw(t);
   const tilemin = new Int32Array(COARSE);
   if (t.terrainMode === TERRAINMODE_CLASSIC16) {
@@ -285,7 +292,7 @@ export function buildLakeGround(t: Terrain16): LakeGround | null {
       const x = tile & 255, z = (tile >> 8) & 255, x1 = (x + 1) & 255, z1 = (z + 1) & 255;
       return (h[x + (z << 8)] >> 1) === u || (h[x1 + (z << 8)] >> 1) === u || (h[x + (z1 << 8)] >> 1) === u || (h[x1 + (z1 << 8)] >> 1) === u;
     };
-    return { raw: null, tilemin, groundAtLevel: at };
+    return { raw: null, tilemin, groundAtLevel: at, step: 1, pointU: (px, pz) => h[(px & 255) + ((pz & 255) << 8)]! >> 1 };
   }
   const s = getSurface(t);
   if (!s) return null;
@@ -318,7 +325,7 @@ export function buildLakeGround(t: Terrain16): LakeGround | null {
     }
     return false;
   };
-  return { raw: null, tilemin, groundAtLevel: at };
+  return { raw: null, tilemin, groundAtLevel: at, step: 4, pointU: (px, pz) => s[((pz & 1023) << 10) + (px & 1023)]! >> 1 };
 }
 
 // ---- The 32 ft and 8 ft height tools on a 16-bit grid (ApplyStamp16 and friends). ----

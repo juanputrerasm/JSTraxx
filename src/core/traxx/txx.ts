@@ -8,8 +8,8 @@
   backdrop, fog map, ground boxes, sounds, animations and the sun. Art and models are kept by
   name only; Traxx reloads them from its ART and MODELS folders.
 
-  The header names the generation, TRAXXV1 to TRAXXV17 (V12 to V17 are Traxx 1.7's: fog,
-  vegetation, lakes and the terrain modes). Each one appends fields, and Traxx
+  The header names the generation, TRAXXV1 to TRAXXV18 (V12 to V17 are Traxx 1.7's: fog,
+  vegetation, lakes and the terrain modes; V18 is Traxx 1.7.1's waterfalls). Each one appends fields, and Traxx
   writes the LOWEST generation the track's contents need (txxVersionFor), so a track that uses
   nothing new stays readable by an older Traxx. Every rule below says which generation adds it.
 
@@ -22,12 +22,13 @@ import {
   TRAXX_BOX_CRUSH, TRAXX_BOX_FOG, TRAXX_BOX_LIGHT,
 } from "./sit.ts";
 import type { TraxxArena, TraxxBox, TraxxCourseSegment, TraxxTruck } from "./sit.ts";
+import { fallDefaults, FALL_MAX_FALLS, FALL_MAX_POINTS, FALL_NAMELEN, type TraxxFall } from "./falls.ts";
 import {
   refreshRaw, syncFromRaw, wordsOf, RAWLEN_16BIT, RAWLEN_FINE, TERRAIN_FINE, TERRAINMODE_CLASSIC8, TERRAINMODE_FINE,
 } from "./terrain16.ts";
 
 /** The newest generation this port reads and writes. */
-export const TXX_LATEST_VERSION = 17;
+export const TXX_LATEST_VERSION = 18;
 
 const MISCFLAG_FOGMAP = 0x1;
 const MISCFLAG_SUNPOS = 0x2;
@@ -206,6 +207,8 @@ export interface TxxTrack {
   vegetation: TxxVegetation | null;
   /** V16. */
   lakes: TxxLake[];
+  /** V18 (Traxx 1.7.1): the waterfalls, the authored part only. */
+  falls: TraxxFall[];
 }
 
 export class TxxError extends Error {
@@ -441,6 +444,39 @@ export function readTxx(bytes: Uint8Array): TxxTrack {
     }
   }
 
+  // V18: the waterfalls (CTrackPODFalls::LoadTXX, block version 2; 1 is read with the mist size 100).
+  const falls: TraxxFall[] = [];
+  if (version >= 18) {
+    const v = r.i32("the waterfalls");
+    if (v !== 1 && v !== 2) throw new TxxError("the waterfalls block has an unknown version");
+    const n = r.i32("the waterfall count");
+    if (n < 0 || n > FALL_MAX_FALLS) throw new TxxError("the waterfall count is out of range");
+    for (let i = 0; i < n; i++) {
+      const w = fallDefaults();
+      const src = r.i32("a waterfall"), np = r.i32("a waterfall"), fl = r.i32("a waterfall");
+      if (src < 0 || src > 255 || np < 0 || np > FALL_MAX_POINTS || fl < 0 || fl > 65535) throw new TxxError("a waterfall is corrupt");
+      w.speed = r.i32("a waterfall");
+      w.height = r.i32("a waterfall");
+      for (let k = 0; k < FALL_MAX_POINTS; k++) w.pt[k] = [r.i32("a waterfall"), r.i32("a waterfall")];
+      const op = r.i32("a waterfall"), mi = r.i32("a waterfall"), vo = r.i32("a waterfall");
+      if (op < 0 || op > 255 || mi < 0 || mi > 255 || vo < 0 || vo > 255) throw new TxxError("a waterfall is corrupt");
+      let md = 100, mh = 100;
+      if (v >= 2) {
+        md = r.i32("a waterfall"); mh = r.i32("a waterfall");
+        if (md < 0 || md > 255 || mh < 0 || mh > 255) throw new TxxError("a waterfall is corrupt");
+        if (md === 0) md = 100;
+        if (mh === 0) mh = 100;
+        if (md > 250) md = 250;
+        if (mh > 250) mh = 250;
+      }
+      // char[16] each: no NUL in the 16 bytes leaves a 16-character stem, which Errors refuses (FALL_NAME).
+      w.sound = cString(r.take(FALL_NAMELEN, "a waterfall's sound"));
+      w.texture = cString(r.take(FALL_NAMELEN, "a waterfall's texture"));
+      Object.assign(w, { source: src, npoints: np, flags: fl, opacity: op, mist: mi, volume: vo, mistdepth: md, mistheight: mh });
+      falls.push(w);
+    }
+  }
+
   // The JSTraxx trailer, when there is one (see extraBackdrops): after the last block Traxx reads.
   const extraBackdrops: string[] = [];
   if (r.pos + TRAILER_MAGIC.length <= bytes.length && cString(bytes.subarray(r.pos, r.pos + TRAILER_MAGIC.length)) === TRAILER_MAGIC) {
@@ -456,7 +492,7 @@ export function readTxx(bytes: Uint8Array): TxxTrack {
     extendedCourses, heights: terrain.heights, clr: terrain.clr, lte: terrain.lte, trucks, backdropName, extraBackdrops, arena,
     omitRawFallback: (miscflags & MISCFLAG_NORAWFALLBACK) !== 0, fogMap, groundBoxes, sounds, animations, sun,
     terrainMode: t16.terrainMode, h16: t16.h16, fine: t16.fine, rawShadow: t16.rawShadow,
-    pngHeights: (miscflags & MISCFLAG_PNGHEIGHTS) !== 0, vegetation, lakes,
+    pngHeights: (miscflags & MISCFLAG_PNGHEIGHTS) !== 0, vegetation, lakes, falls,
   };
 }
 
@@ -600,6 +636,8 @@ export function txxVersionFor(track: TxxTrack): number {
   if (track.vegetation && (track.vegetation.image || track.vegetation.masks.some(Boolean))) version = 15;
   if (track.lakes.length) version = 16;
   if (track.terrainMode !== TERRAINMODE_CLASSIC8) version = 17;
+  // V18 only with waterfalls: a superset of V17 (a classic track writes the V17 block as the mode alone).
+  if (track.falls?.length) version = 18;
   return version;
 }
 
@@ -731,9 +769,11 @@ export function writeTxx(track: TxxTrack): Uint8Array {
     for (let face = 0; face < 6; face++) w.u16(g.faces[face] ?? 0);
   }
 
-  // SaveBinary drops a sound no box names any more.
+  // SaveBinary drops a sound no box names any more. Changed on purpose: a WAV a waterfall names is
+  // kept too (Traxx 1.7.1 drops it, and the fall loses its sound on the next load).
   const used = new Set(track.boxes.flatMap((b) => [`SOUND\\${b.soundImpact}`, `SOUND\\${b.soundCont}`]));
-  const sounds = track.sounds.filter((s) => used.has(s.name));
+  const fallWavs = new Set((track.falls ?? []).filter((f) => f.sound).map((f) => `SOUND\\${f.sound}.WAV`.toUpperCase()));
+  const sounds = track.sounds.filter((s) => used.has(s.name) || fallWavs.has(s.name.toUpperCase()));
   w.i32(sounds.length);
   for (const sound of sounds) {
     w.string(sound.name);
@@ -787,6 +827,19 @@ export function writeTxx(track: TxxTrack): Uint8Array {
       const out = new Uint8Array(src.length * 2);
       for (let i = 0; i < src.length; i++) { out[2 * i] = src[i] & 255; out[2 * i + 1] = src[i] >> 8; }
       w.bytes(out);
+    }
+  }
+
+  // V18: the waterfalls (CTrackPODFalls::SaveTXX): block version 2, the count, every field as an
+  // int (all 8 points; mist depth and height after the volume), then the two char[16].
+  if (version >= 18) {
+    w.i32(2);
+    w.i32(track.falls.length);
+    for (const f of track.falls.slice(0, FALL_MAX_FALLS)) {
+      w.i32(f.source); w.i32(f.npoints); w.i32(f.flags); w.i32(f.speed); w.i32(f.height);
+      for (let k = 0; k < FALL_MAX_POINTS; k++) { w.i32(f.pt[k]?.[0] ?? 0); w.i32(f.pt[k]?.[1] ?? 0); }
+      w.i32(f.opacity); w.i32(f.mist); w.i32(f.volume); w.i32(f.mistdepth); w.i32(f.mistheight);
+      for (const name of [f.sound, f.texture]) { const b = new Uint8Array(FALL_NAMELEN); b.set(latin1(name).subarray(0, FALL_NAMELEN)); w.bytes(b); }
     }
   }
 

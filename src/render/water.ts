@@ -8,16 +8,32 @@
       the Options > Advanced opacity, drawn after the objects, depth-tested but not written.
 
   Both are clipped to the grid window like the terrain.
+
+  Traxx 1.7.1 (7307bc1, 45727cb): the water reaches the real seam (cell 255 takes its +1 corner
+  from column / row 0), and the world-wrap border shows it again past each edge, 3 cells deep,
+  tinted as the terrain's border (0.35 of (0.70, 0.80, 0.95)), keeping the water's alpha. The
+  lakes do the same: cell 255 is drawn and the border cells copy the lake cells across the seam.
 */
 import * as THREE from "three";
 import { ALTITUDE_SCALE } from "../core/view/camera.ts";
+import { SURFACE_WRAP_BORDER_CELLS, WRAP_BORDER_TINT, WRAP_BORDER_TINT_WEIGHT } from "../core/view/surface-tiles.ts";
+
+/** The cells a water or lake picture covers: the map and the world-wrap border round it. */
+const BAND_LO = -SURFACE_WRAP_BORDER_CELLS, BAND_HI = 256 + SURFACE_WRAP_BORDER_CELLS;
+const BORDER_GLSL = `vec3(${WRAP_BORDER_TINT.map((v) => v.toFixed(2)).join(", ")})`;
+const BORDER_WEIGHT_GLSL = WRAP_BORDER_TINT_WEIGHT.toFixed(2);
+
+/** Is cell (i, j) of the band in the border (off the map)? */
+function inBorder(i: number, j: number): boolean {
+  return i < 0 || j < 0 || i > 255 || j > 255;
+}
 
 const vertexShader = /* glsl */ `
   in vec3 position;
-  in vec2 cell;
+  in vec3 cell;
   uniform mat4 modelViewMatrix;
   uniform mat4 projectionMatrix;
-  flat out vec2 vCell;
+  flat out vec3 vCell;
   void main() { vCell = cell; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
 `;
 const fragmentShader = /* glsl */ `
@@ -25,11 +41,12 @@ const fragmentShader = /* glsl */ `
   uniform vec4 window;
   uniform vec3 colour;
   uniform float opacity;
-  flat in vec2 vCell;
+  flat in vec3 vCell;    // the cell where it is drawn, and 1 in the world-wrap border
   out vec4 outColor;
   void main() {
     if (vCell.x < window.x || vCell.y < window.y || vCell.x >= window.z || vCell.y >= window.w) discard;
-    outColor = vec4(colour, opacity);
+    vec3 c = vCell.z > 0.5 ? mix(colour, ${BORDER_GLSL}, ${BORDER_WEIGHT_GLSL}) : colour;
+    outColor = vec4(c, opacity);
   }
 `;
 
@@ -62,19 +79,21 @@ export class WaterLayer {
     const z = (ALTITUDE_SCALE * level4) / 4;
     const lp: number[] = [], lc: number[] = [], fp: number[] = [], fc: number[] = [];
     if (level4 > 0) {
-      for (let j = 0; j < 255; j++) {
-        for (let i = 0; i < 255; i++) {
-          const under = [heights[i + (j << 8)], heights[i + 1 + (j << 8)], heights[i + 1 + ((j + 1) << 8)], heights[i + ((j + 1) << 8)]].map((h) => 4 * h! < level4);
+      for (let j = BAND_LO; j < BAND_HI; j++) {
+        for (let i = BAND_LO; i < BAND_HI; i++) {
+          // The source cell (& 255) and its +1 corners, wrapped.
+          const si = i & 255, sj = j & 255, si1 = (si + 1) & 255, sj1 = (sj + 1) & 255, b = inBorder(i, j) ? 1 : 0;
+          const under = [heights[si + (sj << 8)], heights[si1 + (sj << 8)], heights[si1 + (sj1 << 8)], heights[si + (sj1 << 8)]].map((h) => 4 * h! < level4);
           const x0 = i * 64, y0 = j * 64, x1 = x0 + 64, y1 = y0 + 64;
-          const all = surface ? surface.max[i + (j << 8)]! < 32 * level4 : under.every(Boolean);
-          const any = surface ? surface.min[i + (j << 8)]! <= 32 * level4 : under.some(Boolean);
+          const all = surface ? surface.max[si + (sj << 8)]! < 32 * level4 : under.every(Boolean);
+          const any = surface ? surface.min[si + (sj << 8)]! <= 32 * level4 : under.some(Boolean);
           if (all) {
             lp.push(x0, y0, z, x1, y0, z, x1, y0, z, x1, y1, z, x1, y1, z, x0, y1, z, x0, y1, z, x0, y0, z);
-            for (let k = 0; k < 8; k++) lc.push(i, j);
+            for (let k = 0; k < 8; k++) lc.push(i, j, b);
           }
           if (any) {
             fp.push(x0, y0, z, x1, y0, z, x1, y1, z, x0, y0, z, x1, y1, z, x0, y1, z);
-            for (let k = 0; k < 6; k++) fc.push(i, j);
+            for (let k = 0; k < 6; k++) fc.push(i, j, b);
           }
         }
       }
@@ -83,7 +102,7 @@ export class WaterLayer {
       obj.geometry.dispose();
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(p, 3));
-      g.setAttribute("cell", new THREE.Float32BufferAttribute(c, 2));
+      g.setAttribute("cell", new THREE.Float32BufferAttribute(c, 3));
       obj.geometry = g;
     };
     set(this.lines, lp, lc);
@@ -115,11 +134,11 @@ const LAKE_TINT: [number, number, number][] = [[30, 100, 200], [0, 160, 170], [4
 
 const lakeVertex = /* glsl */ `
   in vec3 position;
-  in vec2 cell;
+  in vec3 cell;
   in vec3 tint;
   uniform mat4 modelViewMatrix;
   uniform mat4 projectionMatrix;
-  flat out vec2 vCell;
+  flat out vec3 vCell;
   flat out vec3 vTint;
   void main() { vCell = cell; vTint = tint; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
 `;
@@ -127,12 +146,13 @@ const lakeFragment = /* glsl */ `
   precision highp float;
   uniform vec4 window;
   uniform float opacity;
-  flat in vec2 vCell;
+  flat in vec3 vCell;
   flat in vec3 vTint;
   out vec4 outColor;
   void main() {
     if (vCell.x < window.x || vCell.y < window.y || vCell.x >= window.z || vCell.y >= window.w) discard;
-    outColor = vec4(vTint, opacity);
+    vec3 c = vCell.z > 0.5 ? mix(vTint, ${BORDER_GLSL}, ${BORDER_WEIGHT_GLSL}) : vTint;
+    outColor = vec4(c, opacity);
   }
 `;
 
@@ -181,22 +201,23 @@ export class LakesLayer {
     this.rebuildWalls(tmap, heights, errors, ground);
     const p: number[] = [], c: number[] = [], t: number[] = [];
     if (tmap) {
-      for (let j = 0; j < 255; j++) {
-        for (let i = 0; i < 255; i++) {
-          const l = tmap[i + (j << 8)]!;
+      // Cell 255 too (the lake closes at the seam), and the border cells' copies.
+      for (let j = BAND_LO; j < BAND_HI; j++) {
+        for (let i = BAND_LO; i < BAND_HI; i++) {
+          const l = tmap[(i & 255) + ((j & 255) << 8)]!;
           if (l === 0 || l > heights.length) continue;
           const z = (ALTITUDE_SCALE * heights[l - 1]!) / 4;
           const tint = errors[l - 1] ? [255, 0, 255] : LAKE_TINT[(l - 1) % 6]!;
-          const x0 = i * 64, y0 = j * 64, x1 = x0 + 64, y1 = y0 + 64;
+          const x0 = i * 64, y0 = j * 64, x1 = x0 + 64, y1 = y0 + 64, b = inBorder(i, j) ? 1 : 0;
           p.push(x0, y0, z, x1, y0, z, x1, y1, z, x0, y0, z, x1, y1, z, x0, y1, z);
-          for (let k = 0; k < 6; k++) { c.push(i, j); t.push(tint[0]! / 255, tint[1]! / 255, tint[2]! / 255); }
+          for (let k = 0; k < 6; k++) { c.push(i, j, b); t.push(tint[0]! / 255, tint[1]! / 255, tint[2]! / 255); }
         }
       }
     }
     this.mesh.geometry.dispose();
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(p, 3));
-    g.setAttribute("cell", new THREE.Float32BufferAttribute(c, 2));
+    g.setAttribute("cell", new THREE.Float32BufferAttribute(c, 3));
     g.setAttribute("tint", new THREE.Float32BufferAttribute(t, 3));
     this.mesh.geometry = g;
   }
@@ -207,8 +228,8 @@ export class LakesLayer {
   }
 
   /*
-    The wall rings: a dry tile (not the map's last row or column) 4-adjacent, wrapping, to a lake
-    gets a line loop for each lake it borders.
+    The wall rings: a dry tile 4-adjacent, wrapping, to a lake gets a line loop for each lake it
+    borders; cell 255 included and the border cells copied (1.7.1), riding the source tile's ground.
   */
   private rebuildWalls(tmap: Uint8Array | null, heights: readonly number[], errors: readonly number[], ground: LakeWallGround | null): void {
     const p: number[] = [], c: number[] = [], t: number[] = [];
@@ -217,8 +238,9 @@ export class LakesLayer {
         const id = lk + 1, w = (ALTITUDE_SCALE * heights[lk]!) / 4;
         const tint = errors[lk] ? [255, 0, 255] : LAKE_TINT[lk % 6]!;
         const ringZ = (g: number) => Math.max(g, w) + ALTITUDE_SCALE / 2;
-        for (let j = 0; j < 255; j++) {
-          for (let i = 0; i < 255; i++) {
+        for (let dj = BAND_LO; dj < BAND_HI; dj++) {
+          for (let di = BAND_LO; di < BAND_HI; di++) {
+            const i = di & 255, j = dj & 255, bord = inBorder(di, dj) ? 1 : 0;
             if (tmap[i + (j << 8)] !== 0) continue;
             if (tmap[((i + 1) & 255) + (j << 8)] !== id && tmap[((i - 1) & 255) + (j << 8)] !== id &&
               tmap[i + (((j + 1) & 255) << 8)] !== id && tmap[i + (((j - 1) & 255) << 8)] !== id) continue;
@@ -230,13 +252,13 @@ export class LakesLayer {
               for (let k = 0; k < per; k++) {
                 const ox = cx[side]! * per + (cx[side + 1]! - cx[side]!) * k, oy = cy[side]! * per + (cy[side + 1]! - cy[side]!) * k;
                 const g = ground.z(i, j, ox, oy);
-                pts.push([i * 64 + (ox * 64) / per, j * 64 + (oy * 64) / per, ringZ(g)]);
+                pts.push([di * 64 + (ox * 64) / per, dj * 64 + (oy * 64) / per, ringZ(g)]);
               }
             }
             for (let k = 0; k < pts.length; k++) {
               const a = pts[k]!, b = pts[(k + 1) % pts.length]!;
               p.push(...a, ...b);
-              for (let n = 0; n < 2; n++) { c.push(i, j); t.push(tint[0]! / 255, tint[1]! / 255, tint[2]! / 255); }
+              for (let n = 0; n < 2; n++) { c.push(di, dj, bord); t.push(tint[0]! / 255, tint[1]! / 255, tint[2]! / 255); }
             }
           }
         }
@@ -245,7 +267,7 @@ export class LakesLayer {
     this.walls.geometry.dispose();
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(p, 3));
-    g.setAttribute("cell", new THREE.Float32BufferAttribute(c, 2));
+    g.setAttribute("cell", new THREE.Float32BufferAttribute(c, 3));
     g.setAttribute("tint", new THREE.Float32BufferAttribute(t, 3));
     this.walls.geometry = g;
   }

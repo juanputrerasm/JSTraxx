@@ -29,6 +29,10 @@ import { hasFineLod, SurfaceTileGrids } from "../core/view/surface-tiles.ts";
 import { TERRAINMODE_CLASSIC8 } from "../core/traxx/terrain16.ts";
 import { trackLakes } from "../core/traxx/lakes.ts";
 import { BackdropLayer } from "./backdrop.ts";
+import { WaterfallsLayer } from "./waterfalls.ts";
+import { FallShapeCache, fallPreviewList } from "../core/view/fall-shapes.ts";
+import { fallGroundFor, fallNameInPod } from "../core/traxx/falls.ts";
+import { buildLakeGround } from "../core/traxx/surface.ts";
 import { CourseLayer } from "./course.ts";
 import { Overlay2D } from "./overlay.ts";
 import { arrowSegments, checkpointArrow, checkpointWantsArrow } from "../core/view/arrows.ts";
@@ -56,6 +60,11 @@ export class TrackView {
   private course = new CourseLayer();
   private fogBoxes = new FogBoxLayer();
   private vegetation = new VegetationLayer();
+  private waterfalls = new WaterfallsLayer();
+  /** The falls' shapes and errors (FallShapesEnsure), shared with the Waterfall window. */
+  readonly fallShapes = new FallShapeCache();
+  /** The fall whose window is open (fallhighlight) and the crest being captured, in 1/16 ft. */
+  private fallState: { highlight: number; capture: [number, number][] | null } = { highlight: -1, capture: null };
   /** The fog a properties dialog is previewing (CTraxxView::SetFogPreview), or null. */
   private fogPreview: FogPreview | null = null;
   readonly overlay: Overlay2D;
@@ -77,7 +86,7 @@ export class TrackView {
     this.app = app;
     this.viewport = new Viewport(host);
     this.viewport.onBeforeRender(() => this.step());
-    this.viewport.scene.add(this.water.group, this.lakes.mesh, this.lakes.walls, this.backdrop.arena, this.course.group, this.fogBoxes.group, this.vegetation.group);
+    this.viewport.scene.add(this.water.group, this.lakes.mesh, this.lakes.walls, this.backdrop.arena, this.course.group, this.fogBoxes.group, this.vegetation.group, this.waterfalls.group);
     this.overlay = new Overlay2D(host, this.viewport.camera);
     this.viewport.onAfterRender(() => this.overlay.draw());
     this.overlay.add((g, project) => this.drawLabels(g, project));
@@ -107,6 +116,9 @@ export class TrackView {
     this.viewport.scene.add(this.groundBoxes.mesh);
     this.rebuildWater();
     this.fogBoxes.rebuild(doc.track.boxes, this.fogPreview);
+    this.fallState = { highlight: -1, capture: null };
+    this.fallShapes.invalidate();
+    this.rebuildFalls();
     this.buildModels();
     this.rebuildTiles();
     this.applySettings(this.app.settings);
@@ -138,6 +150,7 @@ export class TrackView {
     this.terrain = null; this.groundBoxes = null; this.objects = null; this.models = null; this.tiles = null;
     this.water.rebuild(new Uint8Array(65536), 0);
     this.lakes.rebuild(null, [], []);
+    this.waterfalls.rebuild([], 0, 0);
     this.vegetation.build(null, null);
     this.backdrop.scene.clear();
     this.backdrop.arena.clear();
@@ -272,7 +285,11 @@ export class TrackView {
     }
     if (touch.heights) this.terrain?.updateLevels();
     for (const r of [touch.heights, touch.clr]) if (r) this.terrain?.updateCells(r.minX, r.minY, r.maxX, r.maxY);
-    if (touch.heights || touch.water) this.rebuildWater();
+    if (touch.heights || touch.water || touch.falls) this.rebuildWater();
+    // The falls' ground, water and lake tiles (and the notches their crests cut) follow.
+    if (touch.heights || touch.water || touch.falls) this.fallShapes.invalidate();
+    if (touch.textures || touch.track) this.fallShapes.rejudge();
+    if (touch.heights || touch.water || touch.falls || touch.textures || touch.track) this.rebuildFalls();
     if (touch.heights) { this.vegetation.invalidate(); this.updateVegetation(); }
     if (touch.objects || touch.groundBoxes || touch.heights) this.objectsChanged();
     if (touch.course || touch.trucks) this.rebuildCourse();
@@ -340,6 +357,29 @@ export class TrackView {
       .map(({ i, b }) => ({ i, d: Math.hypot(b.ipos[0] - cam.x, b.ipos[1] - cam.y, 3 * b.ipos[2] - cam.z) }))
       .sort((a, b) => b.d - a.d)
       .map((x) => x.i);
+  }
+
+  /*
+    DrawWaterfallsOpenGL: every fall (and the crest being captured) from the shape cache, shifted
+    for the grid centre. Not drawn over a wireframe, as Traxx's `if (!wireframe)`.
+  */
+  rebuildFalls(): void {
+    const doc = this.doc;
+    if (!doc) return;
+    const t = doc.track;
+    const capture = this.fallState.capture;
+    if (!t.falls.length && !capture) { this.waterfalls.rebuild([], 0, 0); return; }
+    this.fallShapes.ensure(t, () => (t.lakes.length ? trackLakes(t) : null), fallNameInPod(t.sounds, doc.textures), () => buildLakeGround(t));
+    const g = fallGroundFor(t, null);
+    this.waterfalls.rebuild(fallPreviewList(t, this.fallShapes, g, this.fallState.highlight, capture), this.camera.gridx, this.camera.gridy);
+    this.viewport.requestRender();
+  }
+
+  /** A fall was edited or its window opened or closed (FallChanged): the shapes follow when `shape`, then the view. */
+  fallChanged(shape: boolean, state?: { highlight?: number; capture?: [number, number][] | null }): void {
+    if (state) this.fallState = { ...this.fallState, ...state };
+    if (shape) { this.fallShapes.invalidate(); this.rebuildWater(); }
+    this.rebuildFalls();
   }
 
   /** Body 0 (on the drive surface outside Classic 8-bit) and the lakes, for the track as it is. */
@@ -465,6 +505,7 @@ export class TrackView {
     this.water.group.visible = s.show_water;
     this.lakes.mesh.visible = s.show_water && s.water_opacity > 0;
     this.lakes.walls.visible = s.show_water && s.show_lake_walls;
+    this.waterfalls.group.visible = s.edit.wireframe !== 1;
     this.updateVegetation();
     const backdrop = s.show_backdrop && s.edit.wireframe !== 1 && !this.doc?.track.arena;
     this.viewport.backdrop = backdrop ? this.backdrop.scene : null;
@@ -512,6 +553,8 @@ export class TrackView {
       this.objectWindow = key;
       this.objects?.rebuild({ minx: (gridx - oh) << 6, maxx: (gridx + oh) << 6, miny: (gridy - oh) << 6, maxy: (gridy + oh) << 6 });
       this.rebuildCourse();
+      // Each fall sits at the copy nearest the grid centre, which just moved.
+      if (this.doc?.track.falls.length) this.rebuildFalls();
     }
   }
 

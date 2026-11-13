@@ -22,5 +22,7 @@ export interface TxvInfo {
     vegClumps: number | null;
     terrainGrid: string | null;
     terrainHeights: string | null;
+    /** Waterfalls in WORLD\<stem>.WFL (Traxx 1.7.1 writes it only with the file). */
+    waterfalls: number | null;
 }
 export declare function readTxvInfo(input: Uint8Array | string | readonly TxvLine[]): TxvInfo;

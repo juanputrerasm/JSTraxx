@@ -47,22 +47,94 @@ function floorDiv(a: number, b: number): number {
   return a >= 0 ? Math.trunc(a / b) : -Math.trunc((-a + b - 1) / b);
 }
 
-/** SurfaceTileLod: 8 ft within `radius` tiles of the camera's tile on a fine surface, else 32 ft. */
+/**
+  SurfaceTileLod: 8 ft within `radius` tiles of the camera's tile on a fine surface, else 32 ft.
+  Traxx 1.7.1 (992ef9f): the distance is taken round the torus (the world wraps), so a tile at
+  the seam and its border copy agree.
+*/
 export function surfaceTileLod(fine: boolean, tx: number, ty: number, camgx: number, camgy: number, tilesize = TILE_SIZE, radius = FINE_LOD_TILES): number {
   if (!fine || tilesize <= 0) return SURFACE_LOD_32FT;
-  const dx = Math.abs(tx - floorDiv(camgx, tilesize)), dy = Math.abs(ty - floorDiv(camgy, tilesize));
+  const n = Math.trunc(256 / tilesize);
+  const dx = Math.abs(surfaceWrapTileDelta(tx - floorDiv(camgx, tilesize), n)), dy = Math.abs(surfaceWrapTileDelta(ty - floorDiv(camgy, tilesize), n));
   return dx <= radius && dy <= radius ? SURFACE_LOD_8FT : SURFACE_LOD_32FT;
 }
 
-/** SurfaceTileNeighbourLods: left, right, top, bottom; a neighbour off the map counts as the tile's own level. */
+/** SurfaceTileNeighbourLods: left, right, top, bottom; the map wraps, so the tile past the last one is the first (992ef9f). */
 export function surfaceTileNeighbourLods(fine: boolean, tx: number, ty: number, camgx: number, camgy: number,
   tilesize = TILE_SIZE, radius = FINE_LOD_TILES, perAxis = TILES_PER_AXIS): [number, number, number, number] {
-  const own = surfaceTileLod(fine, tx, ty, camgx, camgy, tilesize, radius);
   const step = [[-1, 0], [1, 0], [0, -1], [0, 1]] as const;
   return step.map(([sx, sy]) => {
-    const nx = tx + sx, ny = ty + sy;
-    return nx < 0 || ny < 0 || nx >= perAxis || ny >= perAxis ? own : surfaceTileLod(fine, nx, ny, camgx, camgy, tilesize, radius);
+    const nx = (tx + sx + perAxis) % perAxis, ny = (ty + sy + perAxis) % perAxis;
+    return surfaceTileLod(fine, nx, ny, camgx, camgy, tilesize, radius);
   }) as [number, number, number, number];
+}
+
+/*
+  The world-wrap border (Traxx 1.7.1, Traxx/SurfaceMesh.cpp, d1cfe47 and 45727cb): past each edge
+  the view draws a tinted, read-only copy of the opposite edge, 3 cells deep. Border cell (i, j)
+  shows real cell (i & 255, j & 255).
+*/
+
+/** SURFACE_WRAP_BORDER_CELLS. */
+export const SURFACE_WRAP_BORDER_CELLS = 3;
+
+/** The border's tint (BeginWrapBorderPass): 0.35 of this colour over 0.65 of the picture. */
+export const WRAP_BORDER_TINT: readonly [number, number, number] = [0.70, 0.80, 0.95];
+export const WRAP_BORDER_TINT_WEIGHT = 0.35;
+
+/** SurfaceWrapTileDelta: d folded mod n into [-n/2, n/2) (the engine's mapWrapDelta). */
+export function surfaceWrapTileDelta(d: number, n: number): number {
+  if (n <= 0) return d;
+  d %= n;
+  if (d >= Math.trunc(n / 2)) d -= n;
+  else if (d < -Math.trunc(n / 2)) d += n;
+  return d;
+}
+
+/**
+  SurfaceCornerInWrapBand: is corner (gx, gy), 0..256 on the map, within the drawn border? Within
+  it the ground is the wrapped copy; corners further out are height 0. One rule for the pick
+  geometry of every terrain mode.
+*/
+export function surfaceCornerInWrapBand(gx: number, gy: number): boolean {
+  const b = SURFACE_WRAP_BORDER_CELLS;
+  return gx >= -b && gx <= 256 + b && gy >= -b && gy <= 256 + b;
+}
+
+/**
+  SurfaceBorderTileSource: tile (tx, ty) is one of the border tiles round an n x n torus (-1..n
+  on both axes, not inside 0..n-1 on both): the real tile it copies, else null.
+*/
+export function surfaceBorderTileSource(tx: number, ty: number, n: number): [number, number] | null {
+  if (tx < -1 || tx > n || ty < -1 || ty > n) return null;
+  if (tx >= 0 && tx < n && ty >= 0 && ty < n) return null;
+  return [((tx % n) + n) % n, ((ty % n) + n) % n];
+}
+
+/**
+  SurfaceBorderTileRange: the tiles a window of `size` cells from g0 reaches on one axis, the
+  border's -1 and the last tile + 1 included (Whole Grid: all of -1..last + 1).
+*/
+export function surfaceBorderTileRange(g0: number, size: number, tilesize: number, wholemap: boolean): [number, number] {
+  const maxtile = Math.trunc(255 / tilesize);
+  const tmin = Math.trunc(g0 / tilesize), tmax = Math.trunc((g0 + size - 1) / tilesize);
+  if (wholemap) return [-1, maxtile + 1];
+  return [g0 < 0 ? -1 : tmin, tmax > maxtile + 1 ? maxtile + 1 : tmax];
+}
+
+/**
+  SurfaceBoxWrapShifts: the cell shifts an object on cell (cellx, celly), 0..255, is copied by
+  into the border: +256 within `depth` cells of the low edge, -256 within it of the high edge,
+  on each axis, and both together in a corner (0 to 3 copies).
+*/
+export function surfaceBoxWrapShifts(cellx: number, celly: number, depth = SURFACE_WRAP_BORDER_CELLS): [number, number][] {
+  const dx = cellx < depth ? 256 : cellx >= 256 - depth ? -256 : 0;
+  const dy = celly < depth ? 256 : celly >= 256 - depth ? -256 : 0;
+  const out: [number, number][] = [];
+  if (dx) out.push([dx, 0]);
+  if (dy) out.push([0, dy]);
+  if (dx && dy) out.push([dx, dy]);
+  return out;
 }
 
 /** SurfaceTileStraightSides: bit 1 << side for each side of an 8 ft tile facing a 32 ft one. */

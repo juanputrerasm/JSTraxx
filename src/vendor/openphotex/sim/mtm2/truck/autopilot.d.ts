@@ -1,3 +1,4 @@
+import { type Mtm2Rules } from "../constants.ts";
 import { type CourseSegment } from "../world/course.ts";
 import type { Mtm2TruckParams } from "./params.ts";
 import type { Mtm2TruckState } from "./state.ts";
@@ -23,6 +24,8 @@ export interface AutopilotContext {
     sonicTrack?: boolean;
     /** Drag mode: no 17 ft/s floor, rear steer x1.25. */
     dragMode?: boolean;
+    /** Another game's rules (constants.ts `Mtm2Rules`): Community Patch 4's Sonic values and drag steering. MTM2's when absent. */
+    rules?: Mtm2Rules;
     /** The course is driven the other way round (GOLD mode, `0x647564`). */
     reversed?: boolean;
     /** Rubber-banding (§14.23): this truck's place, and whether it is a CPU truck while the player is not first. */

@@ -151,7 +151,8 @@ export async function vegetationDialog(opts: VegetationDialogOptions): Promise<V
         ondblclick: () => { cursel = i; void onEdit(); },
       }, el("td", {}, e.model), el("td", {}, String(e.weight)), el("td", {}, `${cG(e.scalemin)} - ${cG(e.scalemax)}`),
       el("td", {}, e.collide === VEG_COLLIDE_TRUNK ? "Trunk" : e.collide === VEG_COLLIDE_MODEL ? "Model" : "None"),
-      el("td", {}, String(e.tier)), el("td", {}, e.shadow ? "Yes" : "No"), el("td", {}, e.facing ? "Yes" : "No"),
+      // Scenery detail level the plant first appears at (same scale as a .SIT priority; ddf6a1f).
+      el("td", {}, e.tier <= 0 ? "Sparse" : e.tier === 1 ? "Normal" : "Complex"), el("td", {}, e.shadow ? "Yes" : "No"), el("td", {}, e.facing ? "Yes" : "No"),
       el("td", {}, e.crossfade ? "Yes" : "No")));
     });
   }
@@ -362,7 +363,7 @@ export async function vegetationDialog(opts: VegetationDialogOptions): Promise<V
         row(el("label", {}, "Name ", colName), spacingRow, densityRow, pertileRow)),
       el("fieldset", { class: "opt-group" }, el("legend", {}, "Models of this colour"),
         el("table", { class: "veg-entries" },
-          el("thead", {}, el("tr", {}, ...["Model", "Weight", "Scale", "Collide", "Tier", "Shadow", "Facing", "Fade"].map((h) => el("th", {}, h)))),
+          el("thead", {}, el("tr", {}, ...["Model", "Weight", "Scale", "Collide", "Detail", "Shadow", "Facing", "Fade"].map((h) => el("th", {}, h)))),
           entries),
         row(add, edit, remove)),
       row(replantBtn, makeCards, clearAll),
@@ -408,12 +409,16 @@ export async function vegetationEntryDialog(entry: VegEntry, layer: number, mode
   const trunkdiam = text(cG(clampF(entry.trunkdiam, 0, 1000)));
   const trunkheight = text(cG(clampF(entry.trunkheight, 0, 4000)));
   const sink = text(cG(clampF(entry.sink, 0, 50)));
-  const tier = text(clampF(entry.tier, 0, 5));
+  // Scenery detail (ddf6a1f): drawn when the tier is <= the player's scenery detail level, the same
+  // Sparse / Normal / Complex scale as a scenery object's priority. Index = tier; an old track's 3-5 shows Complex.
+  const tier = el("select", {}, ...["Sparse (always shown)", "Normal", "Complex"].map((n, i) => el("option", { value: i }, n)));
+  tier.value = String(clampF(entry.tier, 0, 2));
+  const tierLabel = el("label", {}, "Scenery detail ", tier);
   const shadow = el("input", { type: "checkbox", checked: entry.shadow });
   const facing = el("input", { type: "checkbox", checked: entry.facing });
   const crossfade = el("input", { type: "checkbox", checked: entry.crossfade });
   const slope = text(cG(clampF(entry.slopemax, 0, 90)));
-  for (const n of [farmodel, weight, smin, smax, trunkdiam, trunkheight, sink, tier, slope]) stopKeys(n);
+  for (const n of [farmodel, weight, smin, smax, trunkdiam, trunkheight, sink, slope]) stopKeys(n);
   const updateEnables = () => {
     const trunk = isTrees && Number(collide.value) === VEG_COLLIDE_TRUNK;
     collide.disabled = !isTrees;
@@ -421,6 +426,9 @@ export async function vegetationEntryDialog(entry: VegEntry, layer: number, mode
     farmodel.disabled = facing.checked;
     crossfade.disabled = !(isTrees && !facing.checked);
     slope.disabled = !isTrees;
+    // The detail tier is written into TREE records only; grass never uses it. Disabled, the combo keeps the value.
+    tier.disabled = !isTrees;
+    tierLabel.style.opacity = isTrees ? "" : "0.5"; // its caption greys with it
   };
   collide.addEventListener("change", updateEnables);
   facing.addEventListener("change", updateEnables);
@@ -447,7 +455,7 @@ export async function vegetationEntryDialog(entry: VegEntry, layer: number, mode
       row(el("label", {}, "Weight ", weight), el("label", {}, "Scale from ", smin), el("label", {}, "to ", smax)),
       row(el("label", { class: "opt-check" }, rotate, "Random heading"), el("label", { class: "opt-check" }, facing, "Facing (always turn to the camera)")),
       row(el("label", {}, "Collide ", collide), el("label", {}, "Trunk diameter (ft) ", trunkdiam), el("label", {}, "Trunk height (ft) ", trunkheight)),
-      row(el("label", {}, "Sink (ft) ", sink), el("label", {}, "Detail tier ", tier), el("label", {}, "Max slope (deg) ", slope)),
+      row(el("label", {}, "Sink (ft) ", sink), tierLabel, el("label", {}, "Max slope (deg) ", slope)),
       row(el("label", { class: "opt-check" }, shadow, "Cast shadow"), el("label", { class: "opt-check" }, crossfade, "Cross-fade into the far card")),
     ],
     buttons: [{ label: "OK", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }],
@@ -460,7 +468,8 @@ export async function vegetationEntryDialog(entry: VegEntry, layer: number, mode
       const td = await field(trunkdiam, 0, 1000, false); if (td === null) return false;
       const th = await field(trunkheight, 0, 4000, false); if (th === null) return false;
       const sk = await field(sink, 0, 50, false); if (sk === null) return false;
-      const ti = await field(tier, 0, 5, true); if (ti === null) return false;
+      // Clamp again on save: 0..2 is the whole range of the scenery detail level.
+      const ti = clampF(Number(tier.value), 0, 2);
       const sl = await field(slope, 0, 90, false); if (sl === null) return false;
       if (!model.value) { await alertDialog("Vegetation", "Choose a model."); model.focus(); return false; }
       if (a > b) { await alertDialog("Vegetation", "The smallest scale cannot be larger than the largest scale."); smin.focus(); return false; }

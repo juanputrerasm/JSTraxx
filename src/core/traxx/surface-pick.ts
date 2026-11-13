@@ -3,19 +3,21 @@
   PickCornerV, PickTriangle, RayCoarseHit, PickSurfaceV, RefineRayOnSurface, PickRay, PickPoint).
 
   A ray in surface space, P = org + t dir: x, y in 1/256 ipos (16384 per 32 ft cell, 512 per
-  foot), z in v (128 per foot). Heights outside the 0..255 map are 0, as Traxx's window draws
-  them.
+  foot), z in v (128 per foot). Corners wrap (& 255) within the world-wrap border, 3 cells past
+  the map, as the ground is drawn; further out they are 0 (Traxx 1.7.1).
 */
 import type { Terrain16 } from "./terrain16.ts";
 import { TERRAINMODE_CLASSIC8, TERRAINMODE_FINE, TERRAINMODE_SPLINE } from "./terrain16.ts";
 import { cornerV, surfaceHeightV } from "./surface.ts";
+import { surfaceCornerInWrapBand } from "../view/surface-tiles.ts";
 
 type V3 = readonly [number, number, number];
 const CELL = 16384;
 
+/* PickCornerV (1.7.1): within the drawn border (3 cells) the ground is the wrapped copy; further out nothing is drawn (0). */
 function pickCornerV(t: Terrain16, gx: number, gy: number): number {
-  if (gx < 0 || gx > 255 || gy < 0 || gy > 255) return 0;
-  return cornerV(t, gx, gy);
+  if (!surfaceCornerInWrapBand(gx, gy)) return 0;
+  return cornerV(t, gx & 255, gy & 255);
 }
 
 /* PickTriangle: Moller-Trumbore in doubles, the det threshold relative (the axes are in different units). */

@@ -1,6 +1,6 @@
 # JSTraxx
 
-A web implementation of Traxx, the classic Monster Truck Madness 2 track editor, ported from Traxx 1.7.0.
+A web implementation of Traxx, the classic Monster Truck Madness 2 track editor, ported from Traxx 1.7.1.
 
 **Open it in your browser: https://juanputrerasm.github.io/JSTraxx/** (Chrome, Edge, Firefox or Safari; nothing to install).
 
@@ -55,7 +55,7 @@ Every change can be undone, in every mode.
 
 ## Credits
 
-JSTraxx continues Traxx: Traxx (c) 1997 SoftParts, Traxx 1.5 (c) 2005 Richard Borchard III, the 1.6 GL update by Juan Pablo Utreras "Kmaster" and the 1.6 CP3 updates by Fila. It is built with [OpenPhotex](https://github.com/juanputrerasm/OpenPhotex) for the TRI file formats and takes its model rendering from [JSTrackViewer](https://github.com/juanputrerasm/JSTrackViewer).
+JSTraxx continues Traxx: Traxx (c) 1997 SoftParts, Traxx 1.5 (c) 2005 Richard Borchard III, the 1.6 GL update by Juan Pablo Utreras "Kmaster" the 1.6 CP3 updates and the 1.7 CP4 updates by Fila. It is built with [OpenPhotex](https://github.com/juanputrerasm/OpenPhotex) for the TRI file formats and takes its model rendering from [JSTrackViewer](https://github.com/juanputrerasm/JSTrackViewer).
 
 ## Deployment
 

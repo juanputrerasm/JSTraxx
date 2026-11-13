@@ -746,7 +746,7 @@ function tryPlantTree(c: Ctx, run: TreeRun, fx: number, fz: number): boolean {
 
   if (c.trees.length >= VEG_MAX_TREES) return false;
   c.tg.add(x, z, run.spacing);
-  c.trees.push({ x: xq, y, z: zq, species: sp, heading: hw, scale: sw, tier: clampI(e.tier, 0, 255) });
+  c.trees.push({ x: xq, y, z: zq, species: sp, heading: hw, scale: sw, tier: clampI(e.tier, 0, 2) }); // scenery detail level 0..2 only (ddf6a1f)
   run.planted++;
   return true;
 }

@@ -3,14 +3,20 @@
   Rand, and a greyscale preview that is rebuilt on every change. Resolves with the heights and
   the settings to remember, or null. Traxx 1.7: a 16-bit target (terrainGenTarget) generates in v
   with TerrainGenV on its own grid (1024 on a Full Map), returned as `v`, and the dialog says
-  which grid it is for.
+  which grid it is for. Traxx 1.7.1 (c53ef3a): the window is resizable, keeps the preview square
+  in the area that grows with it, and remembers its size ("TerrainGen Size").
 */
 import { el } from "../../shared/dom.ts";
 import { openDialog } from "../shell/dialog.ts";
+import type { AppState } from "../../app/state.ts";
+import { makeResizable } from "./dialog-size.ts";
 import { generateTerrain, type TerrainGenSettings } from "../../core/edit/terrain-gen.ts";
 import { terrainGenPreview, terrainGenV, type TerrainGenTarget } from "../../core/edit/terrain-gen16.ts";
 
-export async function terrainGenDialog(start: TerrainGenSettings, target: TerrainGenTarget | null = null): Promise<{ heights: Uint8Array; v: Uint16Array | null; settings: TerrainGenSettings } | null> {
+/** The template's layout is the smallest size, and the first one. */
+const TERRAIN_GEN_MIN = { w: 480, h: 400 };
+
+export async function terrainGenDialog(start: TerrainGenSettings, target: TerrainGenTarget | null = null, app: AppState | null = null): Promise<{ heights: Uint8Array; v: Uint16Array | null; settings: TerrainGenSettings } | null> {
   const s = { ...start };
   const side = target?.precise ? target.gridSize : 256;
   const preview = el("canvas", { width: side, height: side, class: "gen-preview" }) as HTMLCanvasElement;
@@ -56,9 +62,13 @@ export async function terrainGenDialog(start: TerrainGenSettings, target: Terrai
   const random = el("button", { type: "button", class: "mini", onclick: () => { seed.value = String(Math.floor(Math.random() * 256)); rebuild(); } }, "Rand");
   rebuild();
 
-  const r = await openDialog({
-    title: "Generate Terrain",
-    body: el("div", { class: "gen" },
+  // PreviewSquare: the area the preview may use grows with the window; the picture is the square centred in it.
+  const area = el("div", { class: "gen-area" }, preview);
+  const square = new ResizeObserver(() => {
+    const s2 = Math.max(0, Math.min(area.clientWidth, area.clientHeight));
+    preview.style.width = preview.style.height = `${s2}px`;
+  });
+  const body = el("div", { class: "gen" },
       el("div", { class: "gen-controls" },
         el("div", { class: "opt-row" }, ...modes.map((m, i) => el("label", { class: "opt-check" }, m, ["Classic", "Fractal"][i]!))),
         groundRow,
@@ -67,9 +77,19 @@ export async function terrainGenDialog(start: TerrainGenSettings, target: Terrai
         el("label", { class: "gen-row" }, smoothLabel, smooth),
         el("fieldset", { class: "opt-group" }, el("legend", {}, "Seed"), el("div", { class: "opt-row" }, seed, apply, random)),
         target ? el("div", {}, target.forText) : null),
-      preview),
+      area);
+  const shown = openDialog({
+    title: "Generate Terrain",
+    body,
     buttons: [{ label: "OK", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }],
   });
+  const dialog = body.closest("dialog");
+  if (dialog && app) {
+    makeResizable(dialog, app, "TerrainGen Size", TERRAIN_GEN_MIN, TERRAIN_GEN_MIN, body);
+    square.observe(area);
+  }
+  const r = await shown;
+  square.disconnect();
   if (r !== "ok") return null;
   rebuild();
   return { heights, v, settings: { ...s } };

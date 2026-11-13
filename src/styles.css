@@ -341,7 +341,8 @@ a { color: var(--accent); }
 .gen-controls { display: flex; flex-direction: column; gap: 4px; min-width: 170px; }
 .gen-row { display: flex; flex-direction: column; gap: 2px; }
 .gen-row[hidden] { display: none; }
-.gen-preview { width: 256px; height: 232px; image-rendering: pixelated; border: 1px solid var(--line-strong); }
+.gen-preview { width: 256px; height: 256px; image-rendering: pixelated; border: 1px solid var(--line-strong); box-sizing: border-box; }
+.gen-area { flex: 1; min-width: 256px; min-height: 256px; display: flex; align-items: center; justify-content: center; }
 .lit { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
 .lit-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .lit-label { white-space: pre-line; text-align: center; font-size: 11px; min-height: 2.6em; }
@@ -367,3 +368,11 @@ a { color: var(--accent); }
 .bd-list { flex: 1; min-width: 16em; }
 .bd-buttons { display: flex; flex-direction: column; gap: 4px; }
 .bd-buttons button { min-width: 9em; }
+/* The Waterfall window (Traxx 1.7.1 IDD_WATERFALL). */
+.fall-body { display: flex; flex-direction: column; gap: 4px; max-width: 34em; }
+.fall-body .fld { min-width: 9.5em; }
+.fall-body .spin { width: 5em; }
+.fall-spin { display: inline-flex; flex-direction: column; }
+.fall-spin .mini { padding: 0 3px; font-size: 8px; line-height: 9px; }
+.fall-stem { width: 10em; }
+.fall-problems { height: 6.5em; overflow: auto; white-space: nowrap; border: 1px solid var(--line-strong); background: var(--face-2); padding: 2px 4px; font-size: 11px; }

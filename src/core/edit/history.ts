@@ -26,6 +26,8 @@ export interface Touch {
   models?: boolean;
   palette?: boolean;
   water?: boolean;
+  /** The waterfalls (Traxx 1.7.1): their crests, their look, or what their lakes' notches cut. */
+  falls?: boolean;
   /** Anything else on the track record (names, components). */
   track?: boolean;
 }
@@ -44,7 +46,7 @@ export function mergeTouch(a: Touch, b: Touch): Touch {
   const out: Touch = { ...a, ...b };
   out.heights = rect(a.heights, b.heights);
   out.clr = rect(a.clr, b.clr);
-  for (const k of ["objects", "groundBoxes", "course", "trucks", "textures", "models", "palette", "water", "track"] as const) out[k] = Boolean(a[k] || b[k]) || undefined;
+  for (const k of ["objects", "groundBoxes", "course", "trucks", "textures", "models", "palette", "water", "falls", "track"] as const) out[k] = Boolean(a[k] || b[k]) || undefined;
   return out;
 }
 

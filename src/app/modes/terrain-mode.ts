@@ -12,6 +12,10 @@
   TerrainPickFine: FineVertexAtPoint of the picked point) and `vertex` its 32 ft tile, which the
   lakes keep using; the brush, Copy and Paste Area work on the 1024 grid with wrap. CLASSIC16 and
   Spline work on h16. Every terrain edit passes the lake guard.
+
+  Traxx 1.7.1: the waterfall items follow the lake items on the right-click menu, and while a
+  crest is being captured the clicks, Backspace, Enter, Esc, Space and the right-click are the
+  capture's (fall-commands.ts); leaving Terrain mode ends it.
 */
 import type { ModeHandler, ViewPoint } from "../editor.ts";
 import type { ModeContext } from "./context.ts";
@@ -33,7 +37,9 @@ import { lakeCommands, lakeErrors, lakeRefusal } from "./lake-commands.ts";
 import { adjustHeights16, fineVertexAtPoint } from "../../core/traxx/surface.ts";
 import { syncFromRaw, TERRAINMODE_FINE, type Terrain16 } from "../../core/traxx/terrain16.ts";
 import { buildLakeGround } from "../../core/traxx/surface.ts";
-import { lakeMinHeight, lakeNearestLegalHeight, recomputeLakes, LAKE_MAX_HEIGHT, LAKE_NO_BASIN } from "../../core/traxx/lakes.ts";
+import { lakeHoldsUpTo, lakeMinHeight, lakeNearestLegalHeight, recomputeLakes, LAKE_MAX_HEIGHT, LAKE_NO_BASIN } from "../../core/traxx/lakes.ts";
+import { trackNotches } from "../../core/traxx/falls.ts";
+import { fallCommands } from "./fall-commands.ts";
 import type { Recording } from "../../core/edit/record.ts";
 import { publishTerrainMode } from "../terrain-kind.ts";
 
@@ -219,12 +225,14 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
         const lh = r.scale ? Math.floor(lake.height * res.factor + 1e-9) : lake.height + 4 * res.inc;
         lake.height = Math.max(0, Math.min(LAKE_MAX_HEIGHT, lh));
       }
+      // With the falls' notches (Traxx 1.7.1); the ceiling is what the lake holds (HoldsUpTo).
       const g = buildLakeGround(t);
-      const st = recomputeLakes(g, t.lakes, t.waterLevel4);
+      const notches = trackNotches(t);
+      const st = recomputeLakes(g, t.lakes, t.waterLevel4, notches);
       t.lakes.forEach((lake, li) => {
         const spill = st.lakes[li]!.spill;
         if (spill === LAKE_NO_BASIN) return;
-        const n = lakeNearestLegalHeight(g, lake, lake.height, lakeMinHeight(g, t.waterLevel4, lake), spill);
+        const n = lakeNearestLegalHeight(g, lake, lake.height, lakeMinHeight(g, t.waterLevel4, lake, notches, li), lakeHoldsUpTo(g, t.lakes, st, t.waterLevel4, li), notches, li);
         if (n >= 0) lake.height = n;
       });
     }
@@ -264,25 +272,33 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
   registry.bind("ID_TERRAIN_COPYBITMAP", copyBitmap, { enabled: () => Boolean(editor.doc) });
   registry.bind("ID_TERRAIN_PASTEBITMAP", pasteBitmap, { enabled: () => editable() && editor.doc?.track.terrainMode !== TERRAINMODE_FINE });
   const lakes = lakeCommands(ctx, () => vertex && [vertex[0] & 255, vertex[1] & 255]);
+  const falls = fallCommands(ctx);
 
   const setEdit = (change: (e: typeof app.settings.edit) => void) => app.updateSettings((s) => change(s.edit));
 
   return {
+    deactivate() { falls.abort(); },
     hover(p) {
       const l = locate(p);
       const same = l?.vertex[0] === vertex?.[0] && l?.vertex[1] === vertex?.[1] && l?.fine?.[0] === fineVertex?.[0] && l?.fine?.[1] === fineVertex?.[1];
       if (!same) { moveTo(l); editor.selectionChanged(); }
     },
     down(p) {
+      // Waterfall capture: the click is a crest point, never a terrain edit.
+      if (falls.capturing()) { falls.click(p); return; }
       moveTo(locate(p));
       if (vertex && app.settings.edit.tool !== 7) apply();
     },
     contextMenu(p) {
+      // Waterfall capture: a right-click finishes the crest (it opens no menu).
+      if (falls.capturing()) { falls.finish(); return null; }
       const l = locate(p);
       if (l) moveTo(l);
-      return { items: [...CONTEXT_MENUS.Terrain, ...lakes.menuItems()] };
+      return { items: [...CONTEXT_MENUS.Terrain, ...lakes.menuItems(), ...falls.menuItems(p)] };
     },
     keyDown(e) {
+      // Waterfall capture owns Backspace, Enter, Esc and Space.
+      if (falls.key(e)) return true;
       const tool = app.settings.edit.tool;
       if (e.ctrlKey || e.metaKey || e.altKey) return false;
       /*

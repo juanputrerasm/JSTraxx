@@ -13,28 +13,29 @@ export const POD1_TOOL_STEM_MAX = 18;
 
 /*
   CTrackPODTerrain::InterpolateRawAtPoint: the terrain height under an ipos point, in whole
-  steps. Cells split along a checkerboard diagonal; the last row and column read the corner
-  value. Float maths and the final (int) truncation are kept, so results match Traxx's.
+  steps. Cells split along a checkerboard diagonal. Traxx 1.7.1 (992ef9f): cell 255 interpolates
+  into column / row 0, like every other cell into its neighbour (the world wraps). Float maths and
+  the final (int) truncation are kept, so results match Traxx's.
 */
 export function interpolateRawAtPoint(raw: Uint8Array, wx: number, wy: number): number {
   const gx = (wx >> 6) & 255, gy = (wy >> 6) & 255;
-  if (gx === 255 || gy === 255) return raw[gx + (gy << 8)];
+  const gx1 = (gx + 1) & 255, gy1 = (gy + 1) & 255;
   const xoff = wx - (gx << 6), yoff = wy - (gy << 6);
   let x0, x1, x2, y0, y1, y2, z0, z1, z2;
   if ((gx + gy) & 1) {
     if (64 - xoff >= yoff) {
       x0 = 0; x1 = 64; x2 = 0; y0 = 0; y1 = 0; y2 = 64;
-      z0 = raw[gx + (gy << 8)]; z1 = raw[gx + 1 + (gy << 8)]; z2 = raw[gx + ((gy + 1) << 8)];
+      z0 = raw[gx + (gy << 8)]; z1 = raw[gx1 + (gy << 8)]; z2 = raw[gx + (gy1 << 8)];
     } else {
       x0 = 64; x1 = 0; x2 = 64; y0 = 64; y1 = 64; y2 = 0;
-      z0 = raw[gx + 1 + ((gy + 1) << 8)]; z1 = raw[gx + ((gy + 1) << 8)]; z2 = raw[gx + 1 + (gy << 8)];
+      z0 = raw[gx1 + (gy1 << 8)]; z1 = raw[gx + (gy1 << 8)]; z2 = raw[gx1 + (gy << 8)];
     }
   } else if (xoff >= yoff) {
     x0 = 0; x1 = 64; x2 = 64; y0 = 0; y1 = 0; y2 = 64;
-    z0 = raw[gx + (gy << 8)]; z1 = raw[gx + 1 + (gy << 8)]; z2 = raw[gx + 1 + ((gy + 1) << 8)];
+    z0 = raw[gx + (gy << 8)]; z1 = raw[gx1 + (gy << 8)]; z2 = raw[gx1 + (gy1 << 8)];
   } else {
     x0 = 64; x1 = 0; x2 = 0; y0 = 64; y1 = 64; y2 = 0;
-    z0 = raw[gx + 1 + ((gy + 1) << 8)]; z1 = raw[gx + ((gy + 1) << 8)]; z2 = raw[gx + (gy << 8)];
+    z0 = raw[gx1 + (gy1 << 8)]; z1 = raw[gx + (gy1 << 8)]; z2 = raw[gx + (gy << 8)];
   }
   const f = Math.fround;
   const denom = (x1 - x2) * (y0 - y1) - (x0 - x1) * (y1 - y2);

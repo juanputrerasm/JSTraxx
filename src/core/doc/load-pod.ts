@@ -28,6 +28,7 @@ import { resetTrack } from "./new-track.ts";
 import { vegetationFromPod } from "../traxx/veg.ts";
 import { buildLakeGround } from "../traxx/surface.ts";
 import { parseWtrLakes, recomputeLakes, LAKES_MISMATCH } from "../traxx/lakes.ts";
+import { parseWflFalls, trackNotches } from "../traxx/falls.ts";
 import { emptyCarry, type ModelAsset, type TextureAsset, type TrackDocument } from "./document.ts";
 import { afterFirstSlash, findAsset } from "./names.ts";
 import { notePodSurfaces } from "./surface-sidecar.ts";
@@ -268,6 +269,14 @@ export async function loadPodTrack(source: PodSource, which: number, fileName: s
       if (data) sounds.push({ name: full, flags, data });
     }
   }
+  // And each waterfall's WAV (the same addition, Traxx 1.7.1 falls): SOUND\<stem>.WAV, kept as continuous.
+  for (const fall of track.falls) {
+    if (!fall.sound) continue;
+    const full = `SOUND\\${fall.sound}.WAV`.toUpperCase();
+    if (sounds.some((s) => s.name.toUpperCase() === full)) continue;
+    const data = await fetch(full);
+    if (data) sounds.push({ name: full, flags: 1, data });
+  }
   track.sounds = sounds;
   progress(1, "Done");
   return doc;
@@ -464,7 +473,10 @@ export function applyHeightsKeyUnsupported(doc: TrackDocument, txv: string | nul
       (vegetationFromPod, core/traxx/veg.ts);
     - the .WTR gives the lakes' authored part (ParseWTR); the terrain and the water level are in
       by now, so the tiles are recomputed, and a stored tile map that differs from the one Traxx
-      computes is said once. An unusable file leaves no lakes.
+      computes is said once. An unusable file leaves no lakes;
+    - Traxx 1.7.1: the .WFL gives the waterfalls (ParseWFL), read after the .WTR; the lakes are
+      recomputed only then, with the spillway notches the falls cut (UpdateLakeNotches), before
+      the tile map is compared. An unusable file leaves no falls.
 */
 async function readVegetationAndLakes(doc: TrackDocument, fetchPodOnly: (name: string) => Promise<Uint8Array | null>): Promise<void> {
   const p = doc.track.prefix.toUpperCase();
@@ -475,13 +487,20 @@ async function readVegetationAndLakes(doc: TrackDocument, fetchPodOnly: (name: s
     doc.track.vegetation = { masks: v.masks.map((m) => (m ? { ext: m.ext, data: m.data } : null)), image: veg };
   }
   const wtr = await fetchPodOnly(`WORLD\\${p}.WTR`);
+  let stored: Uint8Array | null | undefined;
   if (wtr && wtr.length > 0) {
     const parsed = parseWtrLakes(wtr);
     if (parsed) {
       doc.track.lakes = parsed.lakes;
-      const st = recomputeLakes(buildLakeGround(doc.track), parsed.lakes, doc.track.waterLevel4);
-      if (!parsed.tmap || !sameBytes(parsed.tmap, st.tmap)) doc.warnings.push(LAKES_MISMATCH);
+      stored = parsed.tmap;
     }
+  }
+  const wfl = await fetchPodOnly(`WORLD\\${p}.WFL`);
+  if (wfl && wfl.length > 0) doc.track.falls = parseWflFalls(wfl) ?? [];
+  // The lakes, now that the falls (and so the notches) are in; the stored map is only compared.
+  if (stored !== undefined) {
+    const st = recomputeLakes(buildLakeGround(doc.track), doc.track.lakes, doc.track.waterLevel4, trackNotches(doc.track));
+    if (!stored || !sameBytes(stored, st.tmap)) doc.warnings.push(LAKES_MISMATCH);
   }
 }
 

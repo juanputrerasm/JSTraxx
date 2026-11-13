@@ -3,6 +3,9 @@
   as the main water level is: the box holds h / 4, the lake keeps h (a water unit, 0.5 ft). What
   is typed is rounded to the nearest unit and snapped to MinHeight .. spill. The lake is edited
   live (the view follows); OK is refused while the lake has errors, Cancel puts it back.
+
+  Traxx 1.7.1 (LakeDlg Capacity): "Holds up to" and the clamp read HoldsUpTo, which for a lake
+  with spillway notches is the highest height that does not leak, each candidate in its own view.
 */
 import { el } from "../../shared/dom.ts";
 import { openDialog } from "../shell/dialog.ts";
@@ -18,6 +21,8 @@ export interface LakeDialogHooks {
   minHeight(): number;
   /** DistinctHeights (body 0 counted). */
   distinctHeights(): number;
+  /** Capacity: what the lake holds up to (HoldsUpTo), LAKE_NO_BASIN for no basin. */
+  capacity(): number;
 }
 
 /** Resolves true on OK; on Cancel the lake has been put back to `backup` by the caller. */
@@ -30,7 +35,8 @@ export async function lakeDialog(index: number, lake: TxxLake, hooks: LakeDialog
   const problems = el("textarea", { readonly: true, rows: 4, class: "lake-problems" }) as HTMLTextAreaElement;
 
   const snap = (q: number) => {
-    if (state.spill !== LAKE_NO_BASIN && q > state.spill) q = state.spill;
+    const cap = hooks.capacity();
+    if (cap !== LAKE_NO_BASIN && q > cap) q = cap;
     const lo = hooks.minHeight();
     if (q < lo) q = lo;
     return Math.max(0, Math.min(LAKE_MAX_HEIGHT, q));
@@ -38,7 +44,8 @@ export async function lakeDialog(index: number, lake: TxxLake, hooks: LakeDialog
   const refresh = (writeHeight: boolean) => {
     if (writeHeight) height.value = cG(lake.height / 4);
     feet.textContent = `= ${cG(lake.height / 2)} ft`;
-    max.textContent = state.spill === LAKE_NO_BASIN ? "No basin here" : `Holds up to ${cG(state.spill / 4)} = ${cG(state.spill / 2)} ft`;
+    const cap = hooks.capacity();
+    max.textContent = cap === LAKE_NO_BASIN ? "No basin here" : `Holds up to ${cG(cap / 4)} = ${cG(cap / 2)} ft`;
     tiles.textContent = `${state.tilecount} tiles of water`;
     seeds.textContent = `${lake.seeds.length} of ${LAKE_MAX_SEEDS} seeds`;
     reflective.checked = (lake.flags & LAKEFLAG_REFLECTIVE) !== 0;

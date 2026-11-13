@@ -10,6 +10,9 @@
     5. Traxx 1.7: the vegetation models the game will not instance, when a .VEG was written
        (CTrackPOD::Save's INSTANCING WARNING)
 
+  Before any of it, lakes in error ("Lakes need fixing", Traxx 1.7) and then waterfalls in error
+  ("Waterfalls need fixing", Traxx 1.7.1) refuse the export (podRefusal).
+
   The art beside each texture (HD sources and _N / _AO maps) is looked up in the ART folder and
   the library by the asset worker, as Traxx re-reads them from its ART folder.
 */
@@ -23,7 +26,7 @@ import { alertDialog, confirmDialog, openDialog } from "../ui/shell/dialog.ts";
 import { findLostSurfaceSidecars, lostSurfaceMessage, LOST_SURFACE_TITLE } from "../core/doc/surface-sidecar.ts";
 import { parsePod } from "../vendor/openphotex/pod/parse.js";
 import { checkIntegrity } from "../core/doc/integrity.ts";
-import { buildTrackPod, type TextureExtras } from "../core/traxx/pod-writer.ts";
+import { buildTrackPod, podRefusal, type TextureExtras } from "../core/traxx/pod-writer.ts";
 import { recordFields } from "../core/edit/record.ts";
 import { writePod1, PodWriteError } from "../vendor/openphotex/pod/write.js";
 import type { TrackDocument } from "../core/doc/document.ts";
@@ -43,6 +46,10 @@ export function bindWritePod(registry: CommandRegistry, app: AppState, editor: E
   registry.bind("ID_FILE_WRITEPOD", async () => {
     const doc = editor.doc;
     if (!doc || doc.viewOnly) return;
+
+    // Lakes, then waterfalls, in error refuse the export before any dialog (Traxx 1.7 / 1.7.1).
+    const refusal = podRefusal(doc);
+    if (refusal) { await alertDialog(refusal.title, refusal.text); return; }
 
     const problems = checkIntegrity(doc);
     if (problems.length) {

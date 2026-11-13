@@ -120,7 +120,7 @@ export function isStockSound(wav: string): boolean {
 }
 
 /** Pod1SoundStemBudget: SOUND\<stem> with .WAV and .KLP, at most the tools' 18. */
-const soundBudget = () => Math.min(18, POD1_NAME_MAX - "SOUND\\".length - 4);
+export const soundBudget = () => Math.min(18, POD1_NAME_MAX - "SOUND\\".length - 4);
 
 /**
   SetObjectSound: the name, upper case and within the budget, with .WAV, onto the box. A stock

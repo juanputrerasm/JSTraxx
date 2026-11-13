@@ -501,7 +501,7 @@ export function vegParseEntry(layer: number, value: string): VegEntry | null {
   if (n > 6 && f[6]) e.trunkdiam = atofF(f[6]);
   if (n > 7 && f[7]) e.trunkheight = atofF(f[7]);
   if (n > 8 && f[8]) e.sink = atofF(f[8]);
-  if (n > 9 && f[9]) e.tier = clampInt(cAtoi(f[9]), 0, 255);
+  if (n > 9 && f[9]) e.tier = clampInt(cAtoi(f[9]), 0, 2); // scenery detail 0..2 only (ddf6a1f): a higher tier would never draw
   if (n > 10) e.shadow = lc(f[10]!) === "noshadow" ? false : (f[10] ? true : e.shadow);
   if (n > 11 && f[11]) e.slopemax = atofF(f[11]);
   if (n > 12 && f[12]) e.farmodel = f[12].slice(0, VEG_MODELNAME - 1);

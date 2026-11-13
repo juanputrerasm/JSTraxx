@@ -22,8 +22,11 @@ import {
 } from "../src/core/traxx/surface.ts";
 import {
   buildWtr, fitHeight8, lakeFitHeight, lakeSpill, nearestLegalHeight8, parseWtrLakes, recomputeLakes, LAKEERR_LEAK,
-  LAKEERR_CORNER_AT_H, LAKE_NO_BASIN, LAKES_NOT_SAVED,
+  LAKEERR_CORNER_AT_H, LAKE_NO_BASIN, LAKES_NOT_SAVED, lakeNotches, lakeHasNotches, lakeHoldsUpTo, lakeMinHeight, lakeNearestLegalHeight,
+  setNotchFarHolds, trackLakes,
 } from "../src/core/traxx/lakes.ts";
+import { LAKE_LIP_W } from "../src/core/traxx/lake-ground.ts";
+import { fallDefaults } from "../src/core/traxx/falls.ts";
 
 const CP4 = process.env.JSTRAXX_CP4 ?? join(process.env.HOME ?? "", "games", "cp4sandbox");
 const TXX = join(CP4, "fog_test.txx");
@@ -210,4 +213,106 @@ test("Write POD packs a model's .SRF right after it (PodAddSurfaceSidecar)", () 
   const out = buildTrackPod(doc);
   const at = out.entries.findIndex((e) => e.name === "MODELS\\ROCK.BIN");
   assert.equal(out.entries[at + 1]!.name, "MODELS\\ROCK.SRF");
+});
+
+/*
+  Traxx 1.7.1's spillway notches (TrackPODLakes.cpp SetNotches, BuildView; tools/laketest.cpp
+  test_notch_classic8 and test_notch_holds_up_to): a 6 x 6-tile lake (tiles 102..107, floor byte 10,
+  H = 100) whose east wall tile (108,104) is the notch, lip vertices at byte `lip`, far at `far`.
+*/
+const NTILE = (x: number, z: number) => x + (z << 8);
+function notchTrack(lip: number, far: number) {
+  const t = resetTrack();
+  t.heights.fill(80);
+  for (let z = 0; z < 256; z++) for (let x = 110; x < 256; x++) t.heights[NTILE(x, z)] = 10;
+  for (let z = 103; z < 108; z++) for (let x = 103; x < 108; x++) t.heights[NTILE(x, z)] = 10;
+  t.heights[NTILE(108, 104)] = t.heights[NTILE(108, 105)] = lip;
+  t.heights[NTILE(109, 104)] = t.heights[NTILE(109, 105)] = far;
+  return t;
+}
+function notchMap() {
+  const nl = new Uint8Array(65536), lp = new Uint8Array(65536);
+  nl[NTILE(108, 104)] = 1; // lake 1 (index 0)
+  lp[NTILE(108, 104)] = LAKE_LIP_W; // the lake is to the notch tile's west
+  return lakeNotches(nl, lp)!;
+}
+const notchLake = (h: number) => [{ height: h, flags: 1, seeds: [[104, 104]] as [number, number][] }];
+
+test("1.7.1 spillway notch: the wall without it leaks, with it the lake is clean; its tile is a barrier", () => {
+  const t = notchTrack(25, 22);
+  const g = buildLakeGround(t)!;
+  const plain = recomputeLakes(g, notchLake(100), 0);
+  assert.ok(plain.lakes[0]!.errors & LAKEERR_LEAK && plain.lakes[0]!.errors & LAKEERR_CORNER_AT_H);
+  const n = notchMap();
+  assert.ok(lakeHasNotches(n, 0) && !lakeHasNotches(n, 1));
+  assert.equal(lakeNotches(new Uint8Array(65536), null), null, "a map with no tile is no notches");
+  const st = recomputeLakes(g, notchLake(100), 0, n);
+  assert.equal(st.lakes[0]!.errors, 0);
+  assert.equal(st.lakes[0]!.tilecount, 36);
+  assert.equal(st.tmap[NTILE(108, 104)], 0);
+  assert.equal(st.tmap[NTILE(107, 104)], 1);
+  assert.equal(st.lakes[0]!.spill, 100);
+  assert.equal(lakeSpill(g, st.tmap, 0, 104, 104, 0, n, notchLake(100)), 100);
+  // NOTCH_FAR_HOLDS off: the literal reading leaks through the flank tiles
+  setNotchFarHolds(false);
+  assert.ok(recomputeLakes(g, notchLake(100), 0, n).lakes[0]!.errors & LAKEERR_LEAK);
+  setNotchFarHolds(true);
+  // a side-wall corner at H that is not a lip corner: LEAK, as without notches
+  t.heights[NTILE(108, 103)] = 25;
+  assert.ok(recomputeLakes(buildLakeGround(t)!, notchLake(100), 0, n).lakes[0]!.errors & LAKEERR_LEAK);
+});
+
+test("1.7.1 HoldsUpTo: the highest legal height of a lake with notches, on every ground", () => {
+  let t = notchTrack(25, 22);
+  let g = buildLakeGround(t)!;
+  const n = notchMap();
+  for (let h = 92; h <= 100; h++) {
+    const lakes = notchLake(h);
+    const st = recomputeLakes(g, lakes, 0, n);
+    assert.equal(st.lakes[0]!.errors, 0, `h ${h}`);
+    assert.ok(st.lakes[0]!.spill <= h);
+    assert.equal(lakeHoldsUpTo(g, lakes, st, 0, 0), 100);
+    assert.equal(lakeFitHeight(g, lakes[0]!, h, 1000, n, 0), h);
+    assert.equal(lakeNearestLegalHeight(g, lakes[0]!, h, 41, 100, n, 0), h);
+    assert.equal(lakeMinHeight(g, 0, lakes[0]!, n, 0), 41);
+  }
+  let lakes = notchLake(101);
+  let st = recomputeLakes(g, lakes, 0, n);
+  assert.ok(st.lakes[0]!.errors & LAKEERR_LEAK);
+  assert.equal(lakeHoldsUpTo(g, lakes, st, 0, 0), st.lakes[0]!.spill);
+  assert.ok(st.lakes[0]!.spill < 101);
+  lakes = notchLake(100);
+  st = recomputeLakes(g, lakes, 0);
+  assert.equal(lakeHoldsUpTo(g, lakes, st, 0, 0), st.lakes[0]!.spill);
+  t = notchTrack(23, 22);
+  g = buildLakeGround(t)!;
+  lakes = notchLake(90);
+  st = recomputeLakes(g, lakes, 0, n);
+  assert.equal(lakeHoldsUpTo(g, lakes, st, 0, 0), 92);
+  assert.equal(lakeHoldsUpTo(g, lakes, st, 0, 5), LAKE_NO_BASIN);
+  assert.equal(lakeHoldsUpTo(g, lakes, st, 0, -1), LAKE_NO_BASIN);
+  // Classic 16-bit and Full Map holding the same ground say the same
+  for (const mode of [TERRAINMODE_CLASSIC16, TERRAINMODE_FINE]) {
+    t = notchTrack(25, 22);
+    setMode(t, mode);
+    g = buildLakeGround(t)!;
+    lakes = notchLake(96);
+    st = recomputeLakes(g, lakes, 0, n);
+    assert.equal(st.lakes[0]!.errors, 0, `mode ${mode}`);
+    assert.equal(lakeHoldsUpTo(g, lakes, st, 0, 0), 100, `mode ${mode}`);
+  }
+});
+
+test("1.7.1: a fall's crest cuts its lake's notch (trackLakes derives the lakes with it)", () => {
+  const t = notchTrack(25, 22);
+  t.lakes = notchLake(100);
+  assert.ok(trackLakes(t).lakes[0]!.errors & LAKEERR_LEAK);
+  const f = fallDefaults();
+  f.source = 1; f.npoints = 2;
+  f.pt[0] = [3456 * 16, 3329 * 16];
+  f.pt[1] = [3456 * 16, 3359 * 16];
+  t.falls = [f];
+  const st = trackLakes(t);
+  assert.equal(st.lakes[0]!.errors, 0);
+  assert.equal(st.lakes[0]!.tilecount, 36);
 });

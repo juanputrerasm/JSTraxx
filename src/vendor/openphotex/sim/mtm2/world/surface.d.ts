@@ -17,7 +17,7 @@ export declare function textureWordValue(map: Mtm2SurfaceMap, word: number): num
  * The terrain's type value at (x, z): the cell texture, or water below the level. `waterLevelFt`
  * null is treated as the game's level 0.
  */
-export declare function terrainSurfaceValue(terrain: Mtm2Terrain, map: Mtm2SurfaceMap, x: number, z: number, waterLevelFt: number | null, snow?: boolean, deepWater?: boolean): number;
+export declare function terrainSurfaceValue(terrain: Mtm2Terrain, map: Mtm2SurfaceMap, x: number, z: number, waterLevelFt: number | null, snow?: boolean, deepWater?: boolean, pointY?: number | null): number;
 export declare function surfaceType(value: number): number;
 /** How far a wheel sinks, in feet: the depth is in inches. */
 export declare function surfaceSinkFt(value: number): number;

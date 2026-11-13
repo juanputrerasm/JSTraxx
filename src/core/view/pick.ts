@@ -8,11 +8,22 @@
   Classic 8-bit picks on the drive surface itself (pickSurface): the ray walked across the
   window's 32 ft triangles, refined on Spline and Full Map against SurfaceHeightV, the point
   kept with its 1/256 fractions.
+
+  Traxx 1.7.1 world-wrap border (3f26cfc, e7bdc4b): the pick geometry is the ground as drawn,
+  the map plus its 3-cell border of wrapped copies (SurfaceCornerInWrapBand); a hit whose point
+  is off the map's 0..255 cells is no hit, so a click on the border does nothing and is never
+  wrapped onto a real cell. The point is floored, so a hit just past the low edge is off it.
 */
 import { ALTITUDE_SCALE } from "./camera.ts";
 import type { Terrain16 } from "../traxx/terrain16.ts";
 import { TERRAINMODE_CLASSIC8 } from "../traxx/terrain16.ts";
 import { pickPoint, pickRay } from "../traxx/surface-pick.ts";
+import { SURFACE_WRAP_BORDER_CELLS } from "./surface-tiles.ts";
+
+/** PickTerrainRay's border test: the hit's whole ipos point is off the map. */
+function offMap(x: number, y: number): boolean {
+  return x < 0 || x >= 256 << 6 || y < 0 || y >= 256 << 6;
+}
 
 export interface TerrainHit {
   /** The point hit, in scene units. */
@@ -51,9 +62,11 @@ function triangle(o: V3, d: V3, a: V3, b: V3, c: V3): number {
 
 /** The first terrain cell the ray hits, or null. `dir` need not be normalised. */
 export function pickTerrain(heights: Uint8Array, origin: V3, dir: V3, maxT = 1e6): TerrainHit | null {
-  const corner = (i: number, j: number): V3 => [i * 64, j * 64, ALTITUDE_SCALE * heights[Math.min(255, i) + (Math.min(255, j) << 8)]];
+  // The cells the ground is drawn on: the map and the border, -3..258; corners wrap & 255.
+  const lo = -SURFACE_WRAP_BORDER_CELLS, hi = 255 + SURFACE_WRAP_BORDER_CELLS;
+  const corner = (i: number, j: number): V3 => [i * 64, j * 64, ALTITUDE_SCALE * heights[(i & 255) + ((j & 255) << 8)]];
   const hitCell = (i: number, j: number): number => {
-    if (i < 0 || j < 0 || i > 254 || j > 254) return -1;
+    if (i < lo || j < lo || i > hi || j > hi) return -1;
     const v00 = corner(i, j), v10 = corner(i + 1, j), v11 = corner(i + 1, j + 1), v01 = corner(i, j + 1);
     const tris: [V3, V3, V3][] = ((i + j) & 1) ? [[v01, v11, v10], [v10, v00, v01]] : [[v00, v01, v11], [v11, v10, v00]];
     let best = -1;
@@ -66,15 +79,15 @@ export function pickTerrain(heights: Uint8Array, origin: V3, dir: V3, maxT = 1e6
   // Start where the ray enters the map's square, if it starts outside.
   let tEnter = 0, tExit = maxT;
   for (const k of [0, 1] as const) {
-    if (Math.abs(dir[k]) < 1e-12) { if (origin[k] < 0 || origin[k] > 255 * 64) return null; continue; }
-    let t0 = (0 - origin[k]) / dir[k], t1 = (255 * 64 - origin[k]) / dir[k];
+    if (Math.abs(dir[k]) < 1e-12) { if (origin[k] < lo * 64 || origin[k] > (hi + 1) * 64) return null; continue; }
+    let t0 = (lo * 64 - origin[k]) / dir[k], t1 = ((hi + 1) * 64 - origin[k]) / dir[k];
     if (t0 > t1) [t0, t1] = [t1, t0];
     tEnter = Math.max(tEnter, t0);
     tExit = Math.min(tExit, t1);
   }
   if (tEnter > tExit) return null;
   const px = origin[0] + dir[0] * tEnter, py = origin[1] + dir[1] * tEnter;
-  let i = Math.min(254, Math.max(0, Math.floor(px / 64))), j = Math.min(254, Math.max(0, Math.floor(py / 64)));
+  let i = Math.min(hi, Math.max(lo, Math.floor(px / 64))), j = Math.min(hi, Math.max(lo, Math.floor(py / 64)));
   const stepX = dir[0] > 0 ? 1 : -1, stepY = dir[1] > 0 ? 1 : -1;
   const nextX = (n: number) => ((stepX > 0 ? n + 1 : n) * 64 - origin[0]) / dir[0];
   const nextY = (n: number) => ((stepY > 0 ? n + 1 : n) * 64 - origin[1]) / dir[1];
@@ -86,13 +99,15 @@ export function pickTerrain(heights: Uint8Array, origin: V3, dir: V3, maxT = 1e6
     const t = hitCell(i, j);
     if (t >= 0 && t <= tExit + 1e-6) {
       const point: V3 = [origin[0] + dir[0] * t, origin[1] + dir[1] * t, origin[2] + dir[2] * t];
+      const ix = Math.floor(point[0]), iy = Math.floor(point[1]);
+      if (offMap(ix, iy)) return null;
       return {
-        point, cell: [i, j], vertex: [Math.min(255, Math.round(point[0] / 64)), Math.min(255, Math.round(point[1] / 64))], t,
-        ipos: [Math.trunc(point[0]), Math.trunc(point[1]), Math.trunc(point[2] / ALTITUDE_SCALE)], fraction: [0, 0, 0],
+        point, cell: [ix >> 6, iy >> 6], vertex: [Math.round(point[0] / 64) & 255, Math.round(point[1] / 64) & 255], t,
+        ipos: [ix, iy, Math.trunc(point[2] / ALTITUDE_SCALE)], fraction: [0, 0, 0],
       };
     }
     if (tMaxX < tMaxY) { i += stepX; tMaxX += tDeltaX; } else { j += stepY; tMaxY += tDeltaY; }
-    if (i < 0 || j < 0 || i > 254 || j > 254 || Math.min(tMaxX, tMaxY) - Math.min(tDeltaX, tDeltaY) > tExit) break;
+    if (i < lo || j < lo || i > hi || j > hi || Math.min(tMaxX, tMaxY) - Math.min(tDeltaX, tDeltaY) > tExit) break;
   }
   return null;
 }
@@ -114,14 +129,15 @@ export function pickSurface(t: Terrain16, origin: V3, dir: V3, window: { x0: num
   const hit = pickRay(t, org, d, 0, x0, y0, x0 + n - 2, y0 + n - 2);
   if (!hit) return null;
   const { px, py, v } = pickPoint(t, org, d, hit.t);
+  if (offMap(px >> 8, py >> 8)) return null;
   const ci = Math.min(n - 2, Math.max(0, hit.cellx - x0)), cj = Math.min(n - 2, Math.max(0, hit.celly - y0));
   const inx = px - (x0 + ci) * 16384, iny = py - (y0 + cj) * 16384;
   const vx = x0 + ci + (inx >= 8192 ? 1 : 0), vy = y0 + cj + (iny >= 8192 ? 1 : 0);
   return {
     point: [px / 256, py / 256, (ALTITUDE_SCALE * v) / 256],
-    // Clamped to the map's cells, which is all JSTraxx's callers index.
-    cell: [Math.min(254, Math.max(0, x0 + ci)), Math.min(254, Math.max(0, y0 + cj))],
-    vertex: [Math.min(255, Math.max(0, vx)), Math.min(255, Math.max(0, vy))],
+    // On the map (the border was refused above); the vertex past cell 255 is column / row 0.
+    cell: [Math.min(255, Math.max(0, x0 + ci)), Math.min(255, Math.max(0, y0 + cj))],
+    vertex: [vx & 255, vy & 255],
     t: hit.t,
     ipos: [px >> 8, py >> 8, v >> 8],
     fraction: [px & 255, py & 255, v & 255],

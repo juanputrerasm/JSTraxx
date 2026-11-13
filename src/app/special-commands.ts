@@ -31,7 +31,7 @@ export function bindSpecial(app: AppState, registry: CommandRegistry, editor: Ed
     const a = app.settings.autoterrain;
     const t = doc.track;
     const target = terrainGenTarget(t.terrainMode);
-    const out = await terrainGenDialog({ mode: ((seed >> 8) & 255) > 1 ? 0 : (seed >> 8) & 255, seed: seed & 255, ground: a.left, hillHeight: a.right, valleyDepth: a.top, smoothness: a.bottom }, target);
+    const out = await terrainGenDialog({ mode: ((seed >> 8) & 255) > 1 ? 0 : (seed >> 8) & 255, seed: seed & 255, ground: a.left, hillHeight: a.right, valleyDepth: a.top, smoothness: a.bottom }, target, app);
     if (!out || editor.doc !== doc || !editor.canEdit) return;
     const s = out.settings;
     app.updateSettings((st) => { st.randseed = (s.seed & 255) | (s.mode << 8); st.autoterrain = { left: s.ground, right: s.hillHeight, top: s.valleyDepth, bottom: s.smoothness }; });

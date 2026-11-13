@@ -66,6 +66,7 @@ export function resetTrack(): TxxTrack {
     pngHeights: false,
     vegetation: null,
     lakes: [],
+    falls: [],
   };
 }
 

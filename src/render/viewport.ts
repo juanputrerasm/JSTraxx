@@ -36,6 +36,8 @@ export class Viewport {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // The world-wrap border's object copies are trimmed by material clipping planes (BeginWrapBorderPass).
+    this.renderer.localClippingEnabled = true;
     this.canvas = this.renderer.domElement;
     this.canvas.className = "view-canvas";
     host.append(this.canvas);

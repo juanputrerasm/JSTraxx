@@ -5,6 +5,11 @@
   inside the grid window (at most 256 cells; CalculateBoxLocationsOpenGL).
 
   One InstancedMesh per model part, rebuilt when the window moves or the objects change.
+
+  Traxx 1.7.1 (c30ad86, DrawBoxWrapCopiesOpenGL): an object within 3 cells of an edge is drawn
+  again past the opposite edge (SurfaceBoxWrapShifts), tinted and trimmed to the world-wrap
+  border as the terrain's copy is. Copies are never in the track's list, so nothing selects
+  them; ground boxes (buildings) are not copied, and neither are model-less fogs.
 */
 import * as THREE from "three";
 import type { TrackDocument } from "../core/doc/document.ts";
@@ -13,6 +18,27 @@ import { gammaMap } from "../core/view/tiles.ts";
 import { remapIndices } from "../core/traxx/palette.ts";
 import { TRAXX_BOX_CRUSH, TRAXX_BOX_FOG, TRAXX_BOX_RAMP } from "../core/traxx/sit.ts";
 import type { ModelLibrary } from "./models.ts";
+import { surfaceBoxWrapShifts, SURFACE_WRAP_BORDER_CELLS, WRAP_BORDER_TINT, WRAP_BORDER_TINT_WEIGHT } from "../core/view/surface-tiles.ts";
+
+/* The border band, cells -3..258, as clipping planes in scene units (64 a cell): BeginWrapBorderPass's planes. */
+const BORDER_PLANES = [
+  new THREE.Plane(new THREE.Vector3(1, 0, 0), SURFACE_WRAP_BORDER_CELLS * 64),
+  new THREE.Plane(new THREE.Vector3(-1, 0, 0), (256 + SURFACE_WRAP_BORDER_CELLS) * 64),
+  new THREE.Plane(new THREE.Vector3(0, 1, 0), SURFACE_WRAP_BORDER_CELLS * 64),
+  new THREE.Plane(new THREE.Vector3(0, -1, 0), (256 + SURFACE_WRAP_BORDER_CELLS) * 64),
+];
+
+/* A copy's material: the object's own, its colour washed 0.35 of (0.70, 0.80, 0.95), clipped to the band. */
+function borderMaterial(m: THREE.Material): THREE.Material {
+  const c = m.clone();
+  c.clippingPlanes = BORDER_PLANES;
+  const tint = `vec3(${WRAP_BORDER_TINT.map((v) => v.toFixed(2)).join(", ")})`;
+  c.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(/}\s*$/, `  gl_FragColor.rgb = mix(gl_FragColor.rgb, ${tint}, ${WRAP_BORDER_TINT_WEIGHT.toFixed(2)});\n}`);
+  };
+  c.customProgramCacheKey = () => "wrap-border";
+  return c;
+}
 
 /* The collider box and ramp (CTraxxView::BuildPoly): corners 0..3 bottom, 4..7 top, at
    (-w,-l) (-w,+l) (+w,+l) (+w,-l); faces and their colours. */
@@ -51,6 +77,8 @@ export class ObjectLayer {
   private boxGeo: THREE.BufferGeometry;
   private rampGeo: THREE.BufferGeometry;
   private solidMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  /** The border copies' materials, one per material copied. */
+  private borderMats = new Map<THREE.Material, THREE.Material>();
   hideColliders = false;
 
   constructor(doc: TrackDocument, models: ModelLibrary, gamma: number) {
@@ -64,12 +92,23 @@ export class ObjectLayer {
   /** Rebuild the instances for the boxes inside the window (ipos bounds, inclusive). */
   rebuild(bounds: { minx: number; maxx: number; miny: number; maxy: number }): void {
     for (const child of [...this.group.children]) { this.group.remove(child); (child as THREE.InstancedMesh).dispose?.(); }
-    const byModel = new Map<string, THREE.Matrix4[]>();
-    const boxes: THREE.Matrix4[] = [], ramps: THREE.Matrix4[] = [];
-    const add = (name: string, m: THREE.Matrix4) => { let l = byModel.get(name); if (!l) byModel.set(name, (l = [])); l.push(m); };
+    // Two passes: the objects (pass 0) and their world-wrap border copies (pass 1).
+    const byModel = [new Map<string, THREE.Matrix4[]>(), new Map<string, THREE.Matrix4[]>()];
+    const boxes: THREE.Matrix4[][] = [[], []], ramps: THREE.Matrix4[][] = [[], []];
+    let pass = 0;
+    const add = (name: string, m: THREE.Matrix4) => { let l = byModel[pass]!.get(name); if (!l) byModel[pass]!.set(name, (l = [])); l.push(m); };
+    const places: { box: TrackDocument["track"]["boxes"][number]; dx: number; dy: number; copy: boolean }[] = [];
     for (const box of this.doc.track.boxes) {
-      if (box.ipos[0] < bounds.minx || box.ipos[0] > bounds.maxx || box.ipos[1] < bounds.miny || box.ipos[1] > bounds.maxy) continue;
+      places.push({ box, dx: 0, dy: 0, copy: false });
+      for (const [dx, dy] of surfaceBoxWrapShifts((box.ipos[0] >> 6) & 255, (box.ipos[1] >> 6) & 255)) places.push({ box, dx, dy, copy: true });
+    }
+    for (const { box, dx, dy, copy } of places) {
+      // A copy is culled and placed by its shifted position (CalculateBoxLocationsOpenGL's shiftx, shifty).
+      const x = box.ipos[0] + (dx << 6), y = box.ipos[1] + (dy << 6);
+      if (x < bounds.minx || x > bounds.maxx || y < bounds.miny || y > bounds.maxy) continue;
+      pass = copy ? 1 : 0;
       const m = new THREE.Matrix4().fromArray(objectMatrix(box));
+      if (copy) m.premultiply(new THREE.Matrix4().makeTranslation(dx * 64, dy * 64, 0));
       const drawName = box.type === TRAXX_BOX_CRUSH && box.crushName ? this.crushCab(box.crushName) : box.modelName;
       const meshes = drawName ? this.models.meshesFor(drawName) : null;
       if (meshes && meshes.parts.length) {
@@ -82,14 +121,23 @@ export class ObjectLayer {
       if (box.type !== TRAXX_BOX_RAMP && this.hideColliders) continue;
       // The collider's corners are +-width, +-length, +-height in ipos before the squash.
       const scaled = m.clone().multiply(new THREE.Matrix4().makeScale(box.width, box.length, box.height));
-      (box.type === TRAXX_BOX_RAMP ? ramps : boxes).push(scaled);
+      (box.type === TRAXX_BOX_RAMP ? ramps : boxes)[pass]!.push(scaled);
     }
-    for (const [name, list] of byModel) {
-      const meshes = this.models.meshesFor(name)!;
-      for (const part of meshes.parts) this.group.add(instanced(part.geometry, part.material, list));
+    for (let p = 0; p < 2; p++) {
+      const mat = (m: THREE.Material) => (p ? this.borderMaterial(m) : m);
+      for (const [name, list] of byModel[p]!) {
+        const meshes = this.models.meshesFor(name)!;
+        for (const part of meshes.parts) this.group.add(instanced(part.geometry, mat(part.material), list));
+      }
+      if (boxes[p]!.length) this.group.add(instanced(this.boxGeo, mat(this.solidMat), boxes[p]!));
+      if (ramps[p]!.length) this.group.add(instanced(this.rampGeo, mat(this.solidMat), ramps[p]!));
     }
-    if (boxes.length) this.group.add(instanced(this.boxGeo, this.solidMat, boxes));
-    if (ramps.length) this.group.add(instanced(this.rampGeo, this.solidMat, ramps));
+  }
+
+  private borderMaterial(m: THREE.Material): THREE.Material {
+    let c = this.borderMats.get(m);
+    if (!c) this.borderMats.set(m, (c = borderMaterial(m)));
+    return c;
   }
 
   /** The cab of a top crush: a keyframe control record draws its frame 0 (ParseSITFile). */
@@ -102,6 +150,7 @@ export class ObjectLayer {
     this.boxGeo.dispose();
     this.rampGeo.dispose();
     this.solidMat.dispose();
+    for (const m of this.borderMats.values()) m.dispose();
   }
 }
 
