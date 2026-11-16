@@ -83,6 +83,8 @@ export declare const MAX_GROUND_BOXES = 600;
  * the game places it by its own cell, a world away from a truck at the other edge). Every face is
  * solid, as in the game: a wheel climbs onto a box only when its hub was above the top the step
  * before (§14.14 step 3), so a step taller than the hub is a wall. `stepFt` is the feet to a height
- * step, for a level whose steps are not MTM2's 2 ft (Hellbender's are 1.5).
+ * step, for a level whose steps are not MTM2's 2 ft (Hellbender's are 1.5). A track format version 6 world passes
+ * its cells (N, 256 or 512) and its terrain base in feet; a 16-bit layer passes its u16 grids with `stepFt` 1 / step
+ * (section 8.3: base + 2 * byte, or base + value / step).
  */
-export declare function groundBoxesAround(ra0: Uint8Array, ra1: Uint8Array, x: number, z: number, out?: SimBox[], stepFt?: number): SimBox[];
+export declare function groundBoxesAround(ra0: ArrayLike<number>, ra1: ArrayLike<number>, x: number, z: number, out?: SimBox[], stepFt?: number, cells?: number, baseFt?: number): SimBox[];

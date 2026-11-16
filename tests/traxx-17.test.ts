@@ -13,6 +13,7 @@ import { parsePod } from "../src/vendor/openphotex/pod/parse.js";
 import { readPodEntry } from "../src/vendor/openphotex/pod/lookup.js";
 import { readTxx, txxVersionFor, writeTxx } from "../src/core/traxx/txx.ts";
 import { fallDefaults } from "../src/core/traxx/falls.ts";
+import { LAKE_RULE_TILE } from "../src/core/traxx/lakes.ts";
 import type { TxxTrack } from "../src/core/traxx/txx.ts";
 import {
   readTraxxSit, traxxBoxDefaults, traxxFogEngineDefaults, writeTraxxSit, TRAXX_BOX_FOG,
@@ -115,15 +116,22 @@ test("TXX V18: a fall block of an unknown version, or a fall past the limits, re
   fall.npoints = 2;
   t.falls = [fall];
   const bytes = writeTxx(t);
-  // The block starts right after the V17 mode (classic: the mode alone, an int 0).
-  const at = bytes.length - (8 + (5 + 16 + 5) * 4 + 32);
+  // The block starts right after the V17 mode (classic: the mode alone, an int 0). Traxx 1.7.3:
+  // block version 3, roughfrom after the mist height.
+  const at = bytes.length - (8 + (5 + 16 + 6) * 4 + 32);
   const view = new DataView(bytes.buffer);
-  assert.equal(view.getInt32(at, true), 2);
-  view.setInt32(at, 3, true);
+  assert.equal(view.getInt32(at, true), 3);
+  view.setInt32(at, 4, true);
   assert.throws(() => readTxx(bytes), /waterfalls block/);
   view.setInt32(at, 1, true); // block version 1: no mist size fields, read as 100
   assert.equal(readTxx(bytes).falls[0]!.mistdepth, 100);
-  view.setInt32(at, 2, true);
+  view.setInt32(at, 3, true);
+  const rf = at + 8 + (5 + 16 + 5) * 4;
+  view.setInt32(rf, 255, true);
+  assert.equal(readTxx(bytes).falls[0]!.roughfrom, 255);
+  view.setInt32(rf, 256, true); // roughfrom past 0..255
+  assert.throws(() => readTxx(bytes), /waterfall is corrupt/);
+  view.setInt32(rf, 0, true);
   view.setInt32(at + 8 + 4, 9, true); // npoints 9
   assert.throws(() => readTxx(bytes), /waterfall is corrupt/);
 });
@@ -262,14 +270,14 @@ test("MusicKindOf: WAV, stock, OGG, MP3 (ID3 or frame sync), else MOD; packed un
   assert.ok(names.indexOf("SOUND\\TRAXX.KLP") === names.indexOf("SOUND\\TRAXX.MP3") - 1);
 });
 
-test("the Type list: Fog is 14, Ramp 15, Top-Crush 16; at most 50 fogs", () => {
+test("the Type list: Fog is 14, Ramp 15, Top-Crush 16; at most 64 fogs (Traxx 1.8.0)", () => {
   assert.equal(typeToIndex(TRAXX_BOX_FOG), TYPEIDX_FOG);
   assert.equal(indexToType(TYPEIDX_FOG), TRAXX_BOX_FOG);
   assert.deepEqual([TYPEIDX_RAMP, TYPEIDX_CRUSH], [15, 16]);
   assert.equal(indexToType(TYPEIDX_RAMP), 99);
   assert.equal(indexToType(TYPEIDX_CRUSH), 98);
   assert.equal(typeToIndex(15), 0);
-  assert.equal(budgetCap(budgetGroup(TRAXX_BOX_FOG)), 50);
+  assert.equal(budgetCap(budgetGroup(TRAXX_BOX_FOG)), 64);
 });
 
 /** A one-box SIT around `boxLines` (the record after its "********" line). */
@@ -349,7 +357,9 @@ test("fog_test.txx writes the entries of the pod Traxx 1.7 wrote", { skip: noBot
     const name = e.name.replace(/\.SI2$/, ".SIT");
     const mine = out.entries.find((x) => x.name === name);
     if (!mine || e.name.endsWith(".TXV")) continue;
-    assert.ok(Buffer.from(mine.data).equals(Buffer.from(readPodEntry(bytes, e))), `${e.name} differs`);
+    // Traxx 1.7.3 writes only edge-rule .WTR files: the 1.7 file's header gains minor 1 and flags bit 0 (the fill is the same).
+    const theirs = name.endsWith(".WTR") ? asEdgeRuleWtr(readPodEntry(bytes, e)) : readPodEntry(bytes, e);
+    assert.ok(Buffer.from(mine.data).equals(Buffer.from(theirs)), `${e.name} differs`);
     compared++;
   }
   assert.ok(compared > 30, `${compared} entries`);
@@ -363,13 +373,24 @@ test("fog_test.pod opens with its vegetation, its lakes file and its fogs, and w
   assert.equal(doc.track.boxes.filter((b) => b.type === TRAXX_BOX_FOG).length, 2);
   assert.ok(doc.track.vegetation?.image && doc.track.lakes.length === 2 && !doc.warnings.some((w) => w.includes("lakes")));
   const out = buildTrackPod(doc);
+  // (a tile-rule file: shown under the rule that built it, written back under the edge rule, Traxx 1.7.3)
+  assert.equal(doc.track.lakeRule, LAKE_RULE_TILE);
   for (const name of ["WORLD\\FOGTEST.VEG", "WORLD\\FOGTEST.WTR", "ART\\FOGTEST_V.PNG", "ART\\FOGTEST_G.PNG"]) {
-    const theirs = readPodEntry(bytes, archive.entries.find((e) => e.name === name)!);
+    const raw = readPodEntry(bytes, archive.entries.find((e) => e.name === name)!);
+    const theirs = name.endsWith(".WTR") ? asEdgeRuleWtr(raw) : raw;
     assert.ok(Buffer.from(out.entries.find((e) => e.name === name)!.data).equals(Buffer.from(theirs)), name);
   }
   const txv = new TextDecoder().decode(out.entries.find((e) => e.name.endsWith(".TXV"))!.data);
   assert.match(txv, /fogVolumes=2\r\nvegetation=1\r\nvegTrees=12394\r\nvegClumps=131072\r\n/);
 });
+
+/** A Traxx 1.7 (tile rule) .WTR as Traxx 1.7.3 writes the same lakes: minor 1, header flags bit 0. */
+function asEdgeRuleWtr(b: Uint8Array): Uint8Array {
+  const out = b.slice();
+  out[6] = 1; out[7] = 0;
+  out[20] |= 1;
+  return out;
+}
 
 /** A grey PNG (filter 0 rows, CRCs not checked by the reader). */
 function greyPng(side: number, depth: 8 | 16, value: (x: number, z: number) => number): Uint8Array {

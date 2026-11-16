@@ -200,13 +200,15 @@ export function resolveVegSpecies(
 }
 
 /** The cell window the pass draws in, inclusive (the terrain's; Whole Grid: the map). */
-export function vegWindow(gridx: number, gridy: number, gridsize: number, whole: boolean): { cx0: number; cy0: number; cx1: number; cy1: number } {
-  if (whole) return { cx0: 0, cy0: 0, cx1: 255, cy1: 255 };
+export function vegWindow(gridx: number, gridy: number, gridsize: number, whole: boolean, cells = 256): { cx0: number; cy0: number; cx1: number; cy1: number } {
+  // Track format version 6 (8.1): the map is N x N cells.
+  if (whole) return { cx0: 0, cy0: 0, cx1: cells - 1, cy1: cells - 1 };
   const half = (gridsize - 1) >> 1;
   return { cx0: gridx - half, cy0: gridy - half, cx1: gridx + half - 1, cy1: gridy + half - 1 };
 }
 
-/** A tree's 32 ft tile, clamped to the map (VegTreeTile: x >> 13). */
-export function treeTile(t: { x: number; z: number }): [number, number] {
-  return [Math.min(255, Math.max(0, t.x >> 13)), Math.min(255, Math.max(0, t.z >> 13))];
+/** A tree's 32 ft tile, clamped to the map (VegTreeTile: x >> 13); N x N on a version 6 track (9.2). */
+export function treeTile(t: { x: number; z: number }, cells = 256): [number, number] {
+  const m = cells - 1;
+  return [Math.min(m, Math.max(0, t.x >> 13)), Math.min(m, Math.max(0, t.z >> 13))];
 }

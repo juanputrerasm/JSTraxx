@@ -18,6 +18,7 @@ import * as THREE from "three";
 import type { TrackDocument } from "../core/doc/document.ts";
 import { ALTITUDE_SCALE } from "../core/view/camera.ts";
 import { courseJoinPieces } from "../core/traxx/course-wrap.ts";
+import { cellsOf, worldIposOf } from "../core/traxx/world.ts";
 
 export interface CourseState { course: number; alwaysMain: boolean; selectedTruck: number }
 
@@ -58,7 +59,7 @@ export class CourseLayer {
       const p: number[] = [];
       for (let s = 0; s < n; s++) {
         const a = segments[s]!, b = segments[(s + 1) % n]!;
-        for (const [x0, y0, x1, y1] of courseJoinPieces(a.cend[0], a.cend[1], b.cstart[0], b.cstart[1])) {
+        for (const [x0, y0, x1, y1] of courseJoinPieces(a.cend[0], a.cend[1], b.cstart[0], b.cstart[1], worldIposOf(cellsOf(t)))) {
           if (outside(x0, y0, x1, y1)) continue;
           p.push(x0, y0, ALTITUDE_SCALE * a.cend[2], x1, y1, ALTITUDE_SCALE * b.cstart[2]);
         }

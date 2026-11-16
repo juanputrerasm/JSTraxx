@@ -1,7 +1,8 @@
 /*
   Track Components (IDD_COMPONENTS, Traxx/TraxxComponentsDlg.cpp): the track's name and World
   Name, comment, icon and browse pictures, backdrop, sound theme, palette, water level, music,
-  type, terrain detail normal and mask, info photo and description.
+  type, terrain detail normal and mask, water detail normal and mask (Traxx 1.7.2), info photo
+  and description.
 
   The three pictures take a right-click menu (Copy, Paste, Load, Stock for the MTM2 icon, Save
   As, View): an 8-bit BMP is kept as it is; a PNG, a TGA or a true-colour picture is HD art,
@@ -28,6 +29,7 @@ import type { TxxHdArt } from "../../core/traxx/txx.ts";
 import type { TraxxArena } from "../../core/traxx/sit.ts";
 import type { ModelLoad } from "../../worker/model-handlers.ts";
 import { makeResizable } from "./dialog-size.ts";
+import { detailLoadWarning, maskGreyWarning, resampleDetailPng } from "../../core/image/detail-map.ts";
 
 export interface ComponentsContext {
   app: AppState;
@@ -39,6 +41,14 @@ export interface ComponentsContext {
   prefix: string;
   detailFromPod: boolean;
   maskFromPod: boolean;
+  /** Traxx 1.7.2: the water pair was read out of the pod. */
+  waterDetailFromPod: boolean;
+  waterMaskFromPod: boolean;
+  /**
+    The track water's range, half feet: Traxx's 0..1020 (0 to 510 ft) when absent, or a version 6 document's
+    (v6.ts trackWaterRange: no 510 ft cap).
+  */
+  waterRange?: readonly [number, number];
   /** Load a backdrop: the MODELS folder and library list, or a file; resolves with the load. */
   chooseBackdrop: () => Promise<{ load: ModelLoad; isArena: boolean } | null>;
 }
@@ -80,7 +90,7 @@ export function infoTextFit(text: string, measure: (s: string, title: boolean) =
 }
 
 export async function componentsDialog(start: Components, ctx: ComponentsContext): Promise<Components | null> {
-  const c: Components = { ...start, bitmaps: [...start.bitmaps], hd: [...start.hd], detail: { ...start.detail }, mask: { ...start.mask }, arena: start.arena ? { ...start.arena } : null };
+  const c: Components = { ...start, bitmaps: [...start.bitmaps], hd: [...start.hd], detail: { ...start.detail }, mask: { ...start.mask }, waterDetail: { ...start.waterDetail }, waterMask: { ...start.waterMask }, arena: start.arena ? { ...start.arena } : null };
   const ro = ctx.viewOnly;
 
   // ---- Name, World Name, comment.
@@ -329,7 +339,8 @@ export async function componentsDialog(start: Components, ctx: ComponentsContext
   ambient.value = String(c.ambient);
   const palette = stop(el("select", { disabled: !c.mtm2Only }, ...PALETTE_NAMES.slice(0, c.paletteIndex === 16 ? 17 : 16).map((n, i) => el("option", { value: i }, n)))) as HTMLSelectElement;
   palette.value = String(c.paletteIndex);
-  const water = stop(el("input", { type: "number", min: 0, max: 255, step: 0.25, value: c.water4 / 4, class: "spin", disabled: !c.mtm2Only })) as HTMLInputElement;
+  const [waterLo4, waterHi4] = ctx.waterRange ?? [0, 4 * 255];
+  const water = stop(el("input", { type: "number", min: waterLo4 / 4, max: waterHi4 / 4, step: 0.25, value: c.water4 / 4, class: "spin", disabled: !c.mtm2Only })) as HTMLInputElement;
   const musicIcon = el("img", { alt: "", width: 24, height: 12, class: "cmp-music" }) as HTMLImageElement;
   // OnMusicLoad / OnMusicSel / OnMusicSaveAs (Traxx 1.7 e4b4cd5): the kind comes from the bytes (MusicKindOf).
   const musicName = () => {
@@ -383,43 +394,60 @@ export async function componentsDialog(start: Components, ctx: ComponentsContext
   showMusic();
   const types = ["Circuit", "Rally", "Rumble", "Drag"].map((_, i) => el("input", { type: "radio", name: "cmp-type", value: i, checked: c.typeIndex === i, disabled: i === 2 && !c.mtm2Only }) as HTMLInputElement);
 
-  // ---- Detail normal and mask, carried byte for byte.
-  const mapText = (which: "detail" | "mask") => {
+  /*
+    ---- The terrain and water detail normals and masks, carried byte for byte (LoadTerrainMap,
+    UpdateTerrainMapNames). The checks follow the kind: a detail normal is size-checked, a mask
+    greyscale-checked; only the words and the slot follow the pair.
+  */
+  type MapSlot = "detail" | "mask" | "waterDetail" | "waterMask";
+  const MAP_SUFFIX: Record<MapSlot, string> = { detail: "_DTL", mask: "_MASK", waterDetail: "_WDTL", waterMask: "_WMSK" };
+  const isDetail = (which: MapSlot) => which === "detail" || which === "waterDetail";
+  const isWater = (which: MapSlot) => which === "waterDetail" || which === "waterMask";
+  const fromPodOf = (which: MapSlot) => ({ detail: ctx.detailFromPod, mask: ctx.maskFromPod, waterDetail: ctx.waterDetailFromPod, waterMask: ctx.waterMaskFromPod })[which];
+  const mapText = (which: MapSlot) => {
     const m = c[which];
-    if (!m.map) return which === "detail" ? "(generated)" : "(none)";
+    if (!m.map) return isDetail(which) ? "(generated)" : "(none)";
     const kb = Math.round(m.map.length / 1024);
     const ext = m.ext || ".PNG";
-    const fromPod = which === "detail" ? ctx.detailFromPod && m.map === start.detail.map : ctx.maskFromPod && m.map === start.mask.map;
-    return fromPod && ctx.prefix ? `ART\\${ctx.prefix}${which === "detail" ? "_DTL" : "_MASK"}${ext}  -  ${kb} KB` : `${ext.slice(1)}  ${kb} KB`;
+    const fromPod = fromPodOf(which) && m.map === start[which].map;
+    return fromPod && ctx.prefix ? `ART\\${ctx.prefix}${MAP_SUFFIX[which]}${ext}  -  ${kb} KB` : `${ext.slice(1)}  ${kb} KB`;
   };
-  const detailText = el("span", { class: "tex-sunken cmp-name" });
-  const maskText = el("span", { class: "tex-sunken cmp-name" });
-  const showMaps = () => { detailText.textContent = mapText("detail"); maskText.textContent = mapText("mask"); };
-  const loadMap = async (which: "detail" | "mask") => {
+  const mapTexts: Record<MapSlot, HTMLElement> = {
+    detail: el("span", { class: "tex-sunken cmp-name" }), mask: el("span", { class: "tex-sunken cmp-name" }),
+    waterDetail: el("span", { class: "tex-sunken cmp-name" }), waterMask: el("span", { class: "tex-sunken cmp-name" }),
+  };
+  const showMaps = () => { for (const k of Object.keys(mapTexts) as MapSlot[]) mapTexts[k].textContent = mapText(k); };
+  const loadMap = async (which: MapSlot) => {
+    const water = isWater(which);
+    const caption = water ? "Water map" : "Terrain map";
+    const warnCaption = { detail: "Terrain Detail Normal", mask: "Terrain Mask", waterDetail: "Water Detail Normal", waterMask: "Water Mask" }[which];
     const f = await picker(".png,.tga");
     if (!f) return;
-    if (f.size === 0 || f.size > 32 * 1024 * 1024) { await alertDialog("Terrain map", "That file is empty or improbably large for a terrain map."); return; }
-    const bytes = new Uint8Array(await f.arrayBuffer());
-    const ext = f.name.slice(f.name.lastIndexOf(".")).toUpperCase();
+    if (f.size === 0 || f.size > 32 * 1024 * 1024) { await alertDialog(caption, `That file is empty or improbably large for a ${water ? "water" : "terrain"} map.`); return; }
+    let bytes: Uint8Array = new Uint8Array(await f.arrayBuffer());
+    let ext = f.name.slice(f.name.lastIndexOf(".")).toUpperCase();
     const img = await tryDecodeImage(bytes, ext === ".TGA" ? "TGA" : "PNG", f.name);
     let warn = "";
     if (!img) warn = "Traxx could not read the size of this image.\n\nIt will be packed as-is. Load it anyway?";
-    else if (which === "detail") {
-      const { width: w, height: h } = img;
-      if (w > 1024 || h > 1024) warn = `This detail normal is ${w}x${h}.\n\nThe engine refuses anything over 1024 and uses its own generated map instead, so this would have no effect in game. 256x256 is the recommended size.\n\nLoad it anyway?`;
-      else if (w !== h || (w & (w - 1)) !== 0) warn = `This detail normal is ${w}x${h}, which is not a square power of two.\n\nIt will still tile correctly, but it mips less cleanly and the engine notes it in the log. 256x256 is the recommended size.\n\nLoad it anyway?`;
-      else if (w < 32) warn = `This detail normal is only ${w}x${h}. The engine expects at least 32.\n\nLoad it anyway?`;
+    else if (isDetail(which)) {
+      const check = detailLoadWarning(img.width, img.height);
+      if (check.tooBig) {
+        // Over HDTEX_MAX_DIM the engine refuses it: offered as a resample, never as-is (28568e2).
+        if (!(await confirmDialog(warnCaption, check.text, "Yes"))) return;
+        bytes = resampleDetailPng(img.rgba, img.width, img.height);
+        ext = ".PNG";
+      } else warn = check.text;
     } else {
       let bad = 0;
       for (let i = 0; i < img.width * img.height; i++) if (img.rgba[i * 4] !== img.rgba[i * 4 + 1] || img.rgba[i * 4] !== img.rgba[i * 4 + 2]) bad++;
-      if (bad) warn = `This mask is not greyscale - ${bad} of its ${img.width * img.height} pixels have different red, green and blue.\n\nThe usual cause is the exported colour reference being flattened into the saved file. The engine reads those colours as mask values, so ground you never painted gets a strength you never asked for: it looks right here and wrong in game.\n\nLoad it anyway?`;
+      if (bad) warn = maskGreyWarning(bad, img.width * img.height, water ? "water" : "terrain");
     }
-    if (warn && !(await confirmDialog("Terrain map", warn, "Yes"))) return;
+    if (warn && !(await confirmDialog(warnCaption, warn, "Yes"))) return;
     c[which] = { ext, map: bytes };
     showMaps();
   };
   showMaps();
-  const mapRow = (label: string, text: HTMLElement, which: "detail" | "mask") => el("div", { class: "opt-row" }, el("span", { class: "fld" }, label), text,
+  const mapRow = (label: string, which: MapSlot) => el("div", { class: "opt-row" }, el("span", { class: "fld" }, label), mapTexts[which],
     el("button", { type: "button", class: "mini", disabled: ro, onclick: () => void loadMap(which) }, "..."),
     el("button", { type: "button", class: "mini", disabled: ro, onclick: () => { c[which] = { ext: "", map: null }; showMaps(); } }, "X"));
 
@@ -467,8 +495,10 @@ export async function componentsDialog(start: Components, ctx: ComponentsContext
         row("Water Level", water),
         row("Music", musicIcon, musicSel, musicButton, musicText)),
       el("fieldset", { class: "opt-group" }, el("legend", {}, "Type"), ...types.map((r, i) => el("label", { class: "opt-check" }, r, ["Circuit", "Rally", "Rumble", "Drag"][i]!)))),
-    mapRow("Detail Normal", detailText, "detail"),
-    mapRow("Terrain Mask", maskText, "mask"),
+    mapRow("Detail Normal", "detail"),
+    mapRow("Terrain Mask", "mask"),
+    mapRow("Water Normal", "waterDetail"),
+    mapRow("Water Mask", "waterMask"),
     el("div", { class: "cmp-two" },
       el("div", { class: "cmp-col" }, labels[SLOT_INFO]!, canvases[SLOT_INFO]!),
       el("div", { class: "cmp-col" }, el("span", { class: "cmp-label" }, "Info Description"), info)),
@@ -514,7 +544,7 @@ export async function componentsDialog(start: Components, ctx: ComponentsContext
         stemAuto: stemAuto.checked,
         comment: comment.value,
         typeIndex: Math.max(0, types.findIndex((t) => t.checked)),
-        water4: Math.max(0, Math.min(4 * 255, Math.floor((Number(water.value) || 0) * 4 + 0.5))),
+        water4: Math.max(waterLo4, Math.min(waterHi4, Math.floor((Number(water.value) || 0) * 4 + 0.5))),
         ambient: Number(ambient.value),
         paletteIndex: Number(palette.value),
         infoText: info.value,

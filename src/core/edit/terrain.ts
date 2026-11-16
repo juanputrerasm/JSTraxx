@@ -16,9 +16,13 @@
   wrapping as the drive surface does (ApplyStamp16, StampCopy16, StampPaste16), and counts the
   brush in 8 ft points, 1 to 100. The Altitude is a decimal number of steps on every 16-bit
   track (v = floor(steps * 256 + 0.5)); the classic brush uses its nearest whole step.
+
+  Track format version 6 (spec sections 7.3 and 8.1): the grids are N x N (4N x 4N fine), N the
+  track's worldCells, and a 32-bit grid clamps to its own range (world.ts heightLimits).
 */
 import { refreshRaw, TERRAINMODE_CLASSIC8, type Terrain16 } from "../traxx/terrain16.ts";
 import { applyStamp16, heightsChanged } from "../traxx/surface.ts";
+import { cellsOf, heightLimits, sideOf, type HeightGrid } from "../traxx/world.ts";
 import { placedGround, shiftPlaced, type Ground, type PlacedPoint } from "../traxx/box-ground.ts";
 
 /*
@@ -184,10 +188,10 @@ export function makeEditGrid(p: BrushParams, random: () => number = Math.random)
   return { width, height, grid, gridV };
 }
 
-/** The cells a brush covers around vertex (gi, gj), inclusive and clamped to the map. */
-export function brushRect(width: number, height: number, gi: number, gj: number): { minX: number; minY: number; maxX: number; maxY: number } {
+/** The cells a brush covers around vertex (gi, gj), inclusive and clamped to the map (N = `cells`). */
+export function brushRect(width: number, height: number, gi: number, gj: number, cells = 256): { minX: number; minY: number; maxX: number; maxY: number } {
   const hw = (width - 1) >> 1, hh = (height - 1) >> 1;
-  return { minX: Math.max(0, gi - hw), minY: Math.max(0, gj - hh), maxX: Math.min(255, gi - hw + width - 1), maxY: Math.min(255, gj - hh + height - 1) };
+  return { minX: Math.max(0, gi - hw), minY: Math.max(0, gj - hh), maxX: Math.min(cells - 1, gi - hw + width - 1), maxY: Math.min(cells - 1, gj - hh + height - 1) };
 }
 
 /*
@@ -199,16 +203,17 @@ export function brushRect(width: number, height: number, gi: number, gj: number)
 export function applyEditGrid(heights: Uint8Array, eg: EditGrid, p: BrushParams, gi: number, gj: number): void {
   const w = p.tool === 7 ? 1 : eg.width, h = p.tool === 7 ? 1 : eg.height;
   const hw = (w - 1) >> 1, hh = (h - 1) >> 1;
+  const n = sideOf(heights.length);
   if (p.tool === 5) {
     const before = heights.slice();
     for (let j = 1; j < h - 1; j++) {
       const jg = j + gj - hh;
-      if (jg < 1 || jg > 254) continue;
+      if (jg < 1 || jg > n - 2) continue;
       for (let i = 1; i < w - 1; i++) {
         const ig = i + gi - hw;
-        if (ig < 1 || ig > 254) continue;
-        const c = ig + (jg << 8);
-        heights[c] = (before[c + 256] + before[c - 256] + before[c + 1] + before[c - 1]) >> 2;
+        if (ig < 1 || ig > n - 2) continue;
+        const c = ig + jg * n;
+        heights[c] = (before[c + n]! + before[c - n]! + before[c + 1]! + before[c - 1]!) >> 2;
       }
     }
     return;
@@ -216,11 +221,11 @@ export function applyEditGrid(heights: Uint8Array, eg: EditGrid, p: BrushParams,
   const z = terrainWholeSteps(altitudeV(p.altitude));
   for (let j = 0; j < h; j++) {
     const jg = j + gj - hh;
-    if (jg < 0 || jg > 255) continue;
+    if (jg < 0 || jg > n - 1) continue;
     for (let i = 0; i < w; i++) {
       const ig = i + gi - hw;
-      if (ig < 0 || ig > 255) continue;
-      const c = ig + (jg << 8);
+      if (ig < 0 || ig > n - 1) continue;
+      const c = ig + jg * n;
       if (p.tool === 7) heights[c] = z > 0 ? Math.min(255, heights[c] + z) : Math.max(0, heights[c] + z);
       else if (p.tool === 6) heights[c] = z > 0 ? Math.min(255, z) : 0;
       else heights[c] = Math.min(255, Math.max(2, heights[c] + eg.grid[j * eg.width + i]));
@@ -234,16 +239,17 @@ export function applyEditGrid(heights: Uint8Array, eg: EditGrid, p: BrushParams,
 */
 export interface EditTarget {
   kind: "raw" | "h16" | "fine";
-  grid: Uint8Array | Uint16Array;
+  grid: Uint8Array | HeightGrid;
   size: number;
   wrapmask: number;
   wrap: boolean;
 }
 
 export function editTarget(t: Terrain16): EditTarget {
-  if (t.fine) return { kind: "fine", grid: t.fine, size: 1024, wrapmask: 1023, wrap: true };
-  if (t.h16 && t.terrainMode !== TERRAINMODE_CLASSIC8) return { kind: "h16", grid: t.h16, size: 256, wrapmask: 255, wrap: false };
-  return { kind: "raw", grid: t.heights, size: 256, wrapmask: 255, wrap: false };
+  const n = cellsOf(t);
+  if (t.fine) return { kind: "fine", grid: t.fine, size: 4 * n, wrapmask: 4 * n - 1, wrap: true };
+  if (t.h16 && t.terrainMode !== TERRAINMODE_CLASSIC8) return { kind: "h16", grid: t.h16, size: n, wrapmask: n - 1, wrap: false };
+  return { kind: "raw", grid: t.heights, size: n, wrapmask: n - 1, wrap: false };
 }
 
 /**
@@ -255,7 +261,7 @@ export function applyBrush(t: Terrain16, eg: EditGrid, p: BrushParams, cx: numbe
   const tg = editTarget(t);
   if (tg.kind === "raw") { applyEditGrid(t.heights, eg, p, cx, cy); return; }
   const w = p.tool === 7 ? 1 : eg.width, h = p.tool === 7 ? 1 : eg.height;
-  const g = tg.grid as Uint16Array;
+  const g = tg.grid as HeightGrid;
   applyStamp16(g, tg.size, tg.wrapmask, eg.gridV, w, h, cx, cy, p.tool, altitudeV(p.altitude), p.tool === 5 ? g.slice() : null, tg.wrap);
   refreshRaw(t);
   heightsChanged(t);
@@ -273,13 +279,14 @@ export function stampWindow(t: Terrain16, w: number, h: number, cx: number, cy: 
 } {
   const x0 = cx - ((w - 1) >> 1), y0 = cy - ((h - 1) >> 1);
   const shift = t.fine ? 2 : 0;
+  const n = cellsOf(t), last = n - 1;
   const cx0 = x0 >> shift, cy0 = y0 >> shift;
   const cx1 = (x0 + w - 1) >> shift, cy1 = (y0 + h - 1) >> shift;
-  const axis = (a: number, b: number) => (a < 0 || b > 255 ? (t.fine ? [0, 255] : [Math.max(0, a), Math.min(255, b)]) : [Math.max(0, a - 1), Math.min(255, b + 1)]);
+  const axis = (a: number, b: number) => (a < 0 || b > last ? (t.fine ? [0, last] : [Math.max(0, a), Math.min(last, b)]) : [Math.max(0, a - 1), Math.min(last, b + 1)]);
   const [minX, maxX] = axis(cx0, cx1), [minY, maxY] = axis(cy0, cy1);
   return {
     x0, y0, w, h,
-    coarse: { x0: cx0, y0: cy0, w: Math.min(256, cx1 - cx0 + 1), h: Math.min(256, cy1 - cy0 + 1) },
+    coarse: { x0: cx0, y0: cy0, w: Math.min(n, cx1 - cx0 + 1), h: Math.min(n, cy1 - cy0 + 1) },
     touch: { minX, minY, maxX, maxY },
   };
 }
@@ -322,6 +329,8 @@ export function brushPreview(t: Terrain16, eg: EditGrid, p: BrushParams, cx: num
   const v = new Int32Array(cols.length * rows.length);
   const zv = altitudeV(p.altitude), z = terrainWholeSteps(zv);
   const g = tg.grid, size = tg.size, mask = tg.wrapmask;
+  const last = size - 1;
+  const [vlo, vhi] = tg.kind === "raw" ? [0, 65535] : heightLimits(g as HeightGrid);
   let baseV = 0, editV = 0;
   rows.forEach((j, jj) => {
     cols.forEach((i, ii) => {
@@ -335,16 +344,16 @@ export function brushPreview(t: Terrain16, eg: EditGrid, p: BrushParams, cx: num
       else if (tg.kind === "raw") {
         let s: number;
         if (p.tool === 6) s = z > 0 ? z : 1;
-        else if (p.tool === 5) s = inner && gy > 0 && gy < 255 && gx > 0 && gx < 255 ? (at(gx + 1, gy) + at(gx - 1, gy) + at(gx, gy + 1) + at(gx, gy - 1)) >> 2 : at(gx, gy);
+        else if (p.tool === 5) s = inner && gy > 0 && gy < last && gx > 0 && gx < last ? (at(gx + 1, gy) + at(gx - 1, gy) + at(gx, gy + 1) + at(gx, gy - 1)) >> 2 : at(gx, gy);
         else s = Math.min(255, Math.max(0, at(gx, gy) + (p.tool === 7 ? 0 : eg.grid[j * eg.width + i]!)));
         out = s << 8;
       } else {
-        if (p.tool === 6) out = zv > 0 ? zv : 256;
+        if (p.tool === 6) out = g instanceof Int32Array ? Math.min(vhi, Math.max(vlo, zv)) : zv > 0 ? zv : 256;
         else if (p.tool === 5) {
-          out = inner && (onfine || (gy > 0 && gy < 255 && gx > 0 && gx < 255))
-            ? (at(gx + 1, gy) + at(gx - 1, gy) + at(gx, gy + 1) + at(gx, gy - 1) + 2) >> 2
+          out = inner && (onfine || (gy > 0 && gy < last && gx > 0 && gx < last))
+            ? Math.floor((at(gx + 1, gy) + at(gx - 1, gy) + at(gx, gy + 1) + at(gx, gy - 1) + 2) / 4)
             : at(gx, gy);
-        } else out = Math.min(65535, Math.max(0, at(gx, gy) + (p.tool === 7 ? 0 : eg.gridV[j * eg.width + i]!)));
+        } else out = Math.min(vhi, Math.max(vlo, at(gx, gy) + (p.tool === 7 ? 0 : eg.gridV[j * eg.width + i]!)));
       }
       v[jj * cols.length + ii] = out;
       if (i === hw && j === hh) {
@@ -436,7 +445,7 @@ export function pasteArea(t: Terrain16, block: TerrainBlock, cx: number, cy: num
       const gx = stampAxis(i + ox, tg.size, tg.wrapmask, tg.wrap);
       const v = block.data[i + j * block.width]!;
       if (gx < 0 || v < 0) continue;
-      if (tg.kind === "raw") { const b = (v + 128) >> 8; tg.grid[gx + gy * 256] = b > 255 ? 255 : b; }
+      if (tg.kind === "raw") { const b = (v + 128) >> 8; tg.grid[gx + gy * tg.size] = b > 255 ? 255 : b; }
       else tg.grid[gx + gy * tg.size] = v;
     }
   }
@@ -446,12 +455,13 @@ export function pasteArea(t: Terrain16, block: TerrainBlock, cx: number, cy: num
 
 /** OnTerrainCopy on raw alone: the w x h block at (gi, gj) in v (raw << 8); -1 where off the map. */
 export function copyTerrain(heights: Uint8Array, width: number, height: number, gi: number, gj: number): TerrainBlock {
-  return { width, height, fine: false, data: copyBlock({ kind: "raw", grid: heights, size: 256, wrapmask: 255, wrap: false }, width, height, gi, gj) };
+  const n = sideOf(heights.length);
+  return { width, height, fine: false, data: copyBlock({ kind: "raw", grid: heights, size: n, wrapmask: n - 1, wrap: false }, width, height, gi, gj) };
 }
 
 /** OnTerrainPaste on raw alone (a classic track). */
 export function pasteTerrain(heights: Uint8Array, block: TerrainBlock, gi: number, gj: number): void {
-  pasteArea({ terrainMode: TERRAINMODE_CLASSIC8, h16: null, fine: null, rawShadow: null, heights }, block, gi, gj);
+  pasteArea({ terrainMode: TERRAINMODE_CLASSIC8, h16: null, fine: null, rawShadow: null, heights, worldCells: sideOf(heights.length) }, block, gi, gj);
 }
 
 /**
@@ -461,11 +471,13 @@ export function pasteTerrain(heights: Uint8Array, block: TerrainBlock, gi: numbe
 */
 export function pasteBitmapHeights(t: Terrain16, data: Uint8Array): boolean {
   if (t.fine) return false;
+  const cells = cellsOf(t) * cellsOf(t);
+  if (data.length < cells) return false;
   if (t.h16) {
-    for (let k = 0; k < 65536; k++) t.h16[k] = data[k]! << 8;
+    for (let k = 0; k < cells; k++) t.h16[k] = data[k]! << 8;
     refreshRaw(t);
     heightsChanged(t);
-  } else t.heights.set(data);
+  } else t.heights.set(data.subarray(0, cells));
   return true;
 }
 
@@ -508,6 +520,8 @@ export function adjustHeights(
   grid16?: (scale: boolean, inc: number, factor: number) => void,
   /** The track, so placed points are grounded on the drive surface off Classic 8-bit (CollectPlacedPoints). */
   track?: Ground,
+  /** The water's range, half feet: Traxx's 0..1020, or a version 6 document's (v6.ts trackWaterRange). */
+  waterRange: readonly [number, number] = [0, 4 * 255],
 ): { water4: number | null; factor: number; inc: number } {
   let min = 255, max = 0;
   for (const h of heights) { if (h < min) min = h; if (h > max) max = h; }
@@ -520,30 +534,33 @@ export function adjustHeights(
   placed.forEach((p, i) => shiftPlaced(g, p, ground[i]!));
   if (water4 === null) return { water4: null, factor, inc };
   const w = opts.scale ? Math.floor(water4 * factor + 1e-9) : water4 + 4 * inc;
-  return { water4: Math.min(4 * 255, Math.max(0, w)), factor, inc };
+  return { water4: Math.min(waterRange[1], Math.max(waterRange[0], w)), factor, inc };
 }
 
 /*
-  The terrain as a 256 x 256 greyscale picture (OnTerrainCopyBitmap writes the heights as an
+  The terrain as an N x N greyscale picture (OnTerrainCopyBitmap writes the heights as an
   8-bit DIB with a grey palette; a DIB is bottom-up, so row 0 of the heights is the bottom of
-  the picture). Paste takes a 256 x 256 picture back the same way, reading its grey level.
+  the picture). Paste takes an N x N picture back the same way, reading its grey level. N is 256,
+  or 512 in a version 6 world (spec section 8.1).
 */
 export function heightsToRgba(heights: Uint8Array): Uint8ClampedArray {
-  const out = new Uint8ClampedArray(256 * 256 * 4);
-  for (let j = 0; j < 256; j++) for (let i = 0; i < 256; i++) {
-    const v = heights[i + (j << 8)], d = (i + (255 - j) * 256) * 4;
+  const n = sideOf(heights.length);
+  const out = new Uint8ClampedArray(n * n * 4);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const v = heights[i + j * n]!, d = (i + (n - 1 - j) * n) * 4;
     out[d] = out[d + 1] = out[d + 2] = v;
     out[d + 3] = 255;
   }
   return out;
 }
 
-export function rgbaToHeights(rgba: Uint8ClampedArray | Uint8Array, width: number, height: number): Uint8Array | null {
-  if (width !== 256 || height !== 256) return null;
-  const out = new Uint8Array(65536);
-  for (let j = 0; j < 256; j++) for (let i = 0; i < 256; i++) {
-    const s = (i + (255 - j) * 256) * 4;
-    out[i + (j << 8)] = Math.round(0.299 * rgba[s] + 0.587 * rgba[s + 1] + 0.114 * rgba[s + 2]);
+export function rgbaToHeights(rgba: Uint8ClampedArray | Uint8Array, width: number, height: number, cells = 256): Uint8Array | null {
+  if (width !== cells || height !== cells) return null;
+  const n = cells;
+  const out = new Uint8Array(n * n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const s = (i + (n - 1 - j) * n) * 4;
+    out[i + j * n] = Math.round(0.299 * rgba[s]! + 0.587 * rgba[s + 1]! + 0.114 * rgba[s + 2]!);
   }
   return out;
 }

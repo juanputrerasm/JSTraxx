@@ -12,7 +12,7 @@ export type CutFormat = "PNG" | "TGA" | "RAW";
 export const CUT_MAXGRID = 16;
 /** kLegacySizes and kHDSizes: what each format's tiles may be. */
 export const LEGACY_SIZES = [32, 64, 256];
-export const HD_SIZES = [32, 64, 128, 256, 512, 1024];
+export const HD_SIZES = [32, 64, 128, 256, 512, 1024, 2048];
 
 export interface CutSettings {
   format: CutFormat;

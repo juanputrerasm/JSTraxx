@@ -6,27 +6,55 @@
   tiles, spill, box, errors) is derived by recompute() from the ground and body 0, whenever the
   terrain or a lake changes. Units: H in water units (0.5 ft, the same as waterLevel4). On a
   Classic 8-bit track a corner is 4 * raw; the drive surface compares u = v >> 1 with 32 * H.
-  Containment is strict: a tile is wet when its lowest point is at or under the water.
+  Containment is strict: ground exactly at H does not hold water. Body 0 is there when it is not 0: a version 6 track's
+  may be below 0 ft (v6.ts trackWaterRange), Traxx's never is, so "not 0" is Traxx's "> 0".
 
   Traxx 1.7.1 (423373b, 56cd559): SPILLWAY NOTCHES (water-bodies handover 4.1a). A waterfall whose
-  source is a lake cuts one opening in that lake's wall; the notch tiles and their lip edges come
-  from the falls alone (falls.ts buildNotches) and are an input here (LakeNotches, null for none:
-  every result is then exactly what it was). A lake with notches is filled, flooded and checked in
-  its own VIEW of the ground (LakeView): its notch tiles are barriers, a lip point exactly at H
-  counts as H + 1, every other point of a notch tile's closed square as at least H + 1, and a
-  point or flat triangle at H touching a lip is exempt from CORNER_AT_H.
+  source is a lake cuts one opening in that lake's wall; the notches come from the falls alone
+  (falls.ts trackNotches) and are an input here (LakeNotches, null for none).
+
+  Traxx 1.7.3 (e175d20, f719a05, 056a2d3, 22cad2a, a28fe7d, 71a93b8): THE EDGE RULE.
+    - Two rules (LakeNotches.rule, LAKE_RULE_*). EDGE, the default: water crosses between
+      4-neighbours only through an edge whose lowest point is <= H (2 corners on Classic, the 5 fine
+      points on Spline / Full Map); a notch is an EDGE (LakeNotchEdge), closed to the fill and the
+      spill, and a lip point exactly at H reads H + 1 in every height lookup of that lake. TILE: the
+      1.7.1 rule (a tile is wet when its lowest point is <= H; a notch is a barrier tile), kept for
+      the .WTR files built before it (header flags bit 0 = 0).
+    - The spill is one priority flood for both rules and both kinds of ground, its heap ordered by
+      key, then z, then x (the contract's; it was a LIFO bucket queue). Under EDGE the key of a tile
+      is the edgeMin it was reached through and the level rises to it before the stop tests; the
+      spill has no "seed tile wet at the result" tail.
+    - Recompute keeps where a leaking lake's water gets out (escape) and the ground points exactly
+      at H that give CORNER_AT_H (atcount / atstep / atx / atz); both are derived, never saved.
+    - BuildWTR writes the rule (header flags bit 0 and minor 1 for EDGE); ParseWTR reads it.
+
+  Track format version 6 (track-format-v6.md 8.2, 9.1): the tile map is N x N, a seed and a box
+  run 0..N-1, and every walk and flood wraps at N. N is the side of the ground's grid (groundCells)
+  or of the tile map; at N = 256 everything below is exactly Traxx's code.
 */
-import { writeWtr, parseWtr, isWtr } from "../../vendor/openphotex/mtm/wtr.js";
+import { writeWtr, parseWtr, isWtr, wtrHeightRange } from "../../vendor/openphotex/mtm/wtr.js";
 import type { TxxLake } from "./txx.ts";
 import { buildLakeGround, type LakeGround } from "./surface.ts";
 import type { Terrain16 } from "./terrain16.ts";
 import {
-  heightLevel, pointLevel, pointStep, LAKE_MAX_HEIGHT,
-  LAKE_LIP_E, LAKE_LIP_N, LAKE_LIP_NE, LAKE_LIP_NW, LAKE_LIP_S, LAKE_LIP_SE, LAKE_LIP_SW, LAKE_LIP_W,
+  groundCells, groundSurfaceRange, heightLevel, lakeMaxHeightFor, lakeMinHeightFor, pointLevel, pointStep, makeLakeNotches, lakeRuleOf,
+  LAKE_LIP_E, LAKE_LIP_N, LAKE_LIP_NE, LAKE_LIP_NW, LAKE_LIP_S, LAKE_LIP_SE, LAKE_LIP_SW, LAKE_LIP_W, LAKE_MAX_AT, LAKE_RULE_EDGE, LAKE_RULE_TILE,
+  type LakeNotches, type LakeNotchEdge,
 } from "./lake-ground.ts";
 import { trackNotches, type TraxxFall } from "./falls.ts";
+import { cellShiftOf, cellsOf, sideOf } from "./world.ts";
 
-export { LAKE_MAX_HEIGHT } from "./lake-ground.ts";
+export { LAKE_MAX_HEIGHT, LAKE_V6_MAX_HEIGHT, LAKE_V6_MIN_HEIGHT, groundCells, lakeMaxHeightFor, lakeMinHeightFor } from "./lake-ground.ts";
+export {
+  LAKE_RULE_TILE, LAKE_RULE_EDGE, LAKE_DIR_N, LAKE_DIR_E, LAKE_DIR_S, LAKE_DIR_W, LAKE_MAX_AT, setLakeDefaultRule, lakeDefaultRule, lakeRuleOf,
+  trackLakeRule, type LakeNotches, type LakeNotchEdge,
+} from "./lake-ground.ts";
+
+function dims(n: number): { N: number; M: number; SH: number; T: number } {
+  return { N: n, M: n - 1, SH: cellShiftOf(n), T: n * n };
+}
+/** N of a tile map (or any N x N byte grid). */
+const mapCells = (tmap: { length: number }) => (tmap.length === TILES_CLASSIC ? 256 : sideOf(tmap.length));
 export const LAKE_MAX_LAKES = 255;
 export const LAKE_MAX_SEEDS = 8;
 export const LAKE_NO_BASIN = -1;
@@ -40,16 +68,39 @@ export const LAKEERR_OVERLAP = 0x0010;
 export const LAKEERR_MERGE = 0x0020;
 export const LAKEERR_CORNER_AT_H = 0x0040;
 export const LAKEERR_TOO_MANY = 0x0080;
+/*
+  Track format version 6 (spec 9.1): the world's size picks the .WTR version, so a 256-cell
+  track's lakes (version 1) hold 1..4096 half-feet (0.5 to 2,048 ft) whatever its terrain. JSTraxx
+  only: Traxx's ground cannot go past 511.5 ft, so it is judged only on a version 6 (wide) ground.
+*/
+export const LAKEERR_HEIGHT = 0x0100;
+/** The last error bit, for the loops that list them. */
+export const LAKEERR_LAST = LAKEERR_HEIGHT;
 
-const TILES = 65536;
-const SURFACE_BUCKETS = 32768;
-/** N, E, S, W: the order the downhill walk breaks ties. */
+/** The heights a version 1 .WTR holds, half-feet (OpenPhotex wtrHeightRange(1)). */
+const [WTR_V1_LO, WTR_V1_HI] = wtrHeightRange(1);
+
+/** The tiles of the retail 256 x 256 world. */
+const TILES_CLASSIC = 65536;
+/** N, E, S, W: the order the downhill walk breaks ties (and LAKE_DIR_*). */
 const DX = [0, 1, 0, -1];
 const DZ = [-1, 0, 1, 0];
 
 /** One lake's derived fields (Lake's part Recompute fills). */
 export interface LakeState {
   spill: number;
+  /** The tile (x + z * N) where a LEAKing lake's water gets out; -1 = none. */
+  escape: number;
+  /**
+    Where CORNER_AT_H is: the ground points the test flags, in LATTICE coordinates (atstep steps
+    make one tile: 1 on Classic, 4 on Spline / Full Map, 1 = the tile's NW corner on a ground
+    without points). atcount = the distinct points (it can pass LAKE_MAX_AT); atx / atz the first
+    LAKE_MAX_AT in tile order (z, then x), then row by row within the tile.
+  */
+  atcount: number;
+  atstep: number;
+  atx: number[];
+  atz: number[];
   tilecount: number;
   minx: number; minz: number; maxx: number; maxz: number;
   errors: number;
@@ -57,37 +108,30 @@ export interface LakeState {
 
 /**
   The derived state of a track's lakes: one entry per lake, and the tile map (0 dry, else index + 1).
-  `notches` is the notch input it was derived with (HoldsUpTo and the Lake window read it).
+  `notches` is the notch input it was derived with (HoldsUpTo and the Lake window read it); `rule`
+  the rule it was filled under.
 */
 export interface LakesState {
   lakes: LakeState[];
   tmap: Uint8Array;
   notches?: LakeNotches | null;
+  rule: number;
 }
 
 /**
-  SetNotches' copies: notchlake[tile] = the source lake id (index + 1) of a notch tile, lips[tile]
-  its LAKE_LIP_* edges, hasnotch[id] = 1 for a lake that owns any notch tile.
+  SetNotches (+ SetNotchEdges and the rule): null for no notches under the default rule. Under EDGE
+  a notch tile is turned into the edges its lip bits N / E / S / W name (the transition form).
 */
-export interface LakeNotches {
-  notchlake: Uint8Array;
-  lips: Uint8Array;
-  hasnotch: Uint8Array;
+export function lakeNotches(notchlake: Uint8Array | null, lipedges: Uint8Array | null, edges: readonly LakeNotchEdge[] | null = null,
+  rule?: number): LakeNotches | null {
+  return makeLakeNotches(notchlake, lipedges, edges, rule);
 }
 
-/** SetNotches: null for no notches (a null map, or one with no tile in it). */
-export function lakeNotches(notchlake: Uint8Array | null, lipedges: Uint8Array | null): LakeNotches | null {
-  if (!notchlake) return null;
-  const hasnotch = new Uint8Array(LAKE_MAX_LAKES + 1);
-  let any = false;
-  for (let t = 0; t < TILES; t++) if (notchlake[t] !== 0) { hasnotch[notchlake[t]!] = 1; any = true; }
-  if (!any) return null;
-  return { notchlake: notchlake.slice(0, TILES), lips: lipedges ? lipedges.slice(0, TILES) : new Uint8Array(TILES), hasnotch };
-}
-
-/** HasNotches: does lake index `l` own any notch tile. */
+/** HasNotches: does lake index `l` own any notch (a tile under TILE, an edge under EDGE). */
 export function lakeHasNotches(n: LakeNotches | null | undefined, l: number): boolean {
-  return Boolean(n) && l >= 0 && l < LAKE_MAX_LAKES && n!.hasnotch[l + 1] === 1;
+  if (!n || l < 0 || l >= LAKE_MAX_LAKES) return false;
+  if (n.rule === LAKE_RULE_EDGE) return n.hasedge[l + 1] === 1;
+  return n.notchlake !== null && n.hasnotch[l + 1] === 1;
 }
 
 /** NOTCH_FAR_HOLDS (wtr_check, the ruling of 11-11): the far points of a notch tile hold at H + 1. Test hook only. */
@@ -96,10 +140,17 @@ export function setNotchFarHolds(on: boolean): void {
   notchFarHolds = on;
 }
 
+/* UseEdge: the EDGE rule, on a ground that can give points (else the TILE code runs). */
+function useEdge(n: LakeNotches | null | undefined, g: LakeGround): boolean {
+  return lakeRuleOf(n) === LAKE_RULE_EDGE && pointStep(g) > 0;
+}
+
 /*
   ONE LAKE'S VIEW OF THE GROUND WITH ITS NOTCHES (LakeView, BuildView; wtr_check notch_view).
-  flag[tile]: 1 a notch tile of the lake (a barrier), 2 a tile sharing ground points with one,
-  whose lowest point is recomputed under the notch rule (low[tile]). Rebuilt for each H.
+  TILE: flag[tile] 1 = a notch tile of the lake (a barrier), 2 = a tile sharing ground points with
+  one, whose lowest point is recomputed under the notch rule (low[tile]). EDGE: flag 2 = a tile
+  with a lip point in its closed square (low[] through the lip rule), closed[tile] bit d = its side
+  d is a notch edge, lip = the lattice points of the notch edges. Rebuilt for each H.
 */
 interface LakeView {
   flag: Uint8Array;
@@ -111,28 +162,39 @@ interface LakeView {
   lv: number;
   g: LakeGround | null;
   lip: Uint8Array | null;
+  edge: boolean;
+  closed: Uint8Array;
+  lipkey: Set<number>;
+  /** N, N - 1 and log2 N of the ground (version 6, spec 8.1). */
+  N: number;
+  M: number;
+  SH: number;
 }
 
-function viewInit(): LakeView {
-  return { flag: new Uint8Array(TILES), low: new Int32Array(TILES), touched: new Int32Array(TILES), ntouched: 0, active: false, S: 0, lv: 0, g: null, lip: null };
+function viewInit(n = 256): LakeView {
+  const { M, SH, T } = dims(n);
+  return {
+    flag: new Uint8Array(T), low: new Int32Array(T), touched: new Int32Array(T), ntouched: 0, active: false, S: 0, lv: 0, g: null, lip: null,
+    edge: false, closed: new Uint8Array(T), lipkey: new Set(), N: n, M, SH,
+  };
 }
 
-/* ViewPoint: lattice point (px, pz) inside a notch tile's closed square, and on one of its lip edges. */
+/* ViewPoint (TILE): lattice point (px, pz) inside a notch tile's closed square, and on one of its lip edges. */
 function viewPoint(v: LakeView, px: number, pz: number): { innotch: boolean; onlip: boolean } {
-  const S = v.S, W = 256 * S;
+  const S = v.S, W = v.N * S, M = v.M, SH = v.SH;
   px &= W - 1;
   pz &= W - 1;
   const ax = [Math.trunc(px / S)], az = [Math.trunc(pz / S)];
-  if (px % S === 0) ax.push((Math.trunc(px / S) - 1) & 255);
-  if (pz % S === 0) az.push((Math.trunc(pz / S) - 1) & 255);
+  if (px % S === 0) ax.push((Math.trunc(px / S) - 1) & M);
+  if (pz % S === 0) az.push((Math.trunc(pz / S) - 1) & M);
   let innotch = false, onlip = false;
   for (const a of ax) {
     for (const b of az) {
-      const t = (a & 255) + ((b & 255) << 8);
+      const t = (a & M) + ((b & M) << SH);
       if (v.flag[t] !== 1) continue;
       innotch = true;
       const lx = (px - S * a) & (W - 1), lz = (pz - S * b) & (W - 1);
-      const m = v.lip![t]!;
+      const m = v.lip ? v.lip[t]! : 0;
       if (((m & LAKE_LIP_N) && lz === 0) || ((m & LAKE_LIP_E) && lx === S) || ((m & LAKE_LIP_S) && lz === S) || ((m & LAKE_LIP_W) && lx === 0) ||
         ((m & LAKE_LIP_NW) && lx === 0 && lz === 0) || ((m & LAKE_LIP_NE) && lx === S && lz === 0) ||
         ((m & LAKE_LIP_SE) && lx === S && lz === S) || ((m & LAKE_LIP_SW) && lx === 0 && lz === S)) onlip = true;
@@ -141,7 +203,7 @@ function viewPoint(v: LakeView, px: number, pz: number): { innotch: boolean; onl
   return { innotch, onlip };
 }
 
-/* ViewTileLow: the lowest point of tile (x, z) under the notch rule. */
+/* ViewTileLow (TILE): the lowest point of tile (x, z) under the notch rule. */
 function viewTileLow(v: LakeView, x: number, z: number): number {
   const S = v.S;
   let m = 0x7fffffff;
@@ -158,50 +220,178 @@ function viewTileLow(v: LakeView, x: number, z: number): number {
   return m;
 }
 
+/*
+  THE EDGE RULE'S GROUND (handover 4.1, 4.1a). A tile's edge d (N, E, S, W) has S + 1 lattice
+  points, shared with the neighbour across it; edgeMin is the lowest of them, through the lip rule
+  (a lip point exactly at H reads H + 1). The edge is OPEN at H when edgeMin <= H and it is not a
+  notch edge of the lake.
+*/
+function lipKey(v: LakeView, px: number, pz: number): number {
+  const W = v.N * v.S;
+  return (px & (W - 1)) + (pz & (W - 1)) * W;
+}
+
+function viewIsLip(v: LakeView | null, px: number, pz: number): boolean {
+  if (!v || !v.active || !v.edge || v.lipkey.size === 0) return false;
+  return v.lipkey.has(lipKey(v, px, pz));
+}
+
+function edgePointAt(g: LakeGround, v: LakeView | null, px: number, pz: number): number {
+  let u = pointLevel(g, px, pz);
+  if (v && v.active && v.edge && u === v.lv && viewIsLip(v, px, pz)) u = v.lv + 1;
+  return u;
+}
+
+/* EdgeGeom: edge d of tile (x, z), its first lattice point and the step along it. */
+function edgeGeom(S: number, M: number, x: number, z: number, d: number): { bx: number; bz: number; sx: number; sz: number } {
+  let bx = S * (x & M), bz = S * (z & M), sx = 0, sz = 0;
+  switch (d) {
+    case 0: sx = 1; break; // N: z = tz
+    case 1: bx += S; sz = 1; break; // E: x = tx + 1
+    case 2: bz += S; sx = 1; break; // S: z = tz + 1
+    default: sz = 1; break; // W: x = tx
+  }
+  return { bx, bz, sx, sz };
+}
+
+/* EdgeMinG: edgeMin of edge d of tile (x, z), in the ground's level, through the view's lip rule (v may be null). */
+function edgeMinG(g: LakeGround, v: LakeView | null, x: number, z: number, d: number): number {
+  const S = pointStep(g), n = groundCells(g), W = n * S;
+  const { bx, bz, sx, sz } = edgeGeom(S, n - 1, x, z, d);
+  let m = 0x7fffffff;
+  for (let i = 0; i <= S; i++) {
+    const u = edgePointAt(g, v, (bx + sx * i) & (W - 1), (bz + sz * i) & (W - 1));
+    if (u < m) m = u;
+  }
+  return m;
+}
+
+/* EdgeClosed: is edge d of tile (x, z) a notch edge of the view's lake (closed whatever its points)? */
+function edgeClosed(v: LakeView | null, x: number, z: number, d: number): boolean {
+  return Boolean(v && v.active && v.edge && ((v.closed[(x & v.M) + ((z & v.M) << v.SH)]! >> d) & 1));
+}
+
+function viewTouch(v: LakeView, t: number): void {
+  if (v.closed[t] === 0 && v.flag[t] === 0) v.touched[v.ntouched++] = t;
+}
+
+/* ViewAddNotchEdge: close edge d of tile (x, z) from both sides and record its points as lip points. */
+function viewAddNotchEdge(v: LakeView, x: number, z: number, d: number): void {
+  const { M, SH, S } = v;
+  const nx = (x + DX[d]!) & M, nz = (z + DZ[d]!) & M;
+  const t = (x & M) + ((z & M) << SH), nt = nx + (nz << SH);
+  viewTouch(v, t);
+  v.closed[t]! |= 1 << d;
+  viewTouch(v, nt);
+  v.closed[nt]! |= 1 << ((d + 2) & 3);
+  const { bx, bz, sx, sz } = edgeGeom(S, M, x, z, d);
+  for (let i = 0; i <= S; i++) v.lipkey.add(lipKey(v, bx + sx * i, bz + sz * i));
+}
+
 const VIEW_OX = [-1, 0, 1, -1, 1, -1, 0, 1];
 const VIEW_OZ = [-1, -1, -1, 0, 0, 1, 1, 1];
 
 /* BuildView: lake l's view at h (inactive for a lake without notches). */
 function buildView(v: LakeView, g: LakeGround, notches: LakeNotches | null | undefined, l: number, h: number): void {
-  for (let i = 0; i < v.ntouched; i++) v.flag[v.touched[i]!] = 0;
+  const { M, SH, T } = dims(v.N);
+  for (let i = 0; i < v.ntouched; i++) { v.flag[v.touched[i]!] = 0; v.closed[v.touched[i]!] = 0; }
   v.ntouched = 0;
   v.active = false;
+  v.edge = false;
+  v.lipkey.clear();
   if (!lakeHasNotches(notches, l)) return;
+  const n = notches!;
   v.g = g;
-  v.lip = notches!.lips;
+  v.lip = n.lips;
   v.S = pointStep(g);
   v.lv = heightLevel(g, h);
-  for (let t = 0; t < TILES; t++) if (notches!.notchlake[t] === l + 1) { v.flag[t] = 1; v.touched[v.ntouched++] = t; }
+  // THE EDGE RULE: the lake's notch edges (explicit, then the lip bits of its notch tiles) and the lip points.
+  if (useEdge(n, g)) {
+    v.edge = true;
+    v.active = true;
+    for (const e of n.edges) if (e.lake === l + 1 && e.dir < 4) viewAddNotchEdge(v, e.x, e.z, e.dir);
+    if (n.notchlake && n.lips) {
+      for (let t = 0; t < T; t++) {
+        if (n.notchlake[t] !== l + 1) continue;
+        for (let k = 0; k < 4; k++) if (n.lips[t]! & (1 << k)) viewAddNotchEdge(v, t & M, t >> SH, k);
+      }
+    }
+    // Every tile whose closed square holds a lip point: its lowest point under the lip rule.
+    const S = v.S, W = v.N * S;
+    for (const key of v.lipkey) {
+      const px = key % W, pz = Math.trunc(key / W);
+      const ax = [Math.trunc(px / S)], az = [Math.trunc(pz / S)];
+      if (px % S === 0) ax.push((Math.trunc(px / S) - 1) & M);
+      if (pz % S === 0) az.push((Math.trunc(pz / S) - 1) & M);
+      for (const a of ax) {
+        for (const b of az) {
+          const tt = (a & M) + ((b & M) << SH);
+          if (v.flag[tt] !== 2) { viewTouch(v, tt); v.flag[tt] = 2; }
+        }
+      }
+    }
+    for (let k = 0; k < v.ntouched; k++) {
+      const tt = v.touched[k]!;
+      if (v.flag[tt] !== 2) continue;
+      const tx = tt & M, tz = tt >> SH;
+      let m = 0x7fffffff;
+      for (let dz = 0; dz <= S; dz++) {
+        for (let dx = 0; dx <= S; dx++) {
+          const u = edgePointAt(g, v, (S * tx + dx) & (W - 1), (S * tz + dz) & (W - 1));
+          if (u < m) m = u;
+        }
+      }
+      v.low[tt] = m;
+    }
+    return;
+  }
+  if (n.notchlake) for (let t = 0; t < T; t++) if (n.notchlake[t] === l + 1) { v.flag[t] = 1; v.touched[v.ntouched++] = t; }
   v.active = true;
   if (v.S === 0) return; // no ground points to read: the notch tiles are barriers only
   const nn = v.ntouched;
   for (let i = 0; i < nn; i++) {
-    const x = v.touched[i]! & 255, z = v.touched[i]! >> 8;
+    const x = v.touched[i]! & M, z = v.touched[i]! >> SH;
     for (let d = 0; d < 8; d++) {
-      const u = ((x + VIEW_OX[d]!) & 255) + (((z + VIEW_OZ[d]!) & 255) << 8);
+      const u = ((x + VIEW_OX[d]!) & M) + (((z + VIEW_OZ[d]!) & M) << SH);
       if (v.flag[u] === 0) { v.flag[u] = 2; v.touched[v.ntouched++] = u; }
     }
   }
-  for (let i = nn; i < v.ntouched; i++) { const t = v.touched[i]!; v.low[t] = viewTileLow(v, t & 255, t >> 8); }
+  for (let i = nn; i < v.ntouched; i++) { const t = v.touched[i]!; v.low[t] = viewTileLow(v, t & M, t >> SH); }
 }
 
 /* LowV: the lowest point of a tile for the fill and the flood, the view's or the plain ground's. */
 function lowV(g: LakeGround, v: LakeView | null, x: number, z: number): number {
   if (v && v.active) {
-    const t = (x & 255) + ((z & 255) << 8);
+    const t = (x & v.M) + ((z & v.M) << v.SH);
     if (v.flag[t] === 2) return v.low[t]!;
   }
   return tileLow(g, x, z);
 }
 
 function notchTile(v: LakeView | null, x: number, z: number): boolean {
-  return Boolean(v && v.active && v.flag[(x & 255) + ((z & 255) << 8)] === 1);
+  return Boolean(v && v.active && v.flag[(x & v.M) + ((z & v.M) << v.SH)] === 1);
+}
+
+/* The at-H and lip flags of the (S + 1)^2 points of tile (x, z), as GroundAtV and AtCollect read them. */
+function pointFlags(g: LakeGround, v: LakeView | null, S: number, M: number, x: number, z: number, lv: number): { A: boolean[][]; L: boolean[][] } {
+  const A: boolean[][] = [], L: boolean[][] = [];
+  for (let dz = 0; dz <= S; dz++) {
+    A.push([]); L.push([]);
+    for (let dx = 0; dx <= S; dx++) {
+      const px = S * (x & M) + dx, pz = S * (z & M) + dz;
+      let onlip = false;
+      if (v && v.active) onlip = v.edge ? viewIsLip(v, px, pz) : viewPoint(v, px, pz).onlip;
+      A[dz]!.push(pointLevel(g, px, pz) === lv);
+      L[dz]!.push(onlip);
+    }
+  }
+  return { A, L };
 }
 
 /*
   GroundAtV: is the ground of tile (x, z) at level h for CORNER_AT_H in the lake's view? A corner
-  (Classic) or a flat triangle (fine) at exactly H touching a lip edge is exempt; a notch tile is
-  never asked.
+  (Classic) or a flat triangle (fine) at exactly H touching a lip is exempt; a notch tile is never
+  asked.
 */
 function groundAtV(g: LakeGround, v: LakeView | null, x: number, z: number, h: number): boolean {
   if (!v || !v.active) return groundAtH(g, x, z, h);
@@ -209,10 +399,7 @@ function groundAtV(g: LakeGround, v: LakeView | null, x: number, z: number, h: n
   if (!groundAtH(g, x, z, h)) return false;
   if (v.S === 0) return true;
   const S = v.S;
-  const at = (dz: number, dx: number) => pointLevel(g, S * (x & 255) + dx, S * (z & 255) + dz) === v.lv;
-  const lp = (dz: number, dx: number) => viewPoint(v, S * (x & 255) + dx, S * (z & 255) + dz).onlip;
-  const A: boolean[][] = [], L: boolean[][] = [];
-  for (let dz = 0; dz <= S; dz++) { A.push([]); L.push([]); for (let dx = 0; dx <= S; dx++) { A[dz]!.push(at(dz, dx)); L[dz]!.push(lp(dz, dx)); } }
+  const { A, L } = pointFlags(g, v, S, v.M, x, z, v.lv);
   if (S === 1) {
     for (let dz = 0; dz <= 1; dz++) for (let dx = 0; dx <= 1; dx++) if (A[dz]![dx] && !L[dz]![dx]) return true;
     return false;
@@ -234,8 +421,54 @@ function groundAtV(g: LakeGround, v: LakeView | null, x: number, z: number, h: n
   return false;
 }
 
+/*
+  WHERE CORNER_AT_H IS (AtRec, AtAdd, AtCollect): the same decisions as GroundAt / GroundAtV,
+  naming the points at exactly H instead of saying yes or no (lip points left out under the lake's
+  view). Lattice points, wrapped at W = N * step, each counted once (bm, W * W, per lake).
+*/
+interface AtRec { lk: LakeState; bm: Uint8Array; W: number }
+
+function atAdd(r: AtRec, px: number, pz: number): void {
+  px &= r.W - 1;
+  pz &= r.W - 1;
+  if (r.bm[px + pz * r.W]) return;
+  r.bm[px + pz * r.W] = 1;
+  if (r.lk.atcount < LAKE_MAX_AT) { r.lk.atx.push(px); r.lk.atz.push(pz); }
+  r.lk.atcount++;
+}
+
+function atCollect(g: LakeGround, v: LakeView | null, x: number, z: number, h: number, r: AtRec): void {
+  const view = Boolean(v && v.active);
+  const S = view ? v!.S : pointStep(g);
+  const M = groundCells(g) - 1;
+  if (view && notchTile(v, x, z)) return;
+  if (!groundAtH(g, x, z, h)) return;
+  if (S < 1 || S > 4) { atAdd(r, x & M, z & M); return; } // no ground points: the tile's NW corner stands for it (step 1)
+  const { A, L } = pointFlags(g, view ? v : null, S, M, x, z, levelOf(g, h));
+  if (S === 1) {
+    for (let dz = 0; dz <= 1; dz++) for (let dx = 0; dx <= 1; dx++) if (A[dz]![dx] && !L[dz]![dx]) atAdd(r, (x & M) + dx, (z & M) + dz);
+    return;
+  }
+  for (let dz = 0; dz < S; dz++) {
+    for (let dx = 0; dx < S; dx++) {
+      const a = A[dz]![dx]!, b = A[dz]![dx + 1]!, c = A[dz + 1]![dx + 1]!, d = A[dz + 1]![dx]!;
+      const la = L[dz]![dx]!, lb = L[dz]![dx + 1]!, lc = L[dz + 1]![dx + 1]!, ld = L[dz + 1]![dx]!;
+      const bx = S * (x & M) + dx, bz = S * (z & M) + dz;
+      if (((dx ^ dz) & 1) === 0) {
+        if (a && b && c && !(la || lb || lc)) { atAdd(r, bx, bz); atAdd(r, bx + 1, bz); atAdd(r, bx + 1, bz + 1); }
+        if (a && c && d && !(la || lc || ld)) { atAdd(r, bx, bz); atAdd(r, bx + 1, bz + 1); atAdd(r, bx, bz + 1); }
+      } else {
+        if (a && b && d && !(la || lb || ld)) { atAdd(r, bx, bz); atAdd(r, bx + 1, bz); atAdd(r, bx, bz + 1); }
+        if (b && c && d && !(lb || lc || ld)) { atAdd(r, bx + 1, bz); atAdd(r, bx + 1, bz + 1); atAdd(r, bx, bz + 1); }
+      }
+    }
+  }
+}
+
 function corner(raw: Uint8Array, x: number, z: number): number {
-  return 4 * raw[(x & 255) + ((z & 255) << 8)];
+  if (raw.length === TILES_CLASSIC) return 4 * raw[(x & 255) + ((z & 255) << 8)]!;
+  const n = mapCells(raw);
+  return 4 * raw[(x & (n - 1)) + (z & (n - 1)) * n]!;
 }
 
 function minCorner(raw: Uint8Array, x: number, z: number): number {
@@ -248,14 +481,16 @@ function cornerAt(raw: Uint8Array, x: number, z: number, h: number): boolean {
 
 function tileLow(g: LakeGround, x: number, z: number): number {
   if (g.raw) return minCorner(g.raw, x, z);
-  return g.tilemin![(x & 255) + ((z & 255) << 8)];
+  const { M, SH } = dims(groundCells(g));
+  return g.tilemin![(x & M) + ((z & M) << SH)]!;
 }
 
 const levelOf = heightLevel;
 
 function groundAtH(g: LakeGround, x: number, z: number, h: number): boolean {
   if (g.raw) return cornerAt(g.raw, x, z, h);
-  return g.groundAtLevel!((x & 255) + ((z & 255) << 8), levelOf(g, h));
+  const { M, SH } = dims(groundCells(g));
+  return g.groundAtLevel!((x & M) + ((z & M) << SH), levelOf(g, h));
 }
 
 function hasGround(g: LakeGround | null): g is LakeGround {
@@ -281,6 +516,7 @@ export function lakeErrorText(bit: number): string {
     case LAKEERR_MERGE: return "The lake shares or touches another lake at the same height - make them one lake with two seeds";
     case LAKEERR_CORNER_AT_H: return "The ground is exactly at the water's height - move it by a quarter step";
     case LAKEERR_TOO_MANY: return "Too many lakes, or a lake with no seed or more than 8 seeds";
+    case LAKEERR_HEIGHT: return "The lake is outside 0.5 to 2,048 ft: a 256-cell track's lakes (.WTR version 1) hold no other height - change its height, or use a 512-cell world";
   }
   return "";
 }
@@ -312,104 +548,134 @@ export function anyLakeErrors(s: LakesState): number {
 /** LakeAt: lake index under a tile, or -1. */
 export function lakeAt(s: LakesState | null, lakes: readonly TxxLake[], x: number, z: number): number {
   if (!s) return -1;
-  const v = s.tmap[(x & 255) + ((z & 255) << 8)];
+  const { M, SH } = dims(mapCells(s.tmap));
+  const v = s.tmap[(x & M) + ((z & M) << SH)]!;
   return v === 0 || v > lakes.length ? -1 : v - 1;
 }
 
 /** SeedIndex. */
-export function seedIndex(lakes: readonly TxxLake[], l: number, x: number, z: number): number {
+export function seedIndex(lakes: readonly TxxLake[], l: number, x: number, z: number, cells = 256): number {
+  const M = cells - 1;
   if (l < 0 || l >= lakes.length) return -1;
-  const seeds = lakes[l].seeds;
-  for (let i = 0; i < seeds.length && i < LAKE_MAX_SEEDS; i++) if (seeds[i][0] === (x & 255) && seeds[i][1] === (z & 255)) return i;
+  const seeds = lakes[l]!.seeds;
+  for (let i = 0; i < seeds.length && i < LAKE_MAX_SEEDS; i++) if (seeds[i]![0] === (x & M) && seeds[i]![1] === (z & M)) return i;
   return -1;
 }
 
 /** DistinctHeights: reflection passes the engine needs (body 0 counts one). */
 export function distinctHeights(lakes: readonly TxxLake[], body0: number): number {
-  return (body0 > 0 ? 1 : 0) + new Set(lakes.map((l) => l.height)).size;
+  return (body0 !== 0 ? 1 : 0) + new Set(lakes.map((l) => l.height)).size;
 }
 
 /**
   Spill: the highest H the basin around (x, z) holds. `tmap` is the current tile map (other lakes
   stop the flood); `self` is this lake's index or -1. LAKE_MAX_HEIGHT for no spill; LAKE_NO_BASIN
-  when the result is at or under body 0 or (x, z) is dry at it. A lake with notches (`notches`,
-  its height from `lakes`) floods in its own view at its height, on either kind of ground.
+  when the result is at or under body 0 or (TILE rule) (x, z) is dry at it. A lake with notches
+  (`notches`, its height from `lakes`) floods in its own view at its height. The rule is the
+  notches' (lakeRuleOf: null is the default).
 */
 export function lakeSpill(g: LakeGround | null, tmap: Uint8Array | null, body0: number, x: number, z: number, self: number,
   notches: LakeNotches | null = null, lakes: readonly TxxLake[] | null = null): number {
-  if (!hasGround(g)) return LAKE_NO_BASIN;
+  return lakeSpillAt(g, tmap, body0, x, z, self, notches, lakes).spill;
+}
+
+/**
+  Spill with its escape tile: the tile the flood stopped at (the pour tile, the sea tile or the
+  other lake's tile), x + z * N; -1 when the flood never stopped (no spill) or could not run.
+  It is set for LAKE_NO_BASIN too, when the flood did stop.
+*/
+export function lakeSpillAt(g: LakeGround | null, tmap: Uint8Array | null, body0: number, x: number, z: number, self: number,
+  notches: LakeNotches | null = null, lakes: readonly TxxLake[] | null = null): { spill: number; escape: number } {
+  if (!hasGround(g)) return { spill: LAKE_NO_BASIN, escape: -1 };
   if (self >= 0 && lakeHasNotches(notches, self) && lakes && lakes[self]) {
-    const view = viewInit();
+    const view = viewInit(groundCells(g));
     buildView(view, g, notches, self, lakes[self]!.height);
-    return spillSurface(g, view, tmap, body0, x, z, self);
+    return spillSurface(g, view, notches, tmap, body0, x, z, self);
   }
-  if (!g.raw) return spillSurface(g, null, tmap, body0, x, z, self);
-  // From here on, the Classic 8-bit code as it always was: minCorner / 4 in 256 buckets.
-  const raw = g.raw;
-  const key = (i: number) => minCorner(raw, i & 255, i >> 8);
-  const bucketOf = (m: number) => Math.min(255, m >> 2);
-  const nb = 256;
-
-  let tx = x & 255, tz = z & 255;
-  for (;;) {
-    const here = key(tx + (tz << 8));
-    let best = here, bx = tx, bz = tz;
-    for (let d = 0; d < 4; d++) {
-      const nx = (tx + DX[d]) & 255, nz = (tz + DZ[d]) & 255;
-      const m = key(nx + (nz << 8));
-      if (m < best) { best = m; bx = nx; bz = nz; }
-    }
-    if (best >= here) break;
-    tx = bx; tz = bz;
-  }
-
-  const mark = new Uint8Array(TILES);
-  const next = new Int32Array(TILES);
-  const head = new Int32Array(nb).fill(-1);
-  let i = tx + (tz << 8);
-  let level = key(i);
-  let curb = bucketOf(level);
-  next[i] = -1; head[curb] = i; mark[i] = 1;
-  let result = 0, found = false;
-  for (;;) {
-    while (curb < nb && head[curb] < 0) curb++;
-    if (curb >= nb) break;
-    i = head[curb];
-    head[curb] = next[i];
-    const ux = i & 255, uz = i >> 8;
-    const mc = key(i);
-    if (mc < level) { result = level - 1; found = true; break; }
-    if (body0 > 0 && mc <= body0) { result = level - 1; found = true; break; }
-    if (tmap && tmap[i] !== 0 && tmap[i] !== self + 1) { result = level - 1; found = true; break; }
-    if (mc > level) level = mc;
-    for (let d = 0; d < 4; d++) {
-      const ni = ((ux + DX[d]) & 255) + (((uz + DZ[d]) & 255) << 8);
-      if (!mark[ni]) {
-        const b = bucketOf(key(ni));
-        mark[ni] = 1; next[ni] = head[b]; head[b] = ni;
-        if (b < curb) curb = b;
-      }
-    }
-  }
-  if (!found) return LAKE_MAX_HEIGHT;
-  if (body0 > 0 && result <= body0) return LAKE_NO_BASIN;
-  if (minCorner(raw, x, z) > result) return LAKE_NO_BASIN;
-  return result;
+  return spillSurface(g, null, notches, tmap, body0, x, z, self);
 }
 
 /*
-  SpillSurface: the walk and flood keyed by each tile's lowest point (u on the surface, the view's
-  lowest points under notches) in one bucket per value, each bucket LIFO, the lowest first. With a
-  view the notch tiles are never entered and the sea is judged on the plain ground.
+  THE HEAP (LakeHeap, HeapPush, HeapPop): the lowest key, then the lowest z, then the lowest x
+  (the contract's order, for both rules). Traxx packs key (16 bits, clamped 0..65535), z, x into a
+  DWORD; here the key times the tile count plus the tile index x + z * N, which orders the same.
+  A version 6 (wide) ground keys from its own lowest u, not clamped.
 */
-function spillSurface(g: LakeGround, v: LakeView | null, tmap: Uint8Array | null, body0: number, x: number, z: number, self: number): number {
+class LakeHeap {
+  private a: Float64Array;
+  private T: number;
+  private base: number;
+  private wide: boolean;
+  n = 0;
+  constructor(cap: number, T: number, base: number, wide: boolean) {
+    this.a = new Float64Array(cap);
+    this.T = T;
+    this.base = base;
+    this.wide = wide;
+  }
+  push(key: number, tile: number): void {
+    let k = key - this.base;
+    if (k < 0) k = 0;
+    else if (!this.wide && k > 65535) k = 65535;
+    const e = k * this.T + tile;
+    let i = this.n++;
+    if (i >= this.a.length) { const b = new Float64Array(this.a.length * 2); b.set(this.a); this.a = b; }
+    while (i > 0) {
+      const par = (i - 1) >> 1;
+      if (this.a[par]! <= e) break;
+      this.a[i] = this.a[par]!;
+      i = par;
+    }
+    this.a[i] = e;
+  }
+  pop(): { key: number; tile: number } {
+    const top = this.a[0]!, e = this.a[--this.n]!;
+    const n = this.n;
+    let i = 0;
+    if (n > 0) {
+      for (;;) {
+        let c = 2 * i + 1;
+        if (c >= n) break;
+        if (c + 1 < n && this.a[c + 1]! < this.a[c]!) c++;
+        if (this.a[c]! >= e) break;
+        this.a[i] = this.a[c]!;
+        i = c;
+      }
+      this.a[i] = e;
+    }
+    const tile = top % this.T;
+    return { key: (top - tile) / this.T + this.base, tile };
+  }
+}
+
+/*
+  SpillSurface (THE SPILL, handover 4.3 EDGE, 4.5.3 TILE): walk downhill to the floor of the basin,
+  then flood upward in heap order; the level the flood has reached when it first pours out (steps
+  down, meets the sea or meets another lake) is one above the basin's capacity. With a view the
+  notch tiles (TILE) or notch edges (EDGE) are never crossed and the lip rule applies; the sea is
+  judged on the plain ground.
+*/
+function spillSurface(g: LakeGround, v: LakeView | null, notches: LakeNotches | null | undefined, tmap: Uint8Array | null, body0: number,
+  x: number, z: number, self: number): { spill: number; escape: number } {
   const sea = levelOf(g, body0);
-  let tx = x & 255, tz = z & 255;
+  const edge = useEdge(notches, g);
+  const { M, SH, T } = dims(groundCells(g));
+  // Version 6: a ground below 0 or at 512 ft or more keys its own u range (groundSurfaceRange).
+  const range = g.raw ? { base: 0, wide: false } : groundSurfaceRange(g);
+  let tx = x & M, tz = z & M;
+  // 1. Downhill to the floor; ties go to the first of N, E, S, W. TILE: never onto a notch tile.
+  // EDGE: only across an edge that holds the tile's lowest point, and never a notch edge.
   for (;;) {
     const here = lowV(g, v, tx, tz);
-    let best = here, bx = tx, bz = tz;
+    let best = here, bx = tx, bz = tz, any = false;
     for (let d = 0; d < 4; d++) {
-      const nx = (tx + DX[d]) & 255, nz = (tz + DZ[d]) & 255;
+      const nx = (tx + DX[d]!) & M, nz = (tz + DZ[d]!) & M;
+      if (edge) {
+        if (edgeClosed(v, tx, tz, d) || edgeMinG(g, v, tx, tz, d) !== here) continue;
+        const m = lowV(g, v, nx, nz);
+        if (!any || m < best) { any = true; best = m; bx = nx; bz = nz; }
+        continue;
+      }
       if (notchTile(v, nx, nz)) continue;
       const m = lowV(g, v, nx, nz);
       if (m < best) { best = m; bx = nx; bz = nz; }
@@ -417,66 +683,77 @@ function spillSurface(g: LakeGround, v: LakeView | null, tmap: Uint8Array | null
     if (best >= here) break;
     tx = bx; tz = bz;
   }
-  const clampB = (b: number) => (b < 0 ? 0 : b >= SURFACE_BUCKETS ? SURFACE_BUCKETS - 1 : b);
-  const mark = new Uint8Array(TILES);
-  const next = new Int32Array(TILES);
-  const head = new Int32Array(SURFACE_BUCKETS).fill(-1);
-  let i = tx + (tz << 8);
+  // 2. The priority flood upward.
+  const mark = new Uint8Array(T);
+  const heap = new LakeHeap(4096, T, range.base, range.wide);
+  let i = tx + (tz << SH);
   let level = lowV(g, v, tx, tz);
-  let curb = clampB(level);
-  next[i] = -1; head[curb] = i; mark[i] = 1;
+  mark[i] = 1;
+  heap.push(level, i);
   let result = 0, found = false;
-  for (;;) {
-    while (curb < SURFACE_BUCKETS && head[curb] < 0) curb++;
-    if (curb >= SURFACE_BUCKETS) break; // the basin is the whole map
-    i = head[curb];
-    head[curb] = next[i];
-    const ux = i & 255, uz = i >> 8;
+  while (heap.n > 0) {
+    const e = heap.pop();
+    i = e.tile;
+    const ux = i & M, uz = i >> SH;
     const mc = lowV(g, v, ux, uz);
-    if (mc < level) { result = heldG(g, level); found = true; break; }
-    if (body0 > 0 && tileLow(g, ux, uz) <= sea) { result = heldG(g, level); found = true; break; }
-    if (tmap && tmap[i] !== 0 && tmap[i] !== self + 1) { result = heldG(g, level); found = true; break; }
-    if (mc > level) level = mc;
+    if (edge && e.key > level) level = e.key; // FIRST: the water had to rise over the edge it came through
+    if (mc < level) { result = heldG(g, level); found = true; break; } // crossed the pour point, going downhill
+    if (body0 !== 0 && tileLow(g, ux, uz) <= sea) { result = heldG(g, level); found = true; break; } // reached the sea
+    if (tmap && tmap[i] !== 0 && tmap[i] !== self + 1) { result = heldG(g, level); found = true; break; } // met another lake
+    if (!edge && mc > level) level = mc;
     for (let d = 0; d < 4; d++) {
-      const nx = (ux + DX[d]) & 255, nz = (uz + DZ[d]) & 255, ni = nx + (nz << 8);
-      if (!mark[ni] && !notchTile(v, nx, nz)) {
-        const b = clampB(lowV(g, v, nx, nz));
-        mark[ni] = 1; next[ni] = head[b]; head[b] = ni;
-        if (b < curb) curb = b;
+      const nx = (ux + DX[d]!) & M, nz = (uz + DZ[d]!) & M, ni = nx + (nz << SH);
+      if (mark[ni]) continue;
+      if (edge) {
+        if (edgeClosed(v, ux, uz, d)) continue;
+        mark[ni] = 1;
+        heap.push(edgeMinG(g, v, ux, uz, d), ni);
+      } else if (!notchTile(v, nx, nz)) {
+        mark[ni] = 1;
+        heap.push(lowV(g, v, nx, nz), ni);
       }
     }
   }
-  if (!found) return LAKE_MAX_HEIGHT;
-  if (body0 > 0 && result <= body0) return LAKE_NO_BASIN;
-  if (tileLow(g, x, z) > levelOf(g, result)) return LAKE_NO_BASIN;
-  return result;
+  const escape = found ? i : -1;
+  if (!found) return { spill: lakeMaxHeightFor(g), escape };
+  if (body0 !== 0 && result <= body0) return { spill: LAKE_NO_BASIN, escape };
+  // TILE rule only: the tile itself must be wet at that height. The EDGE contract (4.3) has no such test.
+  if (!edge && tileLow(g, x, z) > levelOf(g, result)) return { spill: LAKE_NO_BASIN, escape };
+  return { spill: result, escape };
 }
 
 /**
   LevelTouchesGround: lake l filled at h leaves ground of a filled or shore tile at 32 * h. A lake
-  with notches is judged in its own view at h (lip points exempt, notch tiles barriers; shore
-  tiles not looked at).
+  with notches is judged in its own view at h (lip points exempt, notch tiles or edges barriers;
+  shore tiles not looked at). Under the EDGE rule the fill crosses open edges only and the tiles
+  round it are not looked at (handover 4.4).
 */
 function levelTouchesGround(g: LakeGround, lake: TxxLake, h: number, view: LakeView | null, notches: LakeNotches | null | undefined, l: number): boolean {
   const lv = levelOf(g, h);
+  const edge = useEdge(notches, g);
+  const { M, SH, T } = dims(groundCells(g));
   if (view) {
     buildView(view, g, notches, l, h);
     if (!view.active) view = null;
   }
-  const mark = new Uint8Array(TILES);
-  const queue = new Int32Array(TILES);
+  const mark = new Uint8Array(T);
+  const queue = new Int32Array(T);
   let qh = 0, qt = 0;
   for (const [sx, sz] of lake.seeds.slice(0, LAKE_MAX_SEEDS)) {
-    const t = sx + (sz << 8);
-    if (lowV(g, view, sx, sz) <= lv && !mark[t] && !notchTile(view, t & 255, t >> 8)) { mark[t] = 1; queue[qt++] = t; }
+    const t = sx + (sz << SH);
+    if (lowV(g, view, sx, sz) <= lv && !mark[t] && !notchTile(view, t & M, t >> SH)) { mark[t] = 1; queue[qt++] = t; }
   }
   while (qh < qt) {
-    const t = queue[qh++];
-    const tx = t & 255, tz = t >> 8;
+    const t = queue[qh++]!;
+    const tx = t & M, tz = t >> SH;
     if (groundAtV(g, view, tx, tz, h)) return true;
     for (let d = 0; d < 4; d++) {
-      const nx = (tx + DX[d]) & 255, nz = (tz + DZ[d]) & 255, ni = nx + (nz << 8);
+      const nx = (tx + DX[d]!) & M, nz = (tz + DZ[d]!) & M, ni = nx + (nz << SH);
       if (mark[ni] || notchTile(view, nx, nz)) continue;
+      if (edge) {
+        if (!edgeClosed(view, tx, tz, d) && edgeMinG(g, view, tx, tz, d) <= lv) { mark[ni] = 1; queue[qt++] = ni; }
+        continue;
+      }
       if (lowV(g, view, nx, nz) <= lv) { mark[ni] = 1; queue[qt++] = ni; }
       else if (!view && groundAtV(g, view, nx, nz, h)) return true; // a shore tile
     }
@@ -492,9 +769,9 @@ export function lakeFitHeight(g: LakeGround | null, lake: TxxLake, h: number, ma
   const notch = lakeHasNotches(notches, l);
   if (!hasGround(g) || (g.raw && !notch)) return fitHeight8(h, maxh);
   if (h > maxh) h = maxh;
-  let lowest = 0;
+  let lowest = lakeMinHeightFor(g);
   for (const [x, z] of lake.seeds.slice(0, LAKE_MAX_SEEDS)) lowest = Math.max(lowest, wetFromG(g, tileLow(g, x, z)));
-  const view = notch ? viewInit() : null;
+  const view = notch ? viewInit(groundCells(g)) : null;
   while (h > lowest && levelTouchesGround(g, lake, h, view, notches, l)) h--;
   return h < lowest ? lowest : h;
 }
@@ -506,7 +783,7 @@ export function lakeNearestLegalHeight(g: LakeGround | null, lake: TxxLake, h: n
   if (lo > hi) return -1;
   if (h < lo) h = lo;
   if (h > hi) h = hi;
-  const view = notch ? viewInit() : null;
+  const view = notch ? viewInit(groundCells(g)) : null;
   for (let d = 0; h - d >= lo || h + d <= hi; d++) {
     if (h - d >= lo && !levelTouchesGround(g, lake, h - d, view, notches, l)) return h - d;
     if (h + d <= hi && !levelTouchesGround(g, lake, h + d, view, notches, l)) return h + d;
@@ -516,14 +793,16 @@ export function lakeNearestLegalHeight(g: LakeGround | null, lake: TxxLake, h: n
 
 /** MinHeight: the lowest legal H for the Lake dialog. */
 export function lakeMinHeight(g: LakeGround | null, body0: number, lake: TxxLake, notches: LakeNotches | null = null, l = -1): number {
-  let lo = body0 > 0 ? body0 + 1 : 0;
+  let lo = body0 !== 0 ? body0 + 1 : 0;
   if (!hasGround(g)) return lo;
+  // Version 6: on a ground below 0 ft the lowest lake is the ground's, not 0 (spec 9.1).
+  if (body0 === 0) lo = lakeMinHeightFor(g);
   const seeds = lake.seeds.slice(0, LAKE_MAX_SEEDS);
   const notch = lakeHasNotches(notches, l);
   if (!g.raw || notch) {
     for (const [x, z] of seeds) lo = Math.max(lo, wetFromG(g, tileLow(g, x, z)));
-    const view = notch ? viewInit() : null;
-    while (lo <= LAKE_MAX_HEIGHT && levelTouchesGround(g, lake, lo, view, notches, l)) lo++;
+    const view = notch ? viewInit(groundCells(g)) : null;
+    while (lo <= lakeMaxHeightFor(g) && levelTouchesGround(g, lake, lo, view, notches, l)) lo++;
     return lo;
   }
   for (const [x, z] of seeds) lo = Math.max(lo, minCorner(g.raw, x, z));
@@ -536,9 +815,9 @@ function spillNotchAt(g: LakeGround, view: LakeView, tmap: Uint8Array | null, no
   const seeds = lake.seeds.slice(0, LAKE_MAX_SEEDS);
   if (seeds.length < 1) return LAKE_NO_BASIN;
   buildView(view, g, notches, l, h);
-  let best = LAKE_MAX_HEIGHT + 1;
+  let best = lakeMaxHeightFor(g) + 1;
   for (const [sx, sz] of seeds) {
-    const sp = spillSurface(g, view, tmap, body0, sx, sz, l);
+    const sp = spillSurface(g, view, notches, tmap, body0, sx, sz, l).spill;
     if (sp === LAKE_NO_BASIN) return LAKE_NO_BASIN;
     if (sp < best) best = sp;
   }
@@ -556,12 +835,13 @@ export function lakeHoldsUpTo(g: LakeGround | null, lakes: readonly TxxLake[], s
   if (l < 0 || l >= lakes.length || l >= LAKE_MAX_LAKES) return LAKE_NO_BASIN;
   const notches = st.notches ?? null;
   if (!lakeHasNotches(notches, l) || !hasGround(g)) return st.lakes[l]?.spill ?? LAKE_NO_BASIN;
-  const view = viewInit();
+  const view = viewInit(groundCells(g));
   const lake = lakes[l]!;
+  const MAXH = lakeMaxHeightFor(g);
   const H = lake.height;
   const s0 = spillNotchAt(g, view, st.tmap, notches!, body0, lake, l, H);
-  if (s0 === LAKE_NO_BASIN || H > s0 || s0 >= LAKE_MAX_HEIGHT) return s0;
-  let lo = H, hi = LAKE_MAX_HEIGHT, step = 1;
+  if (s0 === LAKE_NO_BASIN || H > s0 || s0 >= MAXH) return s0;
+  let lo = H, hi = MAXH, step = 1;
   while (lo < hi) {
     let t = lo + step;
     if (t > hi) t = hi;
@@ -577,94 +857,115 @@ export function lakeHoldsUpTo(g: LakeGround | null, lakes: readonly TxxLake[], s
   return lo;
 }
 
+function freshState(errors: number): LakeState {
+  return { errors, spill: LAKE_NO_BASIN, escape: -1, atcount: 0, atstep: 1, atx: [], atz: [], tilecount: 0, minx: 0, minz: 0, maxx: 0, maxz: 0 };
+}
+
 /**
   Recompute: every derived field from scratch. The whole tile map is filled (steps 1, 2) before
-  the spills are measured (3), since a spill stops at another lake. A null ground clears.
+  the spills are measured (3), since a spill stops at another lake. A null ground clears. The
+  rule is the notch input's (null: the default, EDGE).
 */
-export function recomputeLakes(g: LakeGround | null, lakesIn: readonly TxxLake[], body0: number, notches: LakeNotches | null = null): LakesState {
-  const tmap = new Uint8Array(TILES);
+export function recomputeLakes(g: LakeGround | null, lakesIn: readonly TxxLake[], body0: number, notches: LakeNotches | null = null, cells?: number): LakesState {
+  const { N, M, SH, T } = dims(g && hasGround(g) ? groundCells(g) : cells ?? 256);
+  const rule = lakeRuleOf(notches);
+  const tmap = new Uint8Array(T);
   const toomany = lakesIn.length > LAKE_MAX_LAKES;
   const lakes = lakesIn.slice(0, LAKE_MAX_LAKES);
   const nl = lakes.length;
-  const st: LakeState[] = lakes.map(() => ({ errors: toomany ? LAKEERR_TOO_MANY : 0, spill: LAKE_NO_BASIN, tilecount: 0, minx: 0, minz: 0, maxx: 0, maxz: 0 }));
-  if (nl === 0 || !hasGround(g)) return { lakes: st, tmap, notches };
+  const st: LakeState[] = lakes.map(() => freshState(toomany ? LAKEERR_TOO_MANY : 0));
+  if (nl === 0 || !hasGround(g)) return { lakes: st, tmap, notches, rule };
   // Lakes with notches are filled and checked in their own view of the ground.
-  const view = notches ? viewInit() : null;
-  const mark = new Uint8Array(TILES);
-  const queue = new Int32Array(TILES);
-  const occ = new Uint8Array(nl * 512);
+  const anyNotch = Boolean(notches && (notches.notchlake || notches.edges.length));
+  const view = anyNotch ? viewInit(N) : null;
+  const edge = useEdge(notches, g); // the EDGE rule: edges decide the fill, the seed is judged in the lip view
+  const mark = new Uint8Array(T);
+  const queue = new Int32Array(T);
+  const occ = new Uint8Array(nl * 2 * N);
 
   // 1. Fill each lake; the first lake to reach a tile keeps it.
   for (let j = 0; j < nl; j++) {
-    const h = lakes[j].height, hl = levelOf(g, h);
+    const h = lakes[j]!.height, hl = levelOf(g, h);
     let vw: LakeView | null = null;
     if (view && lakeHasNotches(notches, j)) { buildView(view, g, notches, j, h); vw = view; }
     let qh = 0, qt = 0;
-    for (const [sx, sz] of lakes[j].seeds.slice(0, LAKE_MAX_SEEDS)) {
-      const t = sx + (sz << 8);
-      if (tileLow(g, sx, sz) > hl) { st[j].errors |= LAKEERR_SEED_ABOVE_WATER; continue; }
+    for (const [sx, sz] of lakes[j]!.seeds.slice(0, LAKE_MAX_SEEDS)) {
+      const t = sx + (sz << SH);
+      // EDGE: the seed is judged on the lake's own (lip-substituted) lowest point.
+      if (edge ? lowV(g, vw, sx, sz) > hl : tileLow(g, sx, sz) > hl) { st[j]!.errors |= LAKEERR_SEED_ABOVE_WATER; continue; }
       // (a seed wet only through a lip point the notch rule lifts is not filled, and no error)
       if (notchTile(vw, sx, sz) || lowV(g, vw, sx, sz) > hl) continue;
-      if (mark[t] !== ((j + 1) & 255)) { mark[t] = j + 1; queue[qt++] = t; }
+      if (mark[t] !== j + 1) { mark[t] = j + 1; queue[qt++] = t; }
     }
     while (qh < qt) {
-      const u = queue[qh++];
-      const ux = u & 255, uz = u >> 8;
+      const u = queue[qh++]!;
+      const ux = u & M, uz = u >> SH;
       if (tmap[u] === 0) tmap[u] = j + 1;
       else if (tmap[u] !== j + 1) {
-        const o = tmap[u] - 1;
-        const e = lakes[o].height !== h ? LAKEERR_OVERLAP : LAKEERR_MERGE;
-        st[o].errors |= e;
-        st[j].errors |= e;
+        const o = tmap[u]! - 1;
+        const e = lakes[o]!.height !== h ? LAKEERR_OVERLAP : LAKEERR_MERGE;
+        st[o]!.errors |= e;
+        st[j]!.errors |= e;
       }
       for (let d = 0; d < 4; d++) {
-        const nx = (ux + DX[d]) & 255, nz = (uz + DZ[d]) & 255, ni = nx + (nz << 8);
-        if (mark[ni] !== j + 1 && lowV(g, vw, nx, nz) <= hl && !notchTile(vw, nx, nz)) { mark[ni] = j + 1; queue[qt++] = ni; }
+        const nx = (ux + DX[d]!) & M, nz = (uz + DZ[d]!) & M, ni = nx + (nz << SH);
+        if (mark[ni] === j + 1) continue;
+        if (edge ? !edgeClosed(vw, ux, uz, d) && edgeMinG(g, vw, ux, uz, d) <= hl : lowV(g, vw, nx, nz) <= hl && !notchTile(vw, nx, nz)) {
+          mark[ni] = j + 1; queue[qt++] = ni;
+        }
       }
     }
   }
 
   // 2. Same-height lakes touching edge to edge are one lake split in two.
-  for (let t = 0; t < TILES; t++) {
-    const a = tmap[t];
+  for (let t = 0; t < T; t++) {
+    const a = tmap[t]!;
     if (a === 0) continue;
-    const x = t & 255, z = t >> 8;
+    const x = t & M, z = t >> SH;
     for (let d = 1; d <= 2; d++) {
-      const b = tmap[((x + DX[d]) & 255) + (((z + DZ[d]) & 255) << 8)];
-      if (b !== 0 && b !== a && lakes[a - 1].height === lakes[b - 1].height) { st[a - 1].errors |= LAKEERR_MERGE; st[b - 1].errors |= LAKEERR_MERGE; }
+      const b = tmap[((x + DX[d]!) & M) + (((z + DZ[d]!) & M) << SH)]!;
+      if (b !== 0 && b !== a && lakes[a - 1]!.height === lakes[b - 1]!.height) { st[a - 1]!.errors |= LAKEERR_MERGE; st[b - 1]!.errors |= LAKEERR_MERGE; }
     }
   }
 
   // 3. Spill per seed, the lowest wins; a seed with no basin spoils the lot. 4. The per-lake checks.
   for (let j = 0; j < nl; j++) {
-    const ns = lakes[j].seeds.length;
-    let best = LAKE_MAX_HEIGHT + 1;
+    const ns = lakes[j]!.seeds.length;
+    let best = lakeMaxHeightFor(g) + 1;
     let nobasin = ns < 1;
-    for (const [sx, sz] of lakes[j].seeds.slice(0, LAKE_MAX_SEEDS)) {
-      const sp = lakeSpill(g, tmap, body0, sx, sz, j, notches, lakes);
-      if (sp === LAKE_NO_BASIN) nobasin = true;
-      else if (sp < best) best = sp;
+    let bestesc = -1, nobasinesc = -1; // the escape tile of the lowest-spill seed / of the first seed with no basin
+    for (const [sx, sz] of lakes[j]!.seeds.slice(0, LAKE_MAX_SEEDS)) {
+      const r = lakeSpillAt(g, tmap, body0, sx, sz, j, notches, lakes);
+      if (r.spill === LAKE_NO_BASIN) {
+        if (!nobasin || nobasinesc < 0) nobasinesc = r.escape;
+        nobasin = true;
+      } else if (r.spill < best) { best = r.spill; bestesc = r.escape; }
     }
-    st[j].spill = nobasin ? LAKE_NO_BASIN : best;
-    if (nobasin || lakes[j].height > st[j].spill) st[j].errors |= LAKEERR_LEAK;
-    if (body0 > 0 && lakes[j].height <= body0) st[j].errors |= LAKEERR_BELOW_BODY0;
-    if (toomany || ns > LAKE_MAX_SEEDS || ns < 1) st[j].errors |= LAKEERR_TOO_MANY;
+    st[j]!.spill = nobasin ? LAKE_NO_BASIN : best;
+    if (nobasin || lakes[j]!.height > st[j]!.spill) {
+      st[j]!.errors |= LAKEERR_LEAK;
+      st[j]!.escape = nobasin ? nobasinesc : bestesc;
+    }
+    if (body0 !== 0 && lakes[j]!.height <= body0) st[j]!.errors |= LAKEERR_BELOW_BODY0;
+    if (toomany || ns > LAKE_MAX_SEEDS || ns < 1) st[j]!.errors |= LAKEERR_TOO_MANY;
+    if (N === 256 && groundSurfaceRange(g).wide && (lakes[j]!.height < WTR_V1_LO || lakes[j]!.height > WTR_V1_HI)) st[j]!.errors |= LAKEERR_HEIGHT;
   }
 
   // 4/5. The tile checks, the count and the box columns.
-  for (let t = 0; t < TILES; t++) {
-    const a = tmap[t];
+  for (let t = 0; t < T; t++) {
+    const a = tmap[t]!;
     if (a === 0) continue;
-    const x = t & 255, z = t >> 8, j = a - 1, h = lakes[j].height;
-    st[j].tilecount++;
-    occ[j * 512 + x] = 1;
-    occ[j * 512 + 256 + z] = 1;
-    if (body0 > 0 && tileLow(g, x, z) <= levelOf(g, body0)) st[j].errors |= LAKEERR_TOUCHES_BODY0;
+    const x = t & M, z = t >> SH, j = a - 1, h = lakes[j]!.height;
+    st[j]!.tilecount++;
+    occ[j * 2 * N + x] = 1;
+    occ[j * 2 * N + N + z] = 1;
+    if (body0 !== 0 && tileLow(g, x, z) <= levelOf(g, body0)) st[j]!.errors |= LAKEERR_TOUCHES_BODY0;
     if (view && lakeHasNotches(notches, j)) continue; // below, in the lake's own view
-    if (groundAtH(g, x, z, h)) st[j].errors |= LAKEERR_CORNER_AT_H;
-    for (let d = 0; d < 4; d++) {
-      const nx = (x + DX[d]) & 255, nz = (z + DZ[d]) & 255;
-      if (tmap[nx + (nz << 8)] === 0 && groundAtH(g, nx, nz, h)) st[j].errors |= LAKEERR_CORNER_AT_H;
+    if (groundAtH(g, x, z, h)) st[j]!.errors |= LAKEERR_CORNER_AT_H;
+    // ...and (TILE rule) the tiles round the shore; under EDGE the bordering tiles are not checked (handover 4.4).
+    for (let d = 0; !edge && d < 4; d++) {
+      const nx = (x + DX[d]!) & M, nz = (z + DZ[d]!) & M;
+      if (tmap[nx + (nz << SH)] === 0 && groundAtH(g, nx, nz, h)) st[j]!.errors |= LAKEERR_CORNER_AT_H;
     }
   }
 
@@ -673,71 +974,186 @@ export function recomputeLakes(g: LakeGround | null, lakesIn: readonly TxxLake[]
   if (view) {
     for (let j = 0; j < nl; j++) {
       if (!lakeHasNotches(notches, j)) continue;
-      buildView(view, g, notches, j, lakes[j].height);
-      for (let t = 0; t < TILES; t++) if (tmap[t] === j + 1 && groundAtV(g, view, t & 255, t >> 8, lakes[j].height)) st[j].errors |= LAKEERR_CORNER_AT_H;
+      buildView(view, g, notches, j, lakes[j]!.height);
+      for (let t = 0; t < T; t++) if (tmap[t] === j + 1 && groundAtV(g, view, t & M, t >> SH, lakes[j]!.height)) st[j]!.errors |= LAKEERR_CORNER_AT_H;
+    }
+  }
+
+  // 4b. Where CORNER_AT_H is: the points the two tests above flagged (derived only; no error bit changes).
+  {
+    const S0 = pointStep(g);
+    const W = N * (S0 > 0 ? S0 : 1);
+    let bm: Uint8Array | null = null;
+    for (let j = 0; j < nl; j++) {
+      if (!(st[j]!.errors & LAKEERR_CORNER_AT_H)) continue;
+      if (bm) bm.fill(0);
+      else bm = new Uint8Array(W * W);
+      const h = lakes[j]!.height;
+      const notchview = Boolean(view && lakeHasNotches(notches, j));
+      const rec: AtRec = { lk: st[j]!, bm, W };
+      st[j]!.atstep = S0 > 0 ? S0 : 1;
+      if (notchview) buildView(view!, g, notches, j, h);
+      for (let t = 0; t < T; t++) {
+        if (tmap[t] !== j + 1) continue;
+        const x = t & M, z = t >> SH;
+        atCollect(g, notchview ? view : null, x, z, h, rec);
+        for (let d = 0; !edge && !notchview && d < 4; d++) {
+          const nx = (x + DX[d]!) & M, nz = (z + DZ[d]!) & M;
+          if (tmap[nx + (nz << SH)] === 0) atCollect(g, null, nx, nz, h, rec);
+        }
+      }
     }
   }
 
   // 5. The wrapping box: the complement of the longest run of empty columns (rows).
-  for (let j = 0; j < nl; j++) {
+  wrapBoxes(st, occ, N);
+  return { lakes: st, tmap, notches, rule };
+}
+
+/** Step 5 of Recompute: each lake's wrapping box from its occupied columns and rows (`occ`, 2N a lake). */
+function wrapBoxes(st: LakeState[], occ: Uint8Array, N: number): void {
+  const M = N - 1;
+  for (let j = 0; j < st.length; j++) {
     for (let axis = 0; axis < 2; axis++) {
-      const base = j * 512 + axis * 256;
-      const o = (i: number) => occ[base + (i & 255)];
+      const base = j * 2 * N + axis * N;
+      const o = (i: number) => occ[base + (i & M)];
       let bestlen = 0, bestat = 0;
-      for (let i = 0; i < 256; i++) {
-        if (!o(i) && o(i + 255)) {
+      for (let i = 0; i < N; i++) {
+        if (!o(i) && o(i + M)) {
           let len = 0;
-          while (len < 256 && !o(i + len)) len++;
+          while (len < N && !o(i + len)) len++;
           if (len > bestlen) { bestlen = len; bestat = i; }
         }
       }
       let lo: number, hi: number;
-      if (st[j].tilecount === 0) lo = hi = 0;
-      else if (bestlen === 0) { lo = 0; hi = 255; }
-      else { lo = (bestat + bestlen) & 255; hi = (bestat + 255) & 255; }
-      if (axis === 0) { st[j].minx = lo; st[j].maxx = hi; } else { st[j].minz = lo; st[j].maxz = hi; }
+      if (st[j]!.tilecount === 0) lo = hi = 0;
+      else if (bestlen === 0) { lo = 0; hi = M; }
+      else { lo = (bestat + bestlen) & M; hi = (bestat + M) & M; }
+      if (axis === 0) { st[j]!.minx = lo; st[j]!.maxx = hi; } else { st[j]!.minz = lo; st[j]!.maxz = hi; }
     }
   }
-  return { lakes: st, tmap, notches };
+}
+
+/**
+  JSTraxx's own, not Traxx's: a pod's .WTR as it was read, kept while the track's lakes, their rule
+  and its waterfalls (whose notches cut the fill) are what they were when it was read. Lakes a
+  converter made by its own rules rather than Traxx's seed fill keep their tile map, and Write POD
+  writes the file back unchanged; once a lake, the rule or a fall changes, the lakes are Traxx's
+  fill again (and an undo back to the pod's lakes brings the stored map back). Not saved in the .TXX.
+*/
+export interface StoredLakes {
+  /** lakesSignature of the track when the file was read. */
+  sig: string;
+  /** The file's tile map, N x N (0 dry, else lake index + 1). */
+  tmap: Uint8Array;
+  /** The .WTR as it was read. */
+  wtr: Uint8Array;
+}
+
+type StoredLakesTrack = { lakes: readonly TxxLake[]; lakeRule?: number; falls?: readonly TraxxFall[]; storedLakes?: StoredLakes | null };
+
+/** What the stored map depends on: the lakes, their rule and the waterfalls. */
+export function lakesSignature(t: StoredLakesTrack): string {
+  return JSON.stringify([t.lakes, t.lakeRule ?? null, t.falls ?? []]);
+}
+
+/** The track's stored .WTR while its lakes are still the pod's, else null. */
+export function storedLakesOf(t: StoredLakesTrack): StoredLakes | null {
+  const kept = t.storedLakes;
+  return kept && kept.sig === lakesSignature(t) ? kept : null;
+}
+
+/**
+  `st` over the track's stored tile map when it has one (storedLakesOf): the map, each lake's tile
+  count and wrapping box from it, and no errors, since the map is the file's and not a fill. The
+  spill (what the Lake window's capacity reads) stays Traxx's. Otherwise `st` itself.
+*/
+export function withStoredLakes(t: StoredLakesTrack, st: LakesState): LakesState {
+  const kept = storedLakesOf(t);
+  if (!kept) return st;
+  const tmap = kept.tmap, N = sideOf(tmap.length), SH = cellShiftOf(N), M = N - 1;
+  const lakes = st.lakes.map((l) => ({ ...l, errors: 0, escape: -1, atcount: 0, atx: [], atz: [], tilecount: 0 }));
+  const occ = new Uint8Array(lakes.length * 2 * N);
+  for (let t2 = 0; t2 < tmap.length; t2++) {
+    const j = tmap[t2]! - 1;
+    if (j < 0 || j >= lakes.length) continue;
+    lakes[j]!.tilecount++;
+    occ[j * 2 * N + (t2 & M)] = 1;
+    occ[j * 2 * N + N + (t2 >> SH)] = 1;
+  }
+  wrapBoxes(lakes, occ, N);
+  return { ...st, lakes, tmap };
 }
 
 /**
   RecomputeLakes (CTraxxView::RecomputeLakes): the derived state of a track's lakes as the track
-  is now, with the notches its falls cut (UpdateLakeNotches, right before every Recompute).
+  is now, under its rule, with the notches its falls cut (UpdateLakeNotches, right before every Recompute).
 */
-export function trackLakes(t: Terrain16 & { lakes: readonly TxxLake[]; waterLevel4: number; falls?: readonly TraxxFall[] }): LakesState {
-  return recomputeLakes(t.lakes.length ? buildLakeGround(t) : null, t.lakes, t.waterLevel4, trackNotches(t));
+export function trackLakes(t: Terrain16 & { lakes: readonly TxxLake[]; waterLevel4: number; falls?: readonly TraxxFall[]; lakeRule?: number; storedLakes?: StoredLakes | null }): LakesState {
+  // JSTraxx: over the pod's own tile map while the lakes are the pod's (withStoredLakes).
+  return withStoredLakes(t, recomputeLakes(t.lakes.length ? buildLakeGround(t) : null, t.lakes, t.waterLevel4, trackNotches(t), cellsOf(t)));
 }
 
-/** BuildWTR: the .WTR image, or null when there are no lakes or one is in error. */
-export function buildWtr(lakes: readonly TxxLake[], s: LakesState): Uint8Array | null {
-  if (!lakes.length || anyLakeErrors(s) !== 0) return null;
-  return writeWtr(lakes.map((l, i) => ({
-    flags: l.flags, height: l.height, seeds: l.seeds.map(([x, z]) => ({ x, z })),
-    box: { minX: s.lakes[i].minx, minZ: s.lakes[i].minz, maxX: s.lakes[i].maxx, maxZ: s.lakes[i].maxz },
-    tileCount: s.lakes[i].tilecount,
-  })), s.tmap);
+/** The notch edges a lake set was derived with (CTrackPODLakes::NotchEdges), for the wall picture: none under TILE. */
+export function lakeNotchEdgesOf(s: LakesState): LakeNotchEdge[] {
+  return s.rule === LAKE_RULE_EDGE && s.notches ? s.notches.edges : [];
 }
 
 /**
-  ParseWTR: the authored lakes of a .WTR (ids in order 1..N, 1..8 seeds each) and its stored tile
-  map; null when the file cannot be used (Traxx then has no lakes).
+  BuildWTR: the .WTR image, or null when there are no lakes or one is in error. Written with the
+  rule the lakes were filled under (header flags bit 0 and minor 1 for EDGE).
 */
-export function parseWtrLakes(bytes: Uint8Array): { lakes: TxxLake[]; tmap: Uint8Array | null } | null {
-  if (!isWtr(bytes)) return null;
-  let w;
-  try { w = parseWtr(bytes); } catch { return null; }
-  if (w.major > 1 || w.lakes.length > LAKE_MAX_LAKES) return null;
-  const lakes: TxxLake[] = [];
-  for (let i = 0; i < w.lakes.length; i++) {
-    const k = w.lakes[i];
-    if (k.id !== i + 1 || k.seeds.length < 1 || k.seeds.length > LAKE_MAX_SEEDS) return null;
-    lakes.push({ height: k.height | 0, flags: k.flags & 0xffff, seeds: k.seeds.map((p) => [p.x & 255, p.z & 255] as [number, number]) });
+export function buildWtr(lakes: readonly TxxLake[], s: LakesState): Uint8Array | null {
+  if (!lakes.length || anyLakeErrors(s) !== 0) return null;
+  // writeWtr refuses what the file cannot hold (a version 1 height outside 1..4096): no item then.
+  try {
+    return writeWtr(lakes.map((l, i) => ({
+      flags: l.flags, height: l.height, seeds: l.seeds.map(([x, z]) => ({ x, z })),
+      box: { minX: s.lakes[i]!.minx, minZ: s.lakes[i]!.minz, maxX: s.lakes[i]!.maxx, maxZ: s.lakes[i]!.maxz },
+      tileCount: s.lakes[i]!.tilecount,
+    })), s.tmap, { edgeRule: s.rule === LAKE_RULE_EDGE });
+  } catch (e) {
+    if (e instanceof RangeError) return null;
+    throw e;
   }
-  return { lakes, tmap: w.tileMap };
 }
 
-/** The message Traxx shows when a pod's stored tile map differs from the one it computes. */
-export const LAKES_MISMATCH = "The lakes in this pod don't match its terrain; showing them as Traxx computes them.";
+/**
+  ParseWTR: the authored lakes of a .WTR (ids in order 1..N, 1..8 seeds each), its stored tile
+  map and the rule it was built with (header flags bit 0: EDGE, else TILE); null when the file
+  cannot be used (Traxx then has no lakes).
+
+  Track format version 6 (track-format-v6.md 9.1): with `cells`, the worldCells of a .SI3 track,
+  versions 1 and 2 are both read and the file must be N x N (parseWtr refuses any other size); a
+  version 2 height is a signed i32 in half-feet. Without `cells` it is Traxx's reader: version 1,
+  256 x 256 only.
+*/
+export function parseWtrLakes(bytes: Uint8Array, cells?: number): { lakes: TxxLake[]; tmap: Uint8Array | null; rule: number } | null {
+  if (!isWtr(bytes)) return null;
+  let w;
+  try { w = cells === undefined ? parseWtr(bytes) : parseWtr(bytes, { cells }); } catch { return null; }
+  if ((cells === undefined ? w.major > 1 : w.major > 2) || w.lakes.length > LAKE_MAX_LAKES) return null;
+  const M = (cells ?? 256) - 1;
+  const lakes: TxxLake[] = [];
+  for (let i = 0; i < w.lakes.length; i++) {
+    const k = w.lakes[i]!;
+    if (k.id !== i + 1 || k.seeds.length < 1 || k.seeds.length > LAKE_MAX_SEEDS) return null;
+    lakes.push({ height: k.height | 0, flags: k.flags & 0xffff, seeds: k.seeds.map((p) => [p.x & M, p.z & M] as [number, number]) });
+  }
+  return { lakes, tmap: w.tileMap, rule: (w.headerFlags & 1) ? LAKE_RULE_EDGE : LAKE_RULE_TILE };
+}
+
+/**
+  The .WTR of a track format version 6 (.SI3) track: BuildWTR's lakes and the N x N tile map
+  through OpenPhotex writeWtr, whose version is the world's (9.1): version 1 for a 256 x 256 map,
+  version 2 for 512 x 512. A 256-cell track's lake outside version 1's 1..4096 half-feet is
+  LAKEERR_HEIGHT, never a version 2 file. Null when there are no lakes or one is in error, as BuildWTR.
+*/
+export function buildWtrV6(lakes: readonly TxxLake[], s: LakesState): Uint8Array | null {
+  return buildWtr(lakes, s);
+}
+
+/** The message when a pod's stored tile map differs from the one Traxx computes (JSTraxx keeps the stored one, StoredLakes). */
+export const LAKES_MISMATCH = "The lakes in this pod were not filled the way Traxx fills them (they were made by another tool). JSTraxx keeps the pod's own lake map, and Write POD writes it back unchanged, until a lake or a waterfall is edited; from then on the lakes are filled as Traxx fills them.";
 /** Write POD's report when the lakes cannot be packed. */
 export const LAKES_NOT_SAVED = "The lakes could not be written into the pod (the name does not fit a pod entry, or a lake is in error).\n\nThe pod was saved WITHOUT its lakes. Fix them and save again.";

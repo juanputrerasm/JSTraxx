@@ -102,4 +102,16 @@ export declare function writeMtm2Veg(veg: {
     clumps: VegClumps;
     rule?: string | null;
     info?: string | null;
+}, { cells }?: {
+    cells?: number;
 }): Uint8Array;
+/**
+ * Refuse a .VEG whose placements fall outside an N-cell world (track format version 6, section
+ * 9.2): TREE x and z in 0 to W * 256 (exclusive) 1/256 ft units, W = 32 N ft, and GRAS tile numbers
+ * 0 to N - 1. With N = 256 that is CP4's own bound (x and z below 0x200000). The layout does not
+ * change with N; the header's tile counts stay 256 as Traxx writes them.
+ */
+export declare function checkMtm2VegBounds(veg: {
+    trees: VegTrees;
+    clumps: VegClumps;
+}, cells: number): void;

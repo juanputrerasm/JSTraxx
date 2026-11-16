@@ -1,6 +1,6 @@
 /*
   View Controls (IDD_VIEW_CONTROL): the terrain map, Gamma, Grid size, Whole Grid, Wire Frame
-  and Detail Mask. The map is drawn by the renderer (Phase 3); here it is a canvas that shows
+  and (Traxx 1.8.0) Detail Strength, Water Mask, Veg. Mask Wash and Veg. Aids. The map is drawn by the renderer (Phase 3); here it is a canvas that shows
   "No track" until then.
 */
 import { el } from "../../shared/dom.ts";
@@ -11,6 +11,7 @@ import { bar, check, slider, triCheck } from "./controls.ts";
 export class ViewControlBar {
   readonly element: HTMLElement;
   readonly map: HTMLCanvasElement;
+  private rendererChecks: { enable(on: boolean): void }[] = [];
 
   constructor(app: AppState) {
     const s = app.settings;
@@ -20,19 +21,35 @@ export class ViewControlBar {
     grid.enable(!s.show_whole_grid);
     const whole = check("Whole Grid", s.show_whole_grid, (v) => { grid.enable(!v); app.updateSettings((st) => { st.show_whole_grid = v; }); });
     const wire = triCheck("Wire Frame", s.edit.wireframe, (v) => app.updateSettings((st) => { st.edit.wireframe = v; }));
-    const mask = check("Detail Mask", s.show_mask_overlay, (v) => app.updateSettings((st) => { st.show_mask_overlay = v; }));
-    this.element = bar("View Controls", el("div", { class: "terrain-map-frame" }, this.map), gamma.element, grid.element, whole.element, wire.element, mask.element);
+    // Traxx 1.8.0 (4ebf477, 2e8a268): Detail Strength, Water Mask, Veg. Mask Wash and Veg. Aids,
+    // each in step with its View menu item both ways (the settings carry both).
+    const mask = check("Detail Strength", s.show_mask_overlay, (v) => app.updateSettings((st) => { st.show_mask_overlay = v; }));
+    const waterMask = check("Water Mask", s.show_water_mask, (v) => app.updateSettings((st) => { st.show_water_mask = v; }));
+    const vegMask = check("Veg. Mask Wash", s.show_veg_mask, (v) => app.updateSettings((st) => { st.show_veg_mask = v; }));
+    const vegAids = check("Veg. Aids", s.show_veg_aids, (v) => app.updateSettings((st) => { st.show_veg_aids = v; }));
+    this.rendererChecks = [mask, waterMask, vegMask, vegAids];
+    this.element = bar("View Controls", el("div", { class: "terrain-map-frame" }, this.map), gamma.element, grid.element, whole.element, wire.element,
+      mask.element, waterMask.element, vegMask.element, vegAids.element);
     app.on("settings", (st) => {
       whole.set(st.show_whole_grid);
       grid.enable(!st.show_whole_grid);
       wire.set(st.edit.wireframe);
       mask.set(st.show_mask_overlay);
+      waterMask.set(st.show_water_mask);
+      vegMask.set(st.show_veg_mask);
+      vegAids.set(st.show_veg_aids);
     });
     this.drawEmpty();
   }
 
+  /** Traxx greys these out without its OpenGL renderer: JSTraxx without WebGL 2. */
+  enableRendererChecks(on: boolean): void {
+    for (const c of this.rendererChecks) c.enable(on);
+  }
+
   private mapImage: OffscreenCanvas | null = null;
-  private marker: { gridx: number; gridy: number; dvector: [number, number] } | null = null;
+  /** `cells`: the world's N, 256 or a track format version 6 worldCells (spec section 8.1). */
+  private marker: { gridx: number; gridy: number; dvector: [number, number]; cells: number } | null = null;
 
   /** The 64 x 64 terrain map (core/traxx/map.ts), scaled up without smoothing. */
   drawMap(image: { width: number; height: number; rgba: Uint8ClampedArray }): void {
@@ -46,8 +63,8 @@ export class ViewControlBar {
     position, pointing along the facing. Traxx's sizes are for its ~110 pixel map; they scale
     with this one.
   */
-  drawCamera(gridx: number, gridy: number, dvector: [number, number]): void {
-    this.marker = { gridx, gridy, dvector };
+  drawCamera(gridx: number, gridy: number, dvector: [number, number], cells = 256): void {
+    this.marker = { gridx, gridy, dvector, cells };
     this.redraw();
   }
 
@@ -76,8 +93,8 @@ export class ViewControlBar {
     g.drawImage(this.mapImage, 0, 0, w, h);
     if (!this.marker) return;
     const k = w / 110;
-    const { gridx, gridy, dvector: [d0, d1] } = this.marker;
-    const mx = (w * (gridx + 1)) / 256, my = h - (h * (gridy + 1)) / 256;
+    const { gridx, gridy, dvector: [d0, d1], cells } = this.marker;
+    const mx = (w * (gridx + 1)) / cells, my = h - (h * (gridy + 1)) / cells;
     g.strokeStyle = "#00ff00";
     g.lineWidth = Math.max(1, k);
     g.beginPath();

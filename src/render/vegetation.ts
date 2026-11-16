@@ -5,7 +5,7 @@
     - Show Vegetation: the trees, each species' model, or its far card past the far band;
     - Show Grass: the clumps near the camera, thinning out over the last quarter of 1000 ft;
     - Vegetation Aids: the AI corridor round every course segment and start slot, the
-      checkpoint gates' keep-out discs, and a wire cylinder at every colliding trunk within 600 ft;
+      checkpoint gates' keep-out discs, and the engine's trunk box at every colliding trunk within 600 ft (Traxx 1.8.0);
     - Vegetation Mask Wash: the painted _V mask (the _G mask where _V is unpainted) as a
       see-through colour per 32 ft cell over the ground.
 
@@ -17,7 +17,8 @@
 */
 import * as THREE from "three";
 import type { TrackDocument } from "../core/doc/document.ts";
-import { vegetationFromTxx, VEG_COLLIDE_TRUNK, VEG_LAYER_GRASS, VEG_LAYER_TREES, type Vegetation } from "../core/traxx/veg.ts";
+import { vegTrunkDerive, vegTrunkFirstFrame, vegTrunkPlace, type VegTrunk } from "../core/traxx/veg-trunk.ts";
+import { vegetationFromTxx, VEG_KIND_PLACED, VEG_COLLIDE_TRUNK, VEG_LAYER_GRASS, VEG_LAYER_TREES, type Vegetation } from "../core/traxx/veg.ts";
 import { vegDecodeMask, vegGroundHeightClassic8, vegModelInfo } from "../core/edit/veg-planter.ts";
 import { modelInstanceProblem, vegFarCardBaseY } from "../core/traxx/instancing.ts";
 import { surfaceFeet } from "../core/traxx/surface.ts";
@@ -30,6 +31,7 @@ import {
   SCENE_PER_FT, SCENE_Z_PER_FT, type VegSpeciesDraw,
 } from "../core/view/veg-draw.ts";
 import type { ModelLibrary } from "./models.ts";
+import { cellsOf } from "../core/traxx/world.ts";
 
 export interface VegShow {
   trees: boolean;
@@ -97,6 +99,8 @@ export class VegetationLayer {
   lodCentre: [number, number] = [128, 128];
   private doc: TrackDocument | null = null;
   private veg: Vegetation | null = null;
+  /** N, the track's cells a side (track format version 6). */
+  private cells = 256;
   private draw: VegSpeciesDraw[] = [];
   private near: (Batch | null)[] = [];
   private far: (Batch | null)[] = [];
@@ -106,6 +110,8 @@ export class VegetationLayer {
   /** Per species: radius, hrad and height of the model (model units), for runs and aids. */
   private facts: ({ radius: number; hrad: number; height: number } | null)[] = [];
   private farRadius: number[] = [];
+  /** Per species: the engine's trunk box (vegTrunkDerive), null for no trunk. */
+  private trunks: (VegTrunk | null)[] = [];
   private maskCells: (Uint8Array | null)[] = [null, null];
   private washKey = "";
   private aidsKey = "";
@@ -128,7 +134,9 @@ export class VegetationLayer {
     this.doc = doc;
     this.models = models;
     if (!doc || !models || !doc.track.vegetation) return;
-    const v = vegetationFromTxx(doc.track.vegetation);
+    // Track format version 6 (9.2): placements across an N-cell world.
+    this.cells = cellsOf(doc.track);
+    const v = vegetationFromTxx(doc.track.vegetation, this.cells);
     if (!v.trees.length && !v.clumps.length && !v.masks.some(Boolean)) return;
     this.veg = v;
 
@@ -142,6 +150,16 @@ export class VegetationLayer {
     this.facts = this.draw.map((d) => {
       const g = d.model ? models.meshesFor(d.model)?.geometry : null;
       return g ? vegModelFacts(drawnVertices(g.groups)) : null;
+    });
+    // VegUpdateTrunk: once per (re)build, from the species model's raw bytes (a keyframed one's frame 0).
+    this.trunks = v.species.map((sp, s) => {
+      const name = this.draw[s]?.model;
+      if (!name || sp.kind !== VEG_KIND_PLACED || sp.collide !== VEG_COLLIDE_TRUNK) return null;
+      const bytes = models.asset(name)?.bytes ?? null;
+      if (!bytes) return null;
+      const frame = vegTrunkFirstFrame(bytes);
+      const src = frame !== null ? models.asset(frame)?.bytes ?? null : bytes;
+      return src ? vegTrunkDerive(src, frame !== null, sp.trunkdiam, sp.trunkheight) : null;
     });
     this.farRadius = this.draw.map((d) => {
       const g = d.far ? models.meshesFor(d.far)?.geometry : null;
@@ -182,7 +200,7 @@ export class VegetationLayer {
       return out;
     };
     const t = v.trees, c = v.clumps;
-    this.treeRuns = runs(t.length, (i) => treeTile(t[i]!), (i) => treeScene(t[i]!)[2], (i) => reach(t[i]!.species, treeScale(t[i]!.scale), true));
+    this.treeRuns = runs(t.length, (i) => treeTile(t[i]!, this.cells), (i) => treeScene(t[i]!)[2], (i) => reach(t[i]!.species, treeScale(t[i]!.scale), true));
     this.clumpRuns = runs(c.length, (i) => [c[i]!.tx, c[i]!.tz], (i) => (c[i]!.y * 3) / 512, (i) => reach(c[i]!.species, clumpScale(c[i]!.scale), false));
   }
 
@@ -279,7 +297,7 @@ export class VegetationLayer {
     };
     const hw = Math.max(0, v.corridorft) * SCENE_PER_FT;
     const minx = win.cx0 << 6, maxx = (win.cx1 + 1) << 6, miny = win.cy0 << 6, maxy = (win.cy1 + 1) << 6;
-    const whole = win.cx0 <= 0 && win.cy0 <= 0 && win.cx1 >= 255 && win.cy1 >= 255;
+    const whole = win.cx0 <= 0 && win.cy0 <= 0 && win.cx1 >= this.cells - 1 && win.cy1 >= this.cells - 1;
     const outside = (x0: number, y0: number, x1: number, y1: number) => !whole &&
       (Math.max(x0, x1) < minx - 64 || Math.min(x0, x1) > maxx + 64 || Math.max(y0, y1) < miny - 64 || Math.min(y0, y1) > maxy + 64);
     if (hw > 0) {
@@ -316,7 +334,14 @@ export class VegetationLayer {
     }
     this.aids.add(translucent(band, [255, 200, 40]), translucent(gates, [255, 120, 200]));
 
-    // Trunk collision: a wire cylinder at the base of every colliding trunk, within 600 ft.
+    /*
+      Trunk collision (Traxx 1.8.0, ae75b30): the ENGINE'S box, not an estimate (veg-trunk.ts,
+      vegTrunkDerive / vegTrunkPlace): a square side trunkDiam x s and height trunkHeight x s,
+      centred on the tree's origin and yawed by its heading the way the model is drawn, its bottom
+      at tree y + s x minY. Red = the engine's box; orange = the same box when canopy vertices are
+      inside the lowest-5-ft band (a huge box). Only species with collide = TRUNK and a model in
+      the track; within 600 ft.
+    */
     const red: number[] = [], orange: number[] = [];
     const range = VEG_AID_RANGE_FT * SCENE_PER_FT;
     for (const run of this.treeRuns) {
@@ -324,28 +349,24 @@ export class VegetationLayer {
       const cz = 0.5 * (run.zmax + run.zmin), r = 2896 / 64 + 0.5 * (run.zmax - run.zmin) + run.pad;
       if (Math.hypot(run.tx * 64 + 32 - eye.x, run.tz * 64 + 32 - eye.y, cz - eye.z) - r > range) continue;
       for (let i = run.start; i < run.start + run.count; i++) {
-        const tr = v.trees[i]!, sp = v.species[tr.species];
-        if (!sp || sp.collide !== VEG_COLLIDE_TRUNK) continue;
-        const k = treeScale(tr.scale);
-        let rad: number, h: number, out: number[];
-        if (sp.trunkdiam !== 0 && sp.trunkheight !== 0) {
-          rad = 0.5 * (sp.trunkdiam / 64) * k * SCENE_PER_FT;
-          h = (sp.trunkheight / 16) * k * SCENE_Z_PER_FT;
-          out = red;
-        } else {
-          // The engine derives it; Traxx draws an estimate in orange: 10% of the model's
-          // horizontal extent across, 25% of its height.
-          const f = this.facts[tr.species];
-          if (!f || f.hrad <= 0 || f.height <= 0) continue;
-          rad = (0.1 * f.hrad * k) / 64;
-          h = (0.25 * f.height * k) / 64;
-          out = orange;
+        const tr = v.trees[i]!;
+        const trunk = this.trunks[tr.species];
+        if (!trunk) continue; // not a TRUNK species, or no model: the engine has no box
+        const pl = vegTrunkPlace(trunk, tr.y, tr.scale);
+        const out = trunk.canopyInBand ? orange : red;
+        const a = 0.5 * pl.side * SCENE_PER_FT;
+        const hd = (2 * Math.PI * tr.heading) / 65536, cs = Math.cos(hd), sn = Math.sin(hd);
+        const bx = tr.x / 128, by = tr.z / 128;
+        const zb = pl.base * SCENE_Z_PER_FT, zt = (pl.base + pl.height) * SCENE_Z_PER_FT;
+        const qx: number[] = [], qy: number[] = [];
+        for (let j = 0; j < 4; j++) {
+          const lx = j === 0 || j === 3 ? -a : a, ly = j < 2 ? -a : a;
+          qx.push(bx + lx * cs + ly * sn);
+          qy.push(by - lx * sn + ly * cs);
         }
-        const bx = tr.x / 128, by = tr.z / 128, bz = ground(tr.x / 256, tr.z / 256) * SCENE_Z_PER_FT;
-        for (let j = 0; j < SIDES; j++) {
-          const a = ring[j]!, b = ring[(j + 1) % SIDES]!;
-          const x0 = bx + rad * a[0], y0 = by + rad * a[1], x1 = bx + rad * b[0], y1 = by + rad * b[1];
-          out.push(x0, y0, bz, x1, y1, bz, x0, y0, bz + h, x1, y1, bz + h, x0, y0, bz, x0, y0, bz + h);
+        for (let j = 0; j < 4; j++) {
+          const n = (j + 1) & 3;
+          out.push(qx[j]!, qy[j]!, zb, qx[n]!, qy[n]!, zb, qx[j]!, qy[j]!, zt, qx[n]!, qy[n]!, zt, qx[j]!, qy[j]!, zb, qx[j]!, qy[j]!, zt);
         }
       }
     }
@@ -372,11 +393,12 @@ export class VegetationLayer {
     if (key === this.washKey) return;
     this.washKey = key;
     for (const l of [VEG_LAYER_TREES, VEG_LAYER_GRASS]) {
-      if (this.maskCells[l] === null && v.masks[l]) this.maskCells[l] = maskCells(v.masks[l]);
+      if (this.maskCells[l] === null && v.masks[l]) this.maskCells[l] = maskCells(v.masks[l], this.cells);
     }
-    const cx0 = Math.max(0, win.cx0), cy0 = Math.max(0, win.cy0), cx1 = Math.min(254, win.cx1), cy1 = Math.min(254, win.cy1);
+    const cx0 = Math.max(0, win.cx0), cy0 = Math.max(0, win.cy0), cx1 = Math.min(this.cells - 2, win.cx1), cy1 = Math.min(this.cells - 2, win.cy1);
     const grids = t.terrainMode === TERRAINMODE_CLASSIC8 ? null : new SurfaceTileGrids(t, this.lodCentre[0], this.lodCentre[1]);
-    const zCorner = (gx: number, gy: number) => 3 * t.heights[gx + (gy << 8)]!;
+    const n = this.cells;
+    const zCorner = (gx: number, gy: number) => 3 * t.heights[gx + gy * n]!;
     const p: number[] = [], c: number[] = [];
     const quad = (x0: number, y0: number, x1: number, y1: number, z: [number, number, number, number], odd: boolean, rgb: number[]) => {
       const vx = [x0, x1, x1, x0], vy = [y0, y0, y1, y1];
@@ -384,7 +406,7 @@ export class VegetationLayer {
     };
     for (let gj = cy0; gj <= cy1; gj++) {
       for (let gi = cx0; gi <= cx1; gi++) {
-        const rgb = maskColour(this.maskCells[VEG_LAYER_TREES], gi, gj) ?? maskColour(this.maskCells[VEG_LAYER_GRASS], gi, gj);
+        const rgb = maskColour(this.maskCells[VEG_LAYER_TREES], gi, gj, n) ?? maskColour(this.maskCells[VEG_LAYER_GRASS], gi, gj, n);
         if (!rgb) continue;
         if (!grids) {
           quad(gi * 64, gj * 64, gi * 64 + 64, gj * 64 + 64, [zCorner(gi, gj), zCorner(gi + 1, gj), zCorner(gi + 1, gj + 1), zCorner(gi, gj + 1)], ((gi + gj) & 1) === 1, rgb);
@@ -448,16 +470,16 @@ function groundFeet(t: TrackDocument["track"]): (x: number, z: number) => number
   return (x, z) => surfaceFeet(t, x, z);
 }
 
-/* VegEnsureMasks: one RGB per 32 ft cell, the pixel at (gi * w / 256, gj * h / 256). */
-function maskCells(mask: { ext: string; data: Uint8Array }): Uint8Array | null {
+/* VegEnsureMasks: one RGB per 32 ft cell, the pixel at (gi * w / N, gj * h / N); N x N cells (version 6, 8.1). */
+function maskCells(mask: { ext: string; data: Uint8Array }, n = 256): Uint8Array | null {
   const { img } = vegDecodeMask(mask);
   if (!img) return null;
-  const cells = new Uint8Array(256 * 256 * 3);
-  for (let gj = 0; gj < 256; gj++) {
-    const my = Math.min(img.h - 1, Math.trunc((gj * img.h) / 256));
-    for (let gi = 0; gi < 256; gi++) {
-      const mx = Math.min(img.w - 1, Math.trunc((gi * img.w) / 256));
-      const s = (my * img.w + mx) * 3, d = (gj * 256 + gi) * 3;
+  const cells = new Uint8Array(n * n * 3);
+  for (let gj = 0; gj < n; gj++) {
+    const my = Math.min(img.h - 1, Math.trunc((gj * img.h) / n));
+    for (let gi = 0; gi < n; gi++) {
+      const mx = Math.min(img.w - 1, Math.trunc((gi * img.w) / n));
+      const s = (my * img.w + mx) * 3, d = (gj * n + gi) * 3;
       cells[d] = img.rgb[s]!; cells[d + 1] = img.rgb[s + 1]!; cells[d + 2] = img.rgb[s + 2]!;
     }
   }
@@ -465,9 +487,9 @@ function maskCells(mask: { ext: string; data: Uint8Array }): Uint8Array | null {
 }
 
 /* VegMaskColour: the cell's colour, or null when it is unpainted (every channel 4 or less). */
-function maskColour(cells: Uint8Array | null, gi: number, gj: number): number[] | null {
+function maskColour(cells: Uint8Array | null, gi: number, gj: number, n = 256): number[] | null {
   if (!cells) return null;
-  const p = (Math.min(255, Math.max(0, gj)) * 256 + Math.min(255, Math.max(0, gi))) * 3;
+  const p = (Math.min(n - 1, Math.max(0, gj)) * n + Math.min(n - 1, Math.max(0, gi))) * 3;
   if (cells[p]! <= 4 && cells[p + 1]! <= 4 && cells[p + 2]! <= 4) return null;
   return [cells[p]!, cells[p + 1]!, cells[p + 2]!];
 }

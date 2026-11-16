@@ -15,12 +15,17 @@
 
   The camera's cell is the grid window's centre (DrawTerrainScene: lastgridx = gridx).
 
+  Track format version 6 (spec section 8.1): a 512-cell world has 128 tiles an axis; the LOD
+  radius, the tile size and the border depth do not change. Every function takes the world's
+  cells (N, default 256) or reads them off the track.
+
   Heights here are v (1/256 step) as floats; the view's z is ALTITUDE_SCALE * v / 256 (Traxx's
   SurfaceZOfV 0.75 v at its 4096 units a cell).
 */
 import type { Terrain16 } from "../traxx/terrain16.ts";
 import { TERRAINMODE_SPLINE, TERRAINMODE_FINE } from "../traxx/terrain16.ts";
 import { cornerV, fineV } from "../traxx/surface.ts";
+import { cellsOf, type HasWorld } from "../traxx/world.ts";
 
 export const SURFACE_LOD_8FT = 8;
 export const SURFACE_LOD_32FT = 32;
@@ -38,7 +43,7 @@ export const FINE_LOD_TILES = 8;
 const Q = 4;
 
 /** The track has an 8 ft surface to draw (Spline, Full Map): SurfaceTileLodsFor's finesurface. */
-export function hasFineLod(t: { terrainMode?: number }): boolean {
+export function hasFineLod(t: { terrainMode?: number } & HasWorld): boolean {
   return t.terrainMode === TERRAINMODE_SPLINE || t.terrainMode === TERRAINMODE_FINE;
 }
 
@@ -52,27 +57,27 @@ function floorDiv(a: number, b: number): number {
   Traxx 1.7.1 (992ef9f): the distance is taken round the torus (the world wraps), so a tile at
   the seam and its border copy agree.
 */
-export function surfaceTileLod(fine: boolean, tx: number, ty: number, camgx: number, camgy: number, tilesize = TILE_SIZE, radius = FINE_LOD_TILES): number {
+export function surfaceTileLod(fine: boolean, tx: number, ty: number, camgx: number, camgy: number, tilesize = TILE_SIZE, radius = FINE_LOD_TILES, cells = 256): number {
   if (!fine || tilesize <= 0) return SURFACE_LOD_32FT;
-  const n = Math.trunc(256 / tilesize);
+  const n = Math.trunc(cells / tilesize);
   const dx = Math.abs(surfaceWrapTileDelta(tx - floorDiv(camgx, tilesize), n)), dy = Math.abs(surfaceWrapTileDelta(ty - floorDiv(camgy, tilesize), n));
   return dx <= radius && dy <= radius ? SURFACE_LOD_8FT : SURFACE_LOD_32FT;
 }
 
 /** SurfaceTileNeighbourLods: left, right, top, bottom; the map wraps, so the tile past the last one is the first (992ef9f). */
 export function surfaceTileNeighbourLods(fine: boolean, tx: number, ty: number, camgx: number, camgy: number,
-  tilesize = TILE_SIZE, radius = FINE_LOD_TILES, perAxis = TILES_PER_AXIS): [number, number, number, number] {
+  tilesize = TILE_SIZE, radius = FINE_LOD_TILES, perAxis = TILES_PER_AXIS, cells = perAxis * tilesize): [number, number, number, number] {
   const step = [[-1, 0], [1, 0], [0, -1], [0, 1]] as const;
   return step.map(([sx, sy]) => {
     const nx = (tx + sx + perAxis) % perAxis, ny = (ty + sy + perAxis) % perAxis;
-    return surfaceTileLod(fine, nx, ny, camgx, camgy, tilesize, radius);
+    return surfaceTileLod(fine, nx, ny, camgx, camgy, tilesize, radius, cells);
   }) as [number, number, number, number];
 }
 
 /*
   The world-wrap border (Traxx 1.7.1, Traxx/SurfaceMesh.cpp, d1cfe47 and 45727cb): past each edge
   the view draws a tinted, read-only copy of the opposite edge, 3 cells deep. Border cell (i, j)
-  shows real cell (i & 255, j & 255).
+  shows real cell (i & (N - 1), j & (N - 1)).
 */
 
 /** SURFACE_WRAP_BORDER_CELLS. */
@@ -92,13 +97,13 @@ export function surfaceWrapTileDelta(d: number, n: number): number {
 }
 
 /**
-  SurfaceCornerInWrapBand: is corner (gx, gy), 0..256 on the map, within the drawn border? Within
+  SurfaceCornerInWrapBand: is corner (gx, gy), 0..N on the map, within the drawn border? Within
   it the ground is the wrapped copy; corners further out are height 0. One rule for the pick
   geometry of every terrain mode.
 */
-export function surfaceCornerInWrapBand(gx: number, gy: number): boolean {
+export function surfaceCornerInWrapBand(gx: number, gy: number, cells = 256): boolean {
   const b = SURFACE_WRAP_BORDER_CELLS;
-  return gx >= -b && gx <= 256 + b && gy >= -b && gy <= 256 + b;
+  return gx >= -b && gx <= cells + b && gy >= -b && gy <= cells + b;
 }
 
 /**
@@ -115,21 +120,21 @@ export function surfaceBorderTileSource(tx: number, ty: number, n: number): [num
   SurfaceBorderTileRange: the tiles a window of `size` cells from g0 reaches on one axis, the
   border's -1 and the last tile + 1 included (Whole Grid: all of -1..last + 1).
 */
-export function surfaceBorderTileRange(g0: number, size: number, tilesize: number, wholemap: boolean): [number, number] {
-  const maxtile = Math.trunc(255 / tilesize);
+export function surfaceBorderTileRange(g0: number, size: number, tilesize: number, wholemap: boolean, cells = 256): [number, number] {
+  const maxtile = Math.trunc((cells - 1) / tilesize);
   const tmin = Math.trunc(g0 / tilesize), tmax = Math.trunc((g0 + size - 1) / tilesize);
   if (wholemap) return [-1, maxtile + 1];
   return [g0 < 0 ? -1 : tmin, tmax > maxtile + 1 ? maxtile + 1 : tmax];
 }
 
 /**
-  SurfaceBoxWrapShifts: the cell shifts an object on cell (cellx, celly), 0..255, is copied by
-  into the border: +256 within `depth` cells of the low edge, -256 within it of the high edge,
+  SurfaceBoxWrapShifts: the cell shifts an object on cell (cellx, celly), 0..N-1, is copied by
+  into the border: +N within `depth` cells of the low edge, -N within it of the high edge,
   on each axis, and both together in a corner (0 to 3 copies).
 */
-export function surfaceBoxWrapShifts(cellx: number, celly: number, depth = SURFACE_WRAP_BORDER_CELLS): [number, number][] {
-  const dx = cellx < depth ? 256 : cellx >= 256 - depth ? -256 : 0;
-  const dy = celly < depth ? 256 : celly >= 256 - depth ? -256 : 0;
+export function surfaceBoxWrapShifts(cellx: number, celly: number, depth = SURFACE_WRAP_BORDER_CELLS, cells = 256): [number, number][] {
+  const dx = cellx < depth ? cells : cellx >= cells - depth ? -cells : 0;
+  const dy = celly < depth ? cells : celly >= cells - depth ? -cells : 0;
   const out: [number, number][] = [];
   if (dx) out.push([dx, 0]);
   if (dy) out.push([0, dy]);
@@ -146,9 +151,13 @@ export function surfaceTileStraightSides(lod: number, nbr: readonly number[]): n
 }
 
 /** SurfaceTileLodsFor: the tile's level and its neighbours', for the camera's cell. */
-export function surfaceTileLodsFor(t: { terrainMode?: number }, tx: number, ty: number, camgx: number, camgy: number): { lod: number; nbr: [number, number, number, number] } {
+export function surfaceTileLodsFor(t: { terrainMode?: number } & HasWorld, tx: number, ty: number, camgx: number, camgy: number): { lod: number; nbr: [number, number, number, number] } {
   const fine = hasFineLod(t);
-  return { lod: surfaceTileLod(fine, tx, ty, camgx, camgy), nbr: surfaceTileNeighbourLods(fine, tx, ty, camgx, camgy) };
+  const cells = cellsOf(t);
+  return {
+    lod: surfaceTileLod(fine, tx, ty, camgx, camgy, TILE_SIZE, FINE_LOD_TILES, cells),
+    nbr: surfaceTileNeighbourLods(fine, tx, ty, camgx, camgy, TILE_SIZE, FINE_LOD_TILES, cells / TILE_SIZE, cells),
+  };
 }
 
 /**
@@ -190,7 +199,7 @@ export function surfaceTileHeightGrid(t: Terrain16, tx: number, ty: number, lod:
   (SurfaceTileStampFor's lod and SurfaceTileStraightSides). A tile's mesh, wire, wash and wall
   rings change with the camera only when this changes.
 */
-export function surfaceTileStamp(t: { terrainMode?: number }, tx: number, ty: number, camgx: number, camgy: number): number {
+export function surfaceTileStamp(t: { terrainMode?: number } & HasWorld, tx: number, ty: number, camgx: number, camgy: number): number {
   const { lod, nbr } = surfaceTileLodsFor(t, tx, ty, camgx, camgy);
   return lod * 16 + surfaceTileStraightSides(lod, nbr);
 }
@@ -212,7 +221,8 @@ export class SurfaceTileGrids {
 
   /** Tile (tx, ty)'s grid; per = (n - 1) / 4 points a cell side (1 or 4). */
   grid(tx: number, ty: number): { n: number; per: number; v: Float64Array } {
-    const key = tx + ty * 256;
+    // Tiles run -1..N/4 on each axis (the border included): a key per tile for any N.
+    const key = (tx + 1) + (ty + 1) * 4096;
     let g = this.grids.get(key);
     if (!g) {
       const { lod, nbr } = surfaceTileLodsFor(this.t, tx, ty, this.camgx, this.camgy);

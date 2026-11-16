@@ -1,6 +1,8 @@
 import type { Vec3 } from "../math.ts";
 export interface Mtm2Terrain {
-    /** The level `.RAW`: 65536 height steps, row-major, rows along z. */
+    /** N, cells a side: 256, or 512 in a track format version 6 world. Absent means 256. */
+    cells?: number;
+    /** The level `.RAW`: N x N height steps, row-major, rows along z. */
     heights: Uint8Array;
     /** The water level in feet, or null when the level has no water. */
     waterLevelFt: number | null;
@@ -30,12 +32,17 @@ export interface Mtm2Terrain {
         levelFt: Float32Array;
     };
 }
-export declare function createTerrain(heights: Uint8Array, waterLevelFt?: number | null): Mtm2Terrain;
+/** N, the terrain's cells a side. */
+export declare function terrainCells(t: Pick<Mtm2Terrain, "cells">): number;
+/** W = 32 N, the terrain's world side in feet. */
+export declare function terrainWorldFt(t: Pick<Mtm2Terrain, "cells">): number;
+export declare function createTerrain(heights: Uint8Array, waterLevelFt?: number | null, cells?: number): Mtm2Terrain;
 /**
  * A terrain from corner heights in feet (see `Mtm2Terrain.heightsFt`): the same grid, cells and split. `fineFt`, a
- * square grid of a multiple of 256 heights a side, is a finer grid over it (`Mtm2Terrain.fine`).
+ * square grid of a multiple of N heights a side, is a finer grid over it (`Mtm2Terrain.fine`). `cells` is N (256, or
+ * 512 in a track format version 6 world).
  */
-export declare function createTerrainFt(heightsFt: Float32Array, waterLevelFt?: number | null, fineFt?: Float32Array | null): Mtm2Terrain;
+export declare function createTerrainFt(heightsFt: Float32Array, waterLevelFt?: number | null, fineFt?: Float32Array | null, cells?: number): Mtm2Terrain;
 /** Give a terrain Community Patch 4 lakes: the .WTR's tile map and each lake id's surface in feet (index 0 unused). */
 export declare function setTerrainLakes(t: Mtm2Terrain, tileMap: Uint8Array, levelFt: Float32Array): Mtm2Terrain;
 /** The lake id (0 none) of the 32 ft tile under (x, z). */

@@ -8,7 +8,8 @@ export declare const TERRAIN_FINE = 1024;
  */
 export declare function terrainSplineSeg(p0: number, p1: number, p2: number, p3: number, k: number): number;
 /**
- * Expand a 256 x 256 height map (row = Z, u16 heights) into the 1024 x 1024 smooth grid.
- * fine[4z * 1024 + 4x] equals coarse[z * 256 + x].
+ * Expand an N x N height map (row = Z, u16 heights; N = 256 by default) into the 4N x 4N smooth
+ * grid. fine[4z * 4N + 4x] equals coarse[z * N + x]. Indices wrap at N: CP4 wraps at 256, and track
+ * format version 6 (section 7.2) wraps a 512-cell world at 512. N must be a power of two.
  */
-export declare function terrainSplineExpand(coarse: Uint16Array): Uint16Array;
+export declare function terrainSplineExpand(coarse: Uint16Array, size?: number): Uint16Array;

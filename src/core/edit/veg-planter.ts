@@ -37,7 +37,17 @@ export const VEG_PALETTE_TOLERANCE = 8;
 export const VEG_UNMATCHED_WARN = f32(0.01);
 
 const VEG_PI = f32(3.14159265358979);
-const VEG_WORLD_FT = 8192;
+/*
+  Track format version 6 (track-format-v6.md 8.1, 9.2): the world is N x N tiles of 32 ft, W =
+  32 N ft, and a tree's x and z run 0..W * 256 - 1 (1/256 ft). The planter reads N from its input
+  (VegPlantInput.cells) for the length of one vegPlant call; at N = 256 every number is Traxx's.
+  A mask covers the whole world, so at N = 512 a pixel is twice as many feet.
+*/
+const VW = { n: 256, m: 255, sh: 8, t: 65536, ft: 8192 };
+function setVegWorld(n: number): void {
+  const N = n === 512 ? 512 : 256;
+  VW.n = N; VW.m = N - 1; VW.sh = N === 512 ? 9 : 8; VW.t = N * N; VW.ft = 32 * N;
+}
 const VEG_NO_LABEL = 255;
 const VEG_MAX_MASK_SIDE = 16384;
 const VEG_POISSON_TRIES = 30;
@@ -92,7 +102,9 @@ export function colourHash(layer: number, r: number, g: number, b: number): numb
 
 /** VegGroundH. */
 function groundH(raw: Uint8Array, i: number, j: number): number {
-  return 2 * raw[((j & 255) << 8) | (i & 255)]!;
+  if (raw.length === 65536) return 2 * raw[((j & 255) << 8) | (i & 255)]!;
+  const n = Math.round(Math.sqrt(raw.length)); // version 6: an N x N raw wraps at N
+  return 2 * raw[(j & (n - 1)) * n + (i & (n - 1))]!;
 }
 
 /*
@@ -324,7 +336,7 @@ function buildLayerMap(img: VegMaskImage, cols: readonly VegColour[]): LayerMap 
 
 /** PixelOf: floor(ft * size / 8192), clamped. */
 function pixelOf(ft: number, size: number): number {
-  return clampI(Math.floor((ft * size) / VEG_WORLD_FT) | 0, 0, size - 1);
+  return clampI(Math.floor((ft * size) / VW.ft) | 0, 0, size - 1);
 }
 
 function inRegion(m: LayerMap, colour: number, x: number, z: number): boolean {
@@ -335,7 +347,7 @@ function inRegion(m: LayerMap, colour: number, x: number, z: number): boolean {
   PointGrid: a point set bucketed by 32 ft tile, each point with its own spacing.
 */
 class PointGrid {
-  head = new Int32Array(65536).fill(-1);
+  head = new Int32Array(VW.t).fill(-1);
   next = new Int32Array(1024);
   x = new Float32Array(1024);
   z = new Float32Array(1024);
@@ -368,14 +380,14 @@ class PointGrid {
   /** PGNear: any point closer than (sp + its spacing) / 2. */
   near(x: number, z: number, sp: number, maxsp: number): boolean {
     const reach = f32(f32(sp + maxsp) * 0.5);
-    const cr = clampI(Math.ceil(reach / 32) | 0, 1, 255);
-    const tx = clampI(Math.floor(x / 32) | 0, 0, 255);
-    const tz = clampI(Math.floor(z / 32) | 0, 0, 255);
+    const cr = clampI(Math.ceil(reach / 32) | 0, 1, VW.m);
+    const tx = clampI(Math.floor(x / 32) | 0, 0, VW.m);
+    const tz = clampI(Math.floor(z / 32) | 0, 0, VW.m);
     for (let cz = tz - cr; cz <= tz + cr; cz++) {
-      if (cz < 0 || cz > 255) continue;
+      if (cz < 0 || cz > VW.m) continue;
       for (let cx = tx - cr; cx <= tx + cr; cx++) {
-        if (cx < 0 || cx > 255) continue;
-        for (let i = this.head[cx + (cz << 8)]!; i >= 0; i = this.next[i]!) {
+        if (cx < 0 || cx > VW.m) continue;
+        for (let i = this.head[cx + (cz << VW.sh)]!; i >= 0; i = this.next[i]!) {
           const dx = f32(this.x[i]! - x);
           const dz = f32(this.z[i]! - z);
           const lim = f32(f32(sp + this.sp[i]!) * 0.5);
@@ -388,9 +400,9 @@ class PointGrid {
 }
 
 function tileIndex(x: number, z: number): number {
-  const tx = clampI(Math.floor(x / 32) | 0, 0, 255);
-  const tz = clampI(Math.floor(z / 32) | 0, 0, 255);
-  return tx + (tz << 8);
+  const tx = clampI(Math.floor(x / 32) | 0, 0, VW.m);
+  const tz = clampI(Math.floor(z / 32) | 0, 0, VW.m);
+  return tx + (tz << VW.sh);
 }
 
 /*
@@ -407,7 +419,7 @@ interface Obstacle {
 
 class ObstacleSet {
   list: Obstacle[] = [];
-  start = new Int32Array(65537);
+  start = new Int32Array(VW.t + 1);
   index = new Int32Array(0);
 
   add(x1: number, z1: number, x2: number, z2: number, r: number): void {
@@ -418,23 +430,23 @@ class ObstacleSet {
     const minx = o.x1 < o.x2 ? o.x1 : o.x2, maxx = o.x1 < o.x2 ? o.x2 : o.x1;
     const minz = o.z1 < o.z2 ? o.z1 : o.z2, maxz = o.z1 < o.z2 ? o.z2 : o.z1;
     return [
-      clampI(Math.floor(f32(minx - o.r) / 32) | 0, 0, 255), clampI(Math.floor(f32(minz - o.r) / 32) | 0, 0, 255),
-      clampI(Math.floor(f32(maxx + o.r) / 32) | 0, 0, 255), clampI(Math.floor(f32(maxz + o.r) / 32) | 0, 0, 255),
+      clampI(Math.floor(f32(minx - o.r) / 32) | 0, 0, VW.m), clampI(Math.floor(f32(minz - o.r) / 32) | 0, 0, VW.m),
+      clampI(Math.floor(f32(maxx + o.r) / 32) | 0, 0, VW.m), clampI(Math.floor(f32(maxz + o.r) / 32) | 0, 0, VW.m),
     ];
   }
 
   build(): void {
-    const start = new Int32Array(65537);
+    const start = new Int32Array(VW.t + 1);
     let total = 0;
     const spans = this.list.map((o) => this.tiles(o));
     for (const [tx0, tz0, tx1, tz1] of spans) {
-      for (let tz = tz0; tz <= tz1; tz++) for (let tx = tx0; tx <= tx1; tx++) { start[tx + (tz << 8) + 1]!++; total++; }
+      for (let tz = tz0; tz <= tz1; tz++) for (let tx = tx0; tx <= tx1; tx++) { start[tx + (tz << VW.sh) + 1]!++; total++; }
     }
-    for (let i = 0; i < 65536; i++) start[i + 1]! += start[i]!;
+    for (let i = 0; i < VW.t; i++) start[i + 1]! += start[i]!;
     const index = new Int32Array(total);
-    const fill = start.slice(0, 65536);
+    const fill = start.slice(0, VW.t);
     spans.forEach(([tx0, tz0, tx1, tz1], i) => {
-      for (let tz = tz0; tz <= tz1; tz++) for (let tx = tx0; tx <= tx1; tx++) index[fill[tx + (tz << 8)]!++] = i;
+      for (let tz = tz0; tz <= tz1; tz++) for (let tx = tx0; tx <= tx1; tx++) index[fill[tx + (tz << VW.sh)]!++] = i;
     });
     this.start = start;
     this.index = index;
@@ -501,6 +513,8 @@ export interface VegPlantBox {
 
 export interface VegPlantInput {
   veg: Vegetation;
+  /** Track format version 6: the world's cells a side, 256 (absent) or 512. */
+  cells?: number;
   /** Ground height in feet (float32) at world feet (x, z): VegGroundHeight. */
   ground: (x: number, z: number) => number;
   /** GetWaterLevel4: quarter steps of 2 ft. */
@@ -515,6 +529,11 @@ export interface VegPlantInput {
   courses: readonly (readonly { cstart: ArrayLike<number>; cend: ArrayLike<number> }[] | null)[];
   /** The start grid, slots 0 to 8; ipos in half-feet. */
   trucks: readonly { ipos: ArrayLike<number> }[];
+  /**
+    terrain->GetMode() (Traxx 1.8.0 PlanGrass): TileAllUnderWater judges a tile only on Classic
+    8-bit terrain. Absent = Classic 8-bit.
+  */
+  terrainMode?: number;
   /** IsModelLoaded + model[]: a model in the track's model list by bare or full name, or null. */
   model: (name: string) => VegModelInfo | null;
   /** Decoded masks, when the caller already has them (otherwise decoded from veg.masks). */
@@ -714,8 +733,8 @@ function tryPlantTree(c: Ctx, run: TreeRun, fx: number, fz: number): boolean {
 
   const sw = clampI(roundI(f32(scale * 4096)), 256, 65535);
   const sq = f32(sw / 4096);
-  const xq = clampI(roundI(f32(fx * 256)), 0, 2097151);
-  const zq = clampI(roundI(f32(fz * 256)), 0, 2097151);
+  const xq = clampI(roundI(f32(fx * 256)), 0, VW.ft * 256 - 1);
+  const zq = clampI(roundI(f32(fz * 256)), 0, VW.ft * 256 - 1);
   const x = f32(xq / 256), z = f32(zq / 256);
 
   if (c.raised[tileIndex(x, z)]) { c.rejRaised++; return false; }
@@ -769,10 +788,10 @@ function plantTreeColour(c: Ctx, m: LayerMap, ci: number, pg: PointGrid): void {
   }
   const r = run.spacing;
   const cs = f32(r * SQRT_HALF);
-  const x0 = f32(f32(m.minpx[ci]! * VEG_WORLD_FT) / m.w);
-  const x1 = f32(f32((m.maxpx[ci]! + 1) * VEG_WORLD_FT) / m.w);
-  const z0 = f32(f32(m.minpz[ci]! * VEG_WORLD_FT) / m.h);
-  const z1 = f32(f32((m.maxpz[ci]! + 1) * VEG_WORLD_FT) / m.h);
+  const x0 = f32(f32(m.minpx[ci]! * VW.ft) / m.w);
+  const x1 = f32(f32((m.maxpx[ci]! + 1) * VW.ft) / m.w);
+  const z0 = f32(f32(m.minpz[ci]! * VW.ft) / m.h);
+  const z1 = f32(f32((m.maxpz[ci]! + 1) * VW.ft) / m.h);
   const nx = Math.ceil(f32(f32(x1 - x0) / cs)) | 0;
   const nz = Math.ceil(f32(f32(z1 - z0) / cs)) | 0;
   pg.reset();
@@ -786,7 +805,7 @@ function plantTreeColour(c: Ctx, m: LayerMap, ci: number, pg: PointGrid): void {
     for (let ix = 0; ix < nx && !stop; ix++) {
       const cx = f32(x0 + f32(f32(ix + 0.5) * cs));
       const cz = f32(z0 + f32(f32(iz + 0.5) * cs));
-      if (cx >= VEG_WORLD_FT || cz >= VEG_WORLD_FT) continue;
+      if (cx >= VW.ft || cz >= VW.ft) continue;
       if (!inRegion(m, ci, cx, cz)) continue;
       if (pg.near(cx, cz, r, r)) continue;
       pg.add(cx, cz, r);
@@ -805,7 +824,7 @@ function plantTreeColour(c: Ctx, m: LayerMap, ci: number, pg: PointGrid): void {
           const ang = f32(f32(rngFloat(run.rng) * 2) * VEG_PI);
           const px = f32(bx + f32(rad * f32(Math.cos(ang))));
           const pz = f32(bz + f32(rad * f32(Math.sin(ang))));
-          if (px < 0 || pz < 0 || px >= VEG_WORLD_FT || pz >= VEG_WORLD_FT) continue;
+          if (px < 0 || pz < 0 || px >= VW.ft || pz >= VW.ft) continue;
           if (!inRegion(m, ci, px, pz)) continue;
           if (pg.near(px, pz, r, r)) continue;
           if (pg.n >= VEG_MAX_SAMPLES) { stop = true; break; }
@@ -838,9 +857,9 @@ interface AxisTable {
 
 /** AxisBuild: pixel centre (p + 0.5) lies in tile floor((p + 0.5) * 256 / size). */
 function axisBuild(size: number): AxisTable {
-  const a: AxisTable = { tile: new Int32Array(size), first: new Int32Array(256), count: new Int32Array(256) };
+  const a: AxisTable = { tile: new Int32Array(size), first: new Int32Array(VW.n), count: new Int32Array(VW.n) };
   for (let p = 0; p < size; p++) {
-    const t = clampI(Math.floor(((p + 0.5) * 256) / size) | 0, 0, 255);
+    const t = clampI(Math.floor(((p + 0.5) * VW.n) / size) | 0, 0, VW.m);
     a.tile[p] = t;
     if (a.count[t] === 0) a.first[t] = p;
     a.count[t]!++;
@@ -850,12 +869,151 @@ function axisBuild(size: number): AxisTable {
 
 interface GrassCtx {
   clumps: VegClumpRec[];
+  /** How many clumps the plan made room for (Traxx 1.8.0: exactly what pass 1 planned). */
+  cap: number;
   tilecount: Int32Array;
+  /** Defensive only: the plan keeps both from ever happening. */
   tilecap: boolean;
   globalcap: boolean;
 }
 
-function plantGrassColour(c: Ctx, gc: GrassCtx, m: LayerMap, ci: number, colcount: Int32Array, ax: AxisTable, az: AxisTable, pixbuf: Int32Array): void {
+/** SpacedInt: a count with a space between the thousands ("2 097 152"). */
+export function spacedInt(v: number): string {
+  const digits = String(Math.abs(Math.trunc(v)));
+  let out = v < 0 ? "-" : "";
+  for (let i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 === 0) out += " ";
+    out += digits[i];
+  }
+  return out;
+}
+
+/** VEG_SAME_MASK_NOTE (VegetationPlanter.h, Traxx 1.8.0). */
+export const VEG_SAME_MASK_NOTE =
+  "Note: the grass mask (_G) is an exact copy of the tree mask (_V) - every tree area will also be " +
+  "carpeted in grass. Paint a separate _G unless that is what you want.";
+
+/** VegMasksIdentical: both masks loaded and the very same bytes (a _G copied from the _V). */
+export function vegMasksIdentical(veg: Pick<Vegetation, "masks">): boolean {
+  const a = veg.masks[VEG_LAYER_TREES]?.data, b = veg.masks[VEG_LAYER_GRASS]?.data;
+  if (!a || !b || a.length === 0 || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** ColourHasModel: at least one entry whose model the track holds (ResolveEntries' test, no species made). */
+function colourHasModel(c: Ctx, col: VegColour): boolean {
+  for (const e of col.entries) {
+    const name = e.model.slice(0, VEG_MODELNAME - 1);
+    if (!name) continue;
+    if (c.input.model(name)) return true;
+  }
+  return false;
+}
+
+/** TileAllUnderWater: on Classic 8-bit, the tile's highest corner is below the flat water or its lake. */
+function tileAllUnderWater(c: Ctx, tx: number, tz: number): boolean {
+  if ((c.input.terrainMode ?? TERRAINMODE_CLASSIC8) !== TERRAINMODE_CLASSIC8) return false;
+  let level = -1.0e30;
+  if (c.haswater) level = c.waterft;
+  const tmap = c.input.lakeTiles;
+  if (tmap) {
+    const l = tmap[tx + (tz << VW.sh)]!;
+    if (l !== 0 && l <= c.input.lakeHeights.length) {
+      const h = f32(c.input.lakeHeights[l - 1]! * 0.5);
+      if (h > level) level = h;
+    }
+  }
+  if (level < -1.0e29) return false; // no water on this tile
+  const g = c.input.ground;
+  let top = g(tx * 32, tz * 32);
+  top = Math.max(top, g((tx + 1) * 32, tz * 32));
+  top = Math.max(top, g(tx * 32, (tz + 1) * 32));
+  top = Math.max(top, g((tx + 1) * 32, (tz + 1) * 32));
+  return top < level;
+}
+
+/*
+  PlanGrass (Traxx 1.8.0, a2b55ca, VegetationPlanter.cpp): grass pass 1, no random numbers.
+    1. want[ci][t] = round(pertile x coverage) as PlantGrassColour always computed it; not counted:
+       raised tiles, colours with no entries, colours whose entries name no model in the track
+       (deadhad says such a colour had coverage), tiles wholly under water (TileAllUnderWater).
+    2. A tile over VEG_MAX_CLUMPS_PER_TILE keeps exactly the cap: colour i keeps
+       floor(cap x cum_i / sum) minus what the colours before it kept.
+    3. W = the sum. Over VEG_MAX_CLUMPS every count becomes n x cap / W rounded down with the
+       remainders carried in (colour, tz, tx) order, so the total lands exactly on the cap.
+  Returns the planned total and W.
+*/
+function planGrass(c: Ctx, m: LayerMap, ncol: number, colcount: Int32Array, ax: AxisTable, az: AxisTable,
+  want: Int32Array, deadhad: Uint8Array): { planned: number; wanted: number } {
+  want.fill(0);
+  deadhad.fill(0);
+  for (let ci = 0; ci < ncol; ci++) {
+    const col = c.veg.colours[VEG_LAYER_GRASS]![ci]!;
+    const pertile = clampI(col.pertile, 0, VEG_MAX_CLUMPS_PER_TILE);
+    if (col.entries.length < 1) continue; // PlantGrassColour says so; it plants nothing
+    const dead = !colourHasModel(c, col);
+    for (let tz = 0; tz < VW.n; tz++) {
+      for (let tx = 0; tx < VW.n; tx++) {
+        const coarse = ax.count[tx] === 0 || az.count[tz] === 0;
+        const t = tx + (tz << VW.sh);
+        if (c.raised[t]) continue;
+        let coverage: number;
+        if (coarse) coverage = inRegion(m, ci, tx * 32 + 16, tz * 32 + 16) ? 1 : 0;
+        else {
+          const count = colcount[ci * VW.t + t]!;
+          if (count < 1) continue;
+          coverage = f32(count / (ax.count[tx]! * az.count[tz]!));
+        }
+        const n = roundI(f32(pertile * coverage));
+        if (n < 1) continue;
+        if (dead) { deadhad[ci] = 1; continue; }
+        if (tileAllUnderWater(c, tx, tz)) continue;
+        want[ci * VW.t + t] = n;
+      }
+    }
+  }
+  // 2. The per-tile cap, split in proportion with the cumulative rounding as the carry.
+  for (let t = 0; t < VW.t; t++) {
+    let sum = 0;
+    for (let ci = 0; ci < ncol; ci++) sum += want[ci * VW.t + t]!;
+    if (sum > VEG_MAX_CLUMPS_PER_TILE) {
+      let cum = 0, keptBefore = 0;
+      for (let ci = 0; ci < ncol; ci++) {
+        const i = ci * VW.t + t;
+        cum += want[i]!;
+        const keptTo = Math.floor((cum * VEG_MAX_CLUMPS_PER_TILE) / sum);
+        want[i] = keptTo - keptBefore;
+        keptBefore = keptTo;
+      }
+    }
+  }
+  let W = 0;
+  for (let i = 0; i < ncol * VW.t; i++) W += want[i]!;
+  // 3. Over the engine's cap: the same fraction off everywhere, remainders carried.
+  if (W > VEG_MAX_CLUMPS) {
+    let carry = 0;
+    for (let ci = 0; ci < ncol; ci++) {
+      for (let tz = 0; tz < VW.n; tz++) {
+        for (let tx = 0; tx < VW.n; tx++) {
+          const i = ci * VW.t + tx + (tz << VW.sh);
+          const w = want[i]!;
+          if (w < 1) continue;
+          const scaled = w * VEG_MAX_CLUMPS;
+          let out = Math.floor(scaled / W);
+          carry += scaled % W;
+          if (carry >= W) { carry -= W; out++; }
+          want[i] = out;
+        }
+      }
+    }
+  }
+  let total = 0;
+  for (let i = 0; i < ncol * VW.t; i++) total += want[i]!;
+  return { planned: total, wanted: W };
+}
+
+function plantGrassColour(c: Ctx, gc: GrassCtx, m: LayerMap, ci: number, want: Int32Array, deadhad: boolean, ax: AxisTable, az: AxisTable, pixbuf: Int32Array): void {
   const col = c.veg.colours[VEG_LAYER_GRASS]![ci]!;
   const pe: PlantEntry[] = [];
   const rng = rngSeed((c.veg.seed ^ colourHash(VEG_LAYER_GRASS, col.r, col.g, col.b)) >>> 0);
@@ -865,22 +1023,19 @@ function plantGrassColour(c: Ctx, gc: GrassCtx, m: LayerMap, ci: number, colcoun
     c.report.push(`Warning: grass colour "${col.name}" has no entries - it plants nothing.`);
     return;
   }
-  const pertile = clampI(col.pertile, 0, VEG_MAX_CLUMPS_PER_TILE);
-  outer: for (let tz = 0; tz < 256; tz++) {
-    for (let tx = 0; tx < 256; tx++) {
-      const t = tx + (tz << 8);
+  // A colour pass 1 found dead but with coverage: resolved only to print the lazy path's warnings.
+  if (deadhad) {
+    resolveEntries(c, col, VEG_KIND_GROUND, pe);
+    c.report.push(`Warning: grass colour "${col.name}" has no usable model - it plants nothing.`);
+    return;
+  }
+  // Pass 2 (Traxx 1.8.0): every tile's count was decided by planGrass; the random part is as ever.
+  outer: for (let tz = 0; tz < VW.n; tz++) {
+    for (let tx = 0; tx < VW.n; tx++) {
+      const t = tx + (tz << VW.sh);
       const coarse = ax.count[tx] === 0 || az.count[tz] === 0;
-      let coverage: number;
+      const n = want[ci * VW.t + t]!;
       let nmatch = 0;
-      if (c.raised[t]) continue;
-      if (coarse) {
-        coverage = inRegion(m, ci, tx * 32 + 16, tz * 32 + 16) ? 1 : 0;
-      } else {
-        const total = colcount[ci * 65536 + t]!;
-        if (total < 1) continue;
-        coverage = f32(total / (ax.count[tx]! * az.count[tz]!));
-      }
-      const n = roundI(f32(pertile * coverage));
       if (n < 1) continue;
       if (!coarse) {
         for (let pz = az.first[tz]!; pz < az.first[tz]! + az.count[tz]!; pz++) {
@@ -891,7 +1046,8 @@ function plantGrassColour(c: Ctx, gc: GrassCtx, m: LayerMap, ci: number, colcoun
       }
       for (let k = 0; k < n; k++) {
         if (gc.tilecount[t]! >= VEG_MAX_CLUMPS_PER_TILE) { gc.tilecap = true; break; }
-        if (gc.clumps.length >= VEG_MAX_CLUMPS) { gc.globalcap = true; break; }
+        // Cannot happen: the plan sized the buffer. Never truncate by area.
+        if (gc.clumps.length >= gc.cap) { gc.globalcap = true; break; }
         let lx: number, lz: number;
         if (coarse) {
           lx = f32(rngFloat(rng) * 32);
@@ -899,10 +1055,10 @@ function plantGrassColour(c: Ctx, gc: GrassCtx, m: LayerMap, ci: number, colcoun
         } else {
           const pix = pixbuf[rngNext(rng) % nmatch]!;
           const px = pix % m.w, pz = Math.trunc(pix / m.w);
-          let xa = f32(f32(px * VEG_WORLD_FT) / m.w);
-          let xb = f32(f32((px + 1) * VEG_WORLD_FT) / m.w);
-          let za = f32(f32(pz * VEG_WORLD_FT) / m.h);
-          let zb = f32(f32((pz + 1) * VEG_WORLD_FT) / m.h);
+          let xa = f32(f32(px * VW.ft) / m.w);
+          let xb = f32(f32((px + 1) * VW.ft) / m.w);
+          let za = f32(f32(pz * VW.ft) / m.h);
+          let zb = f32(f32((pz + 1) * VW.ft) / m.h);
           const tx0 = tx * 32, tz0 = tz * 32;
           if (xa < tx0) xa = tx0;
           if (xb > tx0 + 32) xb = tx0 + 32;
@@ -955,21 +1111,31 @@ function plantGrassColour(c: Ctx, gc: GrassCtx, m: LayerMap, ci: number, colcoun
   when nothing could be planted at all (veg is then left as it was).
 */
 export function vegPlant(input: VegPlantInput): VegPlantResult {
+  const before = VW.n;
+  setVegWorld(input.cells ?? 256);
+  try {
+    return plantIn(input);
+  } finally {
+    setVegWorld(before);
+  }
+}
+
+function plantIn(input: VegPlantInput): VegPlantResult {
   const veg = input.veg;
   const report: string[] = [];
   const c: Ctx = {
     input, veg, report,
-    haswater: input.waterLevel4 > 0, waterft: f32(input.waterLevel4 * 0.5),
-    raised: new Uint8Array(65536), obst: new ObstacleSet(), species: [], nground: 0, trees: [], tg: new PointGrid(),
+    haswater: input.waterLevel4 !== 0, waterft: f32(input.waterLevel4 * 0.5),
+    raised: new Uint8Array(VW.t), obst: new ObstacleSet(), species: [], nground: 0, trees: [], tg: new PointGrid(),
     maxspacing: 0, warned: [], rejRaised: 0, rejObstacle: 0, rejWater: 0, rejSlope: 0, rejOverlap: 0,
     treecap: false, speccap: false,
   };
   const pg = new PointGrid();
-  const gc: GrassCtx = { clumps: [], tilecount: new Int32Array(65536), tilecap: false, globalcap: false };
+  const gc: GrassCtx = { clumps: [], cap: 0, tilecount: new Int32Array(VW.t), tilecap: false, globalcap: false };
 
   // Raised terrain blocks: the engine's rule is ra1 (the upper edge) > 0.
   for (const g of input.groundBoxes) {
-    if (g.upper > 0 && g.x >= 0 && g.x < 256 && g.y >= 0 && g.y < 256) c.raised[g.x + (g.y << 8)] = 1;
+    if (g.upper > 0 && g.x >= 0 && g.x < VW.n && g.y >= 0 && g.y < VW.n) c.raised[g.x + (g.y << VW.sh)] = 1;
   }
 
   const lm: (LayerMap | null)[] = [null, null];
@@ -994,6 +1160,7 @@ export function vegPlant(input: VegPlantInput): VegPlantResult {
     report.push("There is no vegetation mask to plant from.");
     return { ok: false, report };
   }
+  if (vegMasksIdentical(veg)) report.push(VEG_SAME_MASK_NOTE);
 
   gatherObstacles(c);
   c.obst.build();
@@ -1022,36 +1189,45 @@ export function vegPlant(input: VegPlantInput): VegPlantResult {
   if (grassMap && ncolG > 0) {
     const ax = axisBuild(grassMap.w), az = axisBuild(grassMap.h);
     let maxc = 0, maxr = 0;
-    for (let t = 0; t < 256; t++) {
+    for (let t = 0; t < VW.n; t++) {
       if (ax.count[t]! > maxc) maxc = ax.count[t]!;
       if (az.count[t]! > maxr) maxr = az.count[t]!;
     }
     const pixbuf = new Int32Array(Math.max(1, maxc * maxr));
-    const colcount = new Int32Array(ncolG * 65536);
+    const colcount = new Int32Array(ncolG * VW.t);
     for (let pz = 0; pz < grassMap.h; pz++) {
-      const rowbase = az.tile[pz]! << 8;
+      const rowbase = az.tile[pz]! << VW.sh;
       for (let px = 0; px < grassMap.w; px++) {
         const l = grassMap.label[pz * grassMap.w + px]!;
-        if (l !== VEG_NO_LABEL) colcount[l * 65536 + rowbase + ax.tile[px]!]!++;
+        if (l !== VEG_NO_LABEL) colcount[l * VW.t + rowbase + ax.tile[px]!]!++;
       }
     }
-    for (let i = 0; i < ncolG; i++) plantGrassColour(c, gc, grassMap, i, colcount, ax, az, pixbuf);
-    if (gc.tilecap) report.push(`Warning: some tiles reached the limit of ${VEG_MAX_CLUMPS_PER_TILE} clumps - the rest are left out.`);
-    if (gc.globalcap) report.push(`Warning: the grass limit of ${VEG_MAX_CLUMPS} clumps was reached - the remaining tiles are bare.`);
+    // Pass 1: how many clumps each (colour, tile) gets, thinned evenly over the engine's cap.
+    const want = new Int32Array(ncolG * VW.t), deadhad = new Uint8Array(ncolG);
+    const { planned, wanted } = planGrass(c, grassMap, ncolG, colcount, ax, az, want, deadhad);
+    gc.cap = planned;
+    if (wanted > VEG_MAX_CLUMPS) {
+      // "At most": tiles only partly under water are counted whole, and pass 2 drops their submerged clumps.
+      report.push(`Grass was thinned evenly to at most ${Math.trunc((100 * planned) / wanted)}% of what the masks ask for (${spacedInt(wanted)} clumps wanted, partly submerged tiles counted whole; the limit is ${spacedInt(VEG_MAX_CLUMPS)}).`);
+    }
+    // Pass 2: plant exactly those counts, colour by colour, each with its own generator.
+    for (let i = 0; i < ncolG; i++) plantGrassColour(c, gc, grassMap, i, want, deadhad[i] !== 0, ax, az, pixbuf);
+    // Defensive: the plan makes both impossible.
+    if (gc.tilecap || gc.globalcap) report.push("Warning: some grass could not be placed (internal limit) - please report this.");
   }
 
   // Group the clumps by tile, ascending (tz, tx), and shuffle within each tile.
   let clumpout: VegClumpRec[] = [];
   if (gc.clumps.length > 0) {
     const n = gc.clumps.length;
-    const start = new Int32Array(65537);
-    for (const k of gc.clumps) start[k.tx + (k.tz << 8) + 1]!++;
-    for (let i = 0; i < 65536; i++) start[i + 1]! += start[i]!;
-    const fill = start.slice(0, 65536);
+    const start = new Int32Array(VW.t + 1);
+    for (const k of gc.clumps) start[k.tx + (k.tz << VW.sh) + 1]!++;
+    for (let i = 0; i < VW.t; i++) start[i + 1]! += start[i]!;
+    const fill = start.slice(0, VW.t);
     clumpout = new Array<VegClumpRec>(n);
-    for (const k of gc.clumps) clumpout[fill[k.tx + (k.tz << 8)]!++] = k;
+    for (const k of gc.clumps) clumpout[fill[k.tx + (k.tz << VW.sh)]!++] = k;
     const shuf = rngSeed((veg.seed ^ colourHash(7, 0xa5, 0x5a, 0xc3)) >>> 0);
-    for (let g = 0; g < 65536; g++) {
+    for (let g = 0; g < VW.t; g++) {
       const a = start[g]!, b = start[g + 1]!;
       for (let j = b - 1; j > a; j--) {
         const s = a + (rngNext(shuf) % (j - a + 1));
@@ -1064,12 +1240,12 @@ export function vegPlant(input: VegPlantInput): VegPlantResult {
 
   // Commit. Trees sorted by tile (z / 8192, then x / 8192); planting order within a tile.
   veg.species = c.species;
-  const tstart = new Int32Array(65537);
-  for (const t of c.trees) tstart[(t.x >> 13) + ((t.z >> 13) << 8) + 1]!++;
-  for (let i = 0; i < 65536; i++) tstart[i + 1]! += tstart[i]!;
-  const tfill = tstart.slice(0, 65536);
+  const tstart = new Int32Array(VW.t + 1);
+  for (const t of c.trees) tstart[(t.x >> 13) + ((t.z >> 13) << VW.sh) + 1]!++;
+  for (let i = 0; i < VW.t; i++) tstart[i + 1]! += tstart[i]!;
+  const tfill = tstart.slice(0, VW.t);
   const trees = new Array<VegTreeRec>(c.trees.length);
-  for (const t of c.trees) trees[tfill[(t.x >> 13) + ((t.z >> 13) << 8)]!++] = t;
+  for (const t of c.trees) trees[tfill[(t.x >> 13) + ((t.z >> 13) << VW.sh)]!++] = t;
   veg.trees = trees;
   veg.clumps = clumpout;
   for (let layer = 0; layer < VEG_NLAYERS; layer++) veg.plantedcrc[layer] = vegMaskCrc(veg, layer);
@@ -1105,7 +1281,7 @@ export function vegModelLookup(models: ReadonlyMap<string, VegModelInfo>): (name
   without it such a track cannot be planted (null is returned).
 */
 export function vegReplant(
-  track: Pick<TxxTrack, "terrainMode" | "heights" | "waterLevel4" | "lakes" | "groundBoxes" | "boxes" | "course" | "extendedCourses" | "trucks">,
+  track: Pick<TxxTrack, "terrainMode" | "heights" | "waterLevel4" | "lakes" | "groundBoxes" | "boxes" | "course" | "extendedCourses" | "trucks"> & { worldCells?: number },
   veg: Vegetation,
   models: ReadonlyMap<string, ArrayLike<number>>,
   lakeTiles: Uint8Array | null,
@@ -1119,8 +1295,8 @@ export function vegReplant(
   const info = new Map<string, VegModelInfo>();
   for (const [name, raw] of models) info.set(name, vegModelInfo(raw));
   return vegPlant({
-    veg, ground, waterLevel4: track.waterLevel4, lakeTiles, lakeHeights: track.lakes.map((l) => l.height),
+    veg, cells: track.worldCells ?? 256, ground, waterLevel4: track.waterLevel4, lakeTiles, lakeHeights: track.lakes.map((l) => l.height),
     groundBoxes: track.groundBoxes, boxes: track.boxes, courses: [track.course, ...track.extendedCourses],
-    trucks: track.trucks, model: vegModelLookup(info), notInstanced,
+    trucks: track.trucks, model: vegModelLookup(info), notInstanced, terrainMode: track.terrainMode,
   });
 }

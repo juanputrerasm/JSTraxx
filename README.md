@@ -1,6 +1,6 @@
 # JSTraxx
 
-A web implementation of Traxx, the classic Monster Truck Madness 2 track editor, ported from Traxx 1.7.1.
+A web implementation of Traxx, the classic Monster Truck Madness 2 track editor, ported from Traxx 1.8.0.
 
 **Open it in your browser: https://juanputrerasm.github.io/JSTraxx/** (Chrome, Edge, Firefox or Safari; nothing to install).
 
@@ -30,7 +30,13 @@ Every change can be undone, in every mode.
 
 ## Writing a POD
 
-**File > Write POD** checks the track first (the "Incomplete Track" list), then writes the POD as Traxx does, entry for entry: the textures in their own palettes, their HD sources and `_N` / `_AO` maps found beside them in the ART folder or the library, the models, sounds, music, pictures, the situation file (`.SI2` when the legacy fallback is left out) and the `.TXV` record. Tracks Traxx wrote come back out byte for byte. The POD is saved through the browser's save dialog where there is one, or downloaded. **Options > Auto-Save** saves a modified track every few minutes, over its own file or to `TraxxAuto.txx`.
+**File > Write POD** checks the track first (the "Incomplete Track" list), then writes the POD as Traxx does, entry for entry: the textures in their own palettes, their HD sources and `_N` / `_AO` maps found beside them in the ART folder or the library, the models, sounds, music, pictures, the situation file (`.SI2` when the legacy fallback is left out) and the `.TXV` record. Tracks Traxx wrote come back out byte for byte. Before writing, the pre-flight check lists what the game would drop or refuse (texture sizes, the fog slots fog volumes share with waterfall mist, and more). The POD is saved through the browser's save dialog where there is one, or downloaded. **Options > Auto-Save** saves a modified track every few minutes, over its own file or to `TraxxAuto.txx`.
+
+## Track format version 6
+
+JSTraxx also opens, edits and writes [MTM2 track format version 6](https://openmtm2.github.io/proposals/track-format-v6) tracks, which Traxx does not: `.SI3` situations, worlds of 512 cells (16,384 ft a side), heights on the track's own step and base (below 0 ft or thousands of feet high), 16-bit ground boxes, `.WTR` and `.WFL` version 2, and up to 16,384 placed objects (4,096 on any other track). **File > New** picks the world's size. A version 6 track is saved as `.TXX` generation `TRAXXV99`, JSTraxx's own, which Traxx refuses rather than misreads.
+
+A pod whose lakes were made by another tool, not by Traxx's fill, keeps its own lake map until a lake or a waterfall is edited, and Write POD writes its `.WTR` back unchanged.
 
 ## Parity with Traxx
 
@@ -55,7 +61,7 @@ Every change can be undone, in every mode.
 
 ## Credits
 
-JSTraxx continues Traxx: Traxx (c) 1997 SoftParts, Traxx 1.5 (c) 2005 Richard Borchard III, the 1.6 GL update by Juan Pablo Utreras "Kmaster" the 1.6 CP3 updates and the 1.7 CP4 updates by Fila. It is built with [OpenPhotex](https://github.com/juanputrerasm/OpenPhotex) for the TRI file formats and takes its model rendering from [JSTrackViewer](https://github.com/juanputrerasm/JSTrackViewer).
+JSTraxx continues Traxx: Traxx (c) 1997 SoftParts, Traxx 1.5 (c) 2005 Richard Borchard III, the 1.6 GL update by Juan Pablo Utreras "Kmaster" the 1.6 CP3 updates and the 1.7 and 1.8 CP4 updates by Fila. It is built with [OpenPhotex](https://github.com/juanputrerasm/OpenPhotex) for the TRI file formats and takes its model rendering from [JSTrackViewer](https://github.com/juanputrerasm/JSTrackViewer).
 
 ## Deployment
 

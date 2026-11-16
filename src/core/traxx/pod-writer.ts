@@ -9,7 +9,7 @@
     DATA\ .ANI .CL0 .CL1 .CL2 .CLR .LTE .PUP .RA0-.RA5 .RAW .TEX .TTY .TXT, DATA\NULL,
       DATA\ZERO.RAW, FOG\<stem>.MAP, LEVELS\<stem>.LVL
     the models, the backdrop, the sounds (a .KLP before each continuous one), the music
-    UI\ pictures, ART\<stem>_DTL / _MASK, the vegetation masks ART\<stem>_V / _G, the info
+    UI\ pictures, ART\<stem>_DTL / _MASK / _WDTL / _WMSK, the vegetation masks ART\<stem>_V / _G, the info
       photo, the HD track art
     WORLD\<stem>.SIT (.SI2 when any legacy fallback was left out, or the terrain is not classic
       8-bit), DATA\<stem>.TXV, WORLD\<stem>.VEG, WORLD\<stem>.WTR, WORLD\<stem>.WFL,
@@ -43,13 +43,17 @@ import { stockIconCell } from "../image/bmp.ts";
 import { writeTraxxSit, traxxSitDefaults, type TraxxSit } from "./sit.ts";
 import { TRAXX_BOX_FOG, TRAXX_BOX_LIGHT } from "./sit.ts";
 import { saveRaw, TERRAINMODE_CLASSIC8, TERRAINMODE_FINE, TERRAINMODE_SPLINE } from "./terrain16.ts";
-import { heightsPodPlan } from "./heights-png.ts";
+import { heightsPodPlan, HEIGHTS_PNG_NAME_TOO_LONG } from "./heights-png.ts";
 import { buildLakeGround } from "./surface.ts";
-import { buildWtr, recomputeLakes, anyLakeErrors, lakeErrorText, LAKEERR_TOO_MANY, LAKES_NOT_SAVED } from "./lakes.ts";
+import { buildWtr, buildWtrV6, recomputeLakes, storedLakesOf, withStoredLakes, anyLakeErrors, lakeErrorText, LAKEERR_LAST, LAKES_NOT_SAVED, LAKE_RULE_EDGE } from "./lakes.ts";
 import {
-  buildWfl, fallErrors, fallErrorText, fallNameInPod, trackNotches, FALLERR_LIP_LOW, FALLFLAG_SOUND, FALL_NAMELEN, FALLS_NOT_SAVED,
+  buildWfl, fallErrors, fallErrorText, fallNameInPod, trackNotches, FALLERR_ROUGH, FALLFLAG_SOUND, FALL_NAMELEN, FALLS_NOT_SAVED,
+  FALL_WORLD_CLASSIC,
 } from "./falls.ts";
 import { parseMtm2Veg } from "../../vendor/openphotex/mtm/veg.js";
+import { vegBoundsProblem } from "./veg.ts";
+import { cellsOf } from "./world.ts";
+import { fallWorldOf, isV6Document, pickStepAndBase, v6GroundBoxGrids, v6HeightsEntry, v6TerrainGrid, v6Txv } from "./v6.ts";
 import { vegetationFromTxx } from "./veg.ts";
 import { instPodTextureOk, vegModelsThatWillNotInstance, type VegInstanceIssue } from "./instancing.ts";
 import { findAsset } from "../doc/names.ts";
@@ -65,12 +69,15 @@ export class PodBuildRefused extends Error {
   fixing", Traxx 1.7), then waterfalls in error ("Waterfalls need fixing", 1.7.1), one line per
   error bit, "Nothing was written." at the end. The lakes are recomputed with the falls' notches
   first, and a fall's lip is judged on the ground as it is now. Null when the build may go on.
+  Traxx 1.7.3: the export always writes the EDGE rule, so it is judged under it too (the notch
+  codes worded for the notch edge); the document's own rule is left as it is.
 */
 export function podRefusal(doc: TrackDocument): { title: string; text: string } | null {
   const t = doc.track;
-  const notches = trackNotches(t);
+  const notches = trackNotches({ falls: t.falls, worldCells: t.worldCells, lakeRule: LAKE_RULE_EDGE });
   const ground = buildLakeGround(t);
-  const st = t.lakes.length && ground ? recomputeLakes(ground, t.lakes, t.waterLevel4, notches) : null;
+  // JSTraxx: lakes still as the pod had them are its own map and file, with nothing to refuse (StoredLakes).
+  const st = t.lakes.length && ground ? withStoredLakes(t, recomputeLakes(ground, t.lakes, t.waterLevel4, notches)) : null;
   const list = (lines: string[]) => {
     const out: string[] = [];
     let len = 0;
@@ -85,17 +92,19 @@ export function podRefusal(doc: TrackDocument): { title: string; text: string } 
     if (!ground || !st) return { title: "Lakes need fixing", text: "There was not enough memory to check the lakes against the terrain.\n\nNothing was written." };
     if (anyLakeErrors(st) !== 0) {
       const lines: string[] = [];
-      st.lakes.forEach((l, li) => { for (let bit = 1; bit <= LAKEERR_TOO_MANY; bit <<= 1) if (l.errors & bit) lines.push(`Lake ${li + 1}: ${lakeErrorText(bit)}\n`); });
+      st.lakes.forEach((l, li) => { for (let bit = 1; bit <= LAKEERR_LAST; bit <<= 1) if (l.errors & bit) lines.push(`Lake ${li + 1}: ${lakeErrorText(bit)}\n`); });
       return { title: "Lakes need fixing", text: list(lines) };
     }
   }
   const falls = t.falls ?? [];
-  const lakes = { lakes: t.lakes, tmap: st?.tmap ?? null };
-  const names = fallNameInPod(t.sounds, doc.textures);
+  // Track format version 6 (spec 9.3): the falls are judged in the track's N world and height range.
+  const world = falls.length ? fallWorldOf(t, doc.carry.situationIsSi3) : FALL_WORLD_CLASSIC;
+  const lakes = { lakes: t.lakes, tmap: st?.tmap ?? null, world, rule: LAKE_RULE_EDGE };
+  const names = fallNameInPod(t.sounds, doc.textures, doc.modelTextures);
   const lines: string[] = [];
   falls.forEach((_, fi) => {
     const errors = fallErrors(falls, fi, lakes, names, ground);
-    for (let bit = 1; bit <= FALLERR_LIP_LOW; bit <<= 1) if (errors & bit) lines.push(`Waterfall ${fi + 1}: ${fallErrorText(bit)}\n`);
+    for (let bit = 1; bit <= FALLERR_ROUGH; bit <<= 1) if (errors & bit) lines.push(`Waterfall ${fi + 1}: ${fallErrorText(bit, world, true)}\n`);
   });
   return lines.length ? { title: "Waterfalls need fixing", text: list(lines) } : null;
 }
@@ -122,6 +131,8 @@ export interface PodWriteResult {
   entries: { name: string; data: Uint8Array }[];
   /** A legacy fallback was left out: the situation file is .SI2. */
   omittedAny: boolean;
+  /** Track format version 6: the situation file is .SI3 and the .TXV says formatVersion=6 (v6.ts). */
+  v6: boolean;
   anyHdOver256: boolean;
   /** Textures the writer could not stand behind (g_podBadTex). */
   badTextures: string[];
@@ -205,7 +216,8 @@ export function writeLvl(doc: TrackDocument): Uint8Array {
     `${sun.position[0]},${sun.position[1]},${sun.position[2]}\r\n${sun.intensity}\r\n`,
     `${doc.carry.levelValue}\r\n`,
   ];
-  if (mtm2 && t.waterLevel4 > 0) lines.push("!waterHeight\r\n", `${t.waterLevel4}\r\n`);
+  // 0 is no water. A version 6 track's may be below 0 ft (v6.ts trackWaterRange); Traxx's never is, so "not 0" is its "> 0".
+  if (mtm2 && t.waterLevel4 !== 0) lines.push("!waterHeight\r\n", `${t.waterLevel4}\r\n`);
   return text(lines);
 }
 
@@ -315,6 +327,11 @@ export function buildTrackPod(doc: TrackDocument, options: PodWriteOptions = {})
   const classic = t.terrainMode === TERRAINMODE_CLASSIC8;
   const omitFallback = t.omitRawFallback || !classic;
   let omittedAny = !classic, anyHdOver256 = false;
+  // Track format version 6 (v6.ts): a 512-cell world, tall or sunken heights, 16-bit ground boxes,
+  // a version 2 .WTR, or a track opened from a .SI3. Anything else is written as Traxx 1.7.1 writes it.
+  const v6 = isV6Document(t, doc.carry.situationIsSi3);
+  const cells = cellsOf(t);
+  const stepBase = v6 ? pickStepAndBase(t) : null;
 
   add(`ART\\${p}.ACT`, t.palette.slice(0, 768));
   add(`ART\\${p}.RAW`, new Uint8Array(4096));
@@ -353,29 +370,38 @@ export function buildTrackPod(doc: TrackDocument, options: PodWriteOptions = {})
   for (const tex of doc.textures) if (tex) writeTexture(tex);
   for (const tex of doc.modelTextures) writeTexture(tex);
 
-  const { ra0, ra1, cl0 } = groundBoxGrids(doc);
-  const clr = new Uint8Array(131072);
+  // Every grid is N x N cells (format version 6, spec 8.2); N is 256 on every Traxx track.
+  const nn = cells * cells;
+  const boxes = stepBase ? v6GroundBoxGrids(t, stepBase.step, stepBase.base).grids : null;
+  const { ra0, ra1, cl0 } = boxes ? { ra0: boxes.RA0, ra1: boxes.RA1, cl0: boxes.CL0 } : groundBoxGrids(doc);
+  const clr = new Uint8Array(2 * nn);
   const cv = new DataView(clr.buffer);
-  for (let c = 0; c < 65536; c++) cv.setUint16(c * 2, t.clr[c]!, true);
-  const lte = new Uint8Array(458752);
-  if (t.lte) lte.set(t.lte.subarray(0, 458752));
+  for (let c = 0; c < nn; c++) cv.setUint16(c * 2, t.clr[c] ?? 0, true);
+  const lte = new Uint8Array(7 * nn);
+  if (t.lte) lte.set(t.lte.subarray(0, 7 * nn));
   add(`DATA\\${p}.ANI`, writeAniFile(doc, longFrames));
   add(`DATA\\${p}.CL0`, cl0);
-  add(`DATA\\${p}.CL1`, new Uint8Array(262144));
-  add(`DATA\\${p}.CL2`, new Uint8Array(786432));
+  add(`DATA\\${p}.CL1`, boxes ? boxes.CL1 : new Uint8Array(262144));
+  add(`DATA\\${p}.CL2`, boxes ? boxes.CL2 : new Uint8Array(786432));
   add(`DATA\\${p}.CLR`, clr);
   add(`DATA\\${p}.LTE`, lte);
   add(`DATA\\${p}.PUP`, new Uint8Array(0));
   add(`DATA\\${p}.RA0`, ra0);
   add(`DATA\\${p}.RA1`, ra1);
-  for (const n of [2, 3, 4, 5]) add(`DATA\\${p}.RA${n}`, new Uint8Array(65536));
+  for (const n of [2, 3, 4, 5] as const) add(`DATA\\${p}.RA${n}`, boxes ? boxes[`RA${n}`] : new Uint8Array(65536));
   // THE HEIGHTS: the mode's height file after SyncFromRaw, and with "Store heights as PNG"
   // DATA\<stem>_H.PNG beside it (Classic 8-bit) or in its place (heights-png.ts). A PNG that
-  // cannot go in refuses the whole pod, as Traxx does.
-  const heights = heightsPodPlan(t, p, t.pngHeights);
+  // cannot go in refuses the whole pod, as Traxx does. A version 6 track writes its
+  // terrainHeightMap instead, at the step and base picked above (v6.ts, spec 7 and 11).
+  const heights = stepBase ? { raw: false, png: null, txvKey: "", error: null } : heightsPodPlan(t, p, t.pngHeights);
   if (heights.error) throw new PodBuildRefused(heights.error);
   if (heights.raw) add(`DATA\\${p}.RAW`, saveRaw(t));
   if (heights.png) add(heights.png.name, heights.png.bytes);
+  const v6Heights = stepBase ? v6HeightsEntry(t, p, stepBase.step, stepBase.base) : null;
+  if (v6Heights) {
+    if (v6Heights.name.length > POD_NAME_MAX) throw new PodBuildRefused(HEIGHTS_PNG_NAME_TOO_LONG);
+    add(v6Heights.name, v6Heights.bytes);
+  }
   add(`DATA\\${p}.TEX`, writeTex(doc.textures));
   add(`DATA\\${p}.TTY`, writeTtyFile(doc));
   add(`DATA\\${p}.TXT`, t.infoText ? t.infoText.slice() : new Uint8Array(0));
@@ -419,18 +445,31 @@ export function buildTrackPod(doc: TrackDocument, options: PodWriteOptions = {})
   /*
     WATERFALLS: whether WORLD\<stem>.WFL will be written is decided now, before the sounds (a
     fall's sound gets a .KLP) and the .TXV (waterfalls=<n>). Written when there are falls, none in
-    error (the lip judged on the ground as it is now) and the lakes they name go in too.
+    error (the lip judged on the ground as it is now) and the lakes they name go in too. Traxx 1.7.2:
+    the image itself is built here too, so the .TXV key and the sounds follow what was built.
+    Traxx 1.7.3: Traxx writes only edge-rule files; the lakes (and so the falls' notches) are
+    filled, checked and written under the EDGE rule, whatever rule a viewed pod was shown under.
   */
+  // Track format version 6 (spec 9.3): a version 6 track's falls live in its N world, with the
+  // terrain's height range, and its .WFL is version 1 or 2 as they need (buildWfl).
   const falls = t.falls ?? [];
-  const notches = trackNotches(t);
+  const fallWorld = v6 && stepBase ? { cells, terrain: stepBase } : FALL_WORLD_CLASSIC;
+  const notches = trackNotches({ falls: t.falls, worldCells: t.worldCells, lakeRule: LAKE_RULE_EDGE });
   const lakeGround = t.lakes.length || falls.length ? buildLakeGround(t) : null;
-  const lakeState = t.lakes.length && lakeGround ? recomputeLakes(lakeGround, t.lakes, t.waterLevel4, notches) : null;
+  const lakeState = t.lakes.length && lakeGround ? withStoredLakes(t, recomputeLakes(lakeGround, t.lakes, t.waterLevel4, notches)) : null;
   let fallsWrite = false, fallsFailed = false;
-  const nameCheck = fallNameInPod(t.sounds, doc.textures);
+  let wflImage: Uint8Array | null = null;
+  const wflName = `WORLD\\${p}.WFL`.toUpperCase();
+  const nameCheck = fallNameInPod(t.sounds, doc.textures, doc.modelTextures);
   if (falls.length) {
     const lakesOk = !t.lakes.length || (lakeState !== null && anyLakeErrors(lakeState) === 0);
-    const fl = { lakes: t.lakes, tmap: lakeState?.tmap ?? null };
+    const fl = { lakes: t.lakes, tmap: lakeState?.tmap ?? null, world: fallWorld, rule: LAKE_RULE_EDGE };
     fallsWrite = lakesOk && falls.every((_, i) => fallErrors(falls, i, fl, nameCheck, lakeGround) === 0);
+    // Build the image now: the .TXV waterfalls= key and the sounds go in only if it exists.
+    if (fallsWrite) {
+      wflImage = wflName.length < 32 ? buildWfl(falls, fl, nameCheck) : null;
+      if (!wflImage) fallsWrite = false;
+    }
     fallsFailed = !fallsWrite;
   }
   // FallUsesSound: a fall with its sound on that names this SOUND\<stem>.WAV.
@@ -458,7 +497,11 @@ export function buildTrackPod(doc: TrackDocument, options: PodWriteOptions = {})
   const stockMap = stockIconCell(t.mapBmp);
   if (t.mapBmp && t.mapBmp[0] === 0x42 && t.mapBmp[1] === 0x4d) add(`UI\\${mapName}`, t.mapBmp);
   if (t.logoBmp) add(`UI\\${logoName}`, t.logoBmp);
-  for (const [map, ext, suffix] of [[t.detailMap, t.detailExt, "_DTL"], [t.maskMap, t.maskExt, "_MASK"]] as const) {
+  // The terrain pair, then the water pair (Traxx 1.7.2: _WDTL, _WMSK), byte for byte.
+  for (const [map, ext, suffix] of [
+    [t.detailMap, t.detailExt, "_DTL"], [t.maskMap, t.maskExt, "_MASK"],
+    [t.waterDetailMap, t.waterDetailExt, "_WDTL"], [t.waterMaskMap, t.waterMaskExt, "_WMSK"],
+  ] as const) {
     if (!map) continue;
     const name = `ART\\${p}${suffix}${ext || ".PNG"}`;
     if (name.length <= POD_NAME_MAX) add(name, map);
@@ -484,19 +527,28 @@ export function buildTrackPod(doc: TrackDocument, options: PodWriteOptions = {})
     if (name.length <= POD_NAME_MAX) add(name, art.data);
   });
 
-  add(`WORLD\\${p}${omittedAny ? ".SI2" : ".SIT"}`, writeTraxxSit(traxxSitOf(doc), stockMap ? { stockMapIcon: stockMap.name } : {}));
+  const situation = `WORLD\\${p}${v6 ? ".SI3" : omittedAny ? ".SI2" : ".SIT"}`;
+  add(situation, writeTraxxSit(traxxSitOf(doc), stockMap ? { stockMapIcon: stockMap.name } : {}));
   // The .VEG goes after the .TXV, which says whether the pod has one. Masks only, no image:
   // nothing to pack (Traxx would build one from the rules).
   const vegName = `WORLD\\${p}.VEG`.toUpperCase();
   const vegImage = veg?.image && vegName.length <= POD_NAME_MAX ? veg.image : null;
-  add(`DATA\\${p}.TXV`, writeTxvFile(doc, !omittedAny, anyHdOver256, options.date ?? new Date(), vegImage ? vegCounts(vegImage) : null, heights.txvKey, fallsWrite ? falls.length : 0));
-  if (vegImage) add(vegName, vegImage);
+  const traxxTxv = writeTxvFile(doc, !omittedAny, anyHdOver256, options.date ?? new Date(), vegImage ? vegCounts(vegImage) : null, heights.txvKey, fallsWrite ? falls.length : 0);
+  add(`DATA\\${p}.TXV`, stepBase && v6Heights
+    ? v6Txv(traxxTxv, situation, { worldCells: cells, terrainHeightMap: v6Heights.name, step: stepBase.step, base: stepBase.base, terrainGrid: v6TerrainGrid(t) })
+    : traxxTxv);
+  if (vegImage) {
+    // Spec 9.2: trees in [0, W * 256), grass tiles 0..N-1. A .VEG that does not fit is reported.
+    const why = v6 ? vegBoundsProblem(vegImage, cells) : null;
+    if (why) warnings.push(`WORLD\\${p}.VEG: ${why}`);
+    add(vegName, vegImage);
+  }
   /*
     INSTANCING WARNING (CTrackPOD::Save, when the vegetation was written): every species model the
     game will not instance, judged with InstPodTextureOK (a texture the track holds but marked
     bad is not loadable). A warning, not a refusal.
   */
-  const vegNotInstanced = vegImage ? vegModelsThatWillNotInstance(vegetationFromTxx(veg), (bare) => {
+  const vegNotInstanced = vegImage ? vegModelsThatWillNotInstance(vegetationFromTxx(veg, cells), (bare) => {
     const at = findAsset(doc.models, bare);
     return at >= 0 ? doc.models[at]!.bytes : null;
   }, instPodTextureOk((name) => doc.modelTextures[findModelTexture(doc.modelTextures, name)] ?? null)) : [];
@@ -504,19 +556,17 @@ export function buildTrackPod(doc: TrackDocument, options: PodWriteOptions = {})
   // in error or a name that does not fit is reported and writes no item.
   if (t.lakes.length) {
     const wtrName = `WORLD\\${p}.WTR`.toUpperCase();
-    const wtr = lakeState && wtrName.length <= POD_NAME_MAX ? buildWtr(t.lakes, lakeState) : null;
+    // A version 6 track: OpenPhotex's writeWtr, version 1 or 2 as the lakes need (spec 9.1).
+    // JSTraxx: the pod's own .WTR, byte for byte, while its lakes are unchanged (StoredLakes).
+    const kept = storedLakesOf(t);
+    const wtr = lakeState && wtrName.length <= POD_NAME_MAX ? (kept ? kept.wtr : v6 ? buildWtrV6(t.lakes, lakeState) : buildWtr(t.lakes, lakeState)) : null;
     if (wtr) add(wtrName, wtr);
     else warnings.push(LAKES_NOT_SAVED);
   }
-  // WORLD\<stem>.WFL, decided above; a fall in error or a failed build is reported and writes no item.
-  if (fallsWrite) {
-    const wflName = `WORLD\\${p}.WFL`.toUpperCase();
-    const wfl = wflName.length < 32 ? buildWfl(falls, { lakes: t.lakes, tmap: lakeState?.tmap ?? null }, nameCheck) : null;
-    if (wfl) add(wflName, wfl);
-    else fallsFailed = true;
-  }
+  // WORLD\<stem>.WFL, built above; a fall in error or a failed build is reported and writes no item.
+  if (fallsWrite && wflImage) add(wflName, wflImage);
   if (fallsFailed) warnings.push(FALLS_NOT_SAVED);
   if (t.text) add(`WORLD\\${p}.TXT`, t.text);
 
-  return { comment: t.comment.slice(0, 79), entries, omittedAny, anyHdOver256, badTextures, longFrames, warnings, vegNotInstanced };
+  return { comment: t.comment.slice(0, 79), entries, omittedAny, v6, anyHdOver256, badTextures, longFrames, warnings, vegNotInstanced };
 }

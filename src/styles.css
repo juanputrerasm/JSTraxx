@@ -343,11 +343,6 @@ a { color: var(--accent); }
 .gen-row[hidden] { display: none; }
 .gen-preview { width: 256px; height: 256px; image-rendering: pixelated; border: 1px solid var(--line-strong); box-sizing: border-box; }
 .gen-area { flex: 1; min-width: 256px; min-height: 256px; display: flex; align-items: center; justify-content: center; }
-.lit { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
-.lit-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.lit-label { white-space: pre-line; text-align: center; font-size: 11px; min-height: 2.6em; }
-.lit-slider { writing-mode: vertical-lr; direction: rtl; height: 140px; width: 20px; }
-.lit-compass { display: grid; grid-template-columns: repeat(3, 20px); grid-template-rows: repeat(3, 20px); place-items: center; }
 .pal { display: flex; flex-direction: column; gap: 6px; }
 .pal-grid { width: 256px; height: 256px; border: 1px solid var(--line-strong); cursor: crosshair; }
 .stats { border-collapse: collapse; }
@@ -376,3 +371,24 @@ a { color: var(--accent); }
 .fall-spin .mini { padding: 0 3px; font-size: 8px; line-height: 9px; }
 .fall-stem { width: 10em; }
 .fall-problems { height: 6.5em; overflow: auto; white-space: nowrap; border: 1px solid var(--line-strong); background: var(--face-2); padding: 2px 4px; font-size: 11px; }
+
+/* Special > Lighting (lighting-dialog.ts): pad 30%, previews 35% each of the width, all of the height. */
+.light-dialog.modal { max-width: calc(100vw - 16px); }
+.light { display: flex; flex-direction: column; gap: 6px; }
+.light-top { flex: 1; min-height: 150px; display: flex; gap: 6px; }
+.light-cell { position: relative; min-width: 0; }
+.light-cell-pad { flex: 30 1 0; min-width: 120px; }
+.light-cell-view { flex: 35 1 0; min-width: 100px; }
+.light-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
+.light-pad { cursor: crosshair; touch-action: none; }
+.light-ycell { display: flex; width: 24px; }
+.light-yslider { writing-mode: vertical-lr; width: 22px; height: 100%; margin: 0; }
+.light-field { display: inline-flex; align-items: center; gap: 4px; }
+.light-num { width: 6.5em; text-align: right; }
+.light-line { min-height: 1.35em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.light-warn { color: #b3261e; }
+.light-amb { display: flex; align-items: center; gap: 6px; }
+.light-aslider { flex: 1; min-width: 80px; }
+.light-pct { min-width: 3.5em; text-align: right; }
+.light-presets { display: flex; gap: 10px; flex-wrap: wrap; }
+.stats-group { margin: 6px 0; padding: 2px 8px 4px; border: 1px solid var(--border, #888); }

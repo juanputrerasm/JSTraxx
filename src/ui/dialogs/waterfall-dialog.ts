@@ -2,8 +2,9 @@
   The Waterfall window (IDD_WATERFALL, Traxx 1.7.1 Traxx/WaterfallDlg.cpp). The logic is in
   core/edit/fall-properties.ts; this is the frame: Source, Crest height (feet, with the raw unit
   beside it; read-only with a lake), Flow speed, Opacity, Mist and its depth and height, Freeze
-  in snow, Splash, Sound and its volume and file, Texture, then the read-outs (crest, vertices,
-  looping sounds), Snap to lip, Flip direction and the Problems list.
+  in snow, Splash, Rough water and Rough from (Traxx 1.7.3), Sound and its volume and file,
+  Texture, then the read-outs (crest, vertices, looping sounds), Snap to lip, Flip direction and
+  the Problems list.
 
   Every change goes straight into the fall and the view redraws (shape changes rebuild the
   sheet). The speed and a spring's height apply while typing when they parse and are in range;
@@ -16,8 +17,9 @@ import { openDialog } from "../shell/dialog.ts";
 import type { TraxxFall } from "../../core/traxx/falls.ts";
 import { fallReverse, FALLFLAG_FREEZE, FALLFLAG_SOUND, FALLFLAG_SPLASH, FALL_NAMELEN } from "../../core/traxx/falls.ts";
 import {
-  applyFallHeight, applyFallNames, applyFallPercent, applyFallSpeedText, fallBoxTexts, fallHeightRaw, fallHeightText, fallSourceOptions,
-  liveFallHeight, liveFallSpeed, stepFallMist, stepFallSpeed, FALL_SOUND_NOTE, FALL_TEXTURE_NOTE, type FallPercent,
+  applyFallHeight, applyFallNames, applyFallPercent, applyFallRoughText, applyFallSpeedText, fallBoxTexts, fallHeightRaw, fallHeightText, fallRoughText,
+  fallSourceOptions, liveFallHeight, liveFallSpeed, stepFallMist, stepFallRough, stepFallSpeed, toggleFallRough, FALL_ROUGH_NOTE, FALL_ROUGH_OFF,
+  FALL_SOUND_NOTE, FALL_TEXTURE_NOTE, type FallPercent,
 } from "../../core/edit/fall-properties.ts";
 
 export interface WaterfallDialogHooks {
@@ -26,6 +28,8 @@ export interface WaterfallDialogHooks {
   /** Its EffectiveHeight. */
   effectiveHeight(): number;
   lakes(): readonly { height: number }[];
+  /** The raw heights a spring may take: Traxx's 1..4096, or a version 6 track's (falls.ts fallHeightBounds). */
+  heightBounds?(): { min: number; max: number };
   /** The fall changed: redraw, rebuilding the shapes when `shape`. */
   changed(shape: boolean): void;
   /** FallFit: orient, snap onto the lake's lip, orient again. */
@@ -52,6 +56,10 @@ export async function waterfallDialog(index: number, h: WaterfallDialogHooks): P
     el("button", { type: "button", class: "mini", tabindex: -1, onclick: () => onStep(-1) }, "▼"));
   const freeze = el("input", { type: "checkbox" }) as HTMLInputElement;
   const splash = el("input", { type: "checkbox" }) as HTMLInputElement;
+  const rough = el("input", { type: "checkbox" }) as HTMLInputElement;
+  const roughFrom = stop(el("input", { type: "text", class: "spin", inputmode: "numeric" }) as HTMLInputElement);
+  // Rough from before Rough water was unchecked (0 = none), for re-checking (m_roughprev).
+  let roughPrev = 0;
   const sound = el("input", { type: "checkbox" }) as HTMLInputElement;
   const soundFile = stop(el("input", { type: "text", readonly: true, maxlength: FALL_NAMELEN - 1, class: "fall-stem" }) as HTMLInputElement);
   const texture = stop(el("input", { type: "text", readonly: true, maxlength: FALL_NAMELEN - 1, class: "fall-stem" }) as HTMLInputElement);
@@ -86,7 +94,12 @@ export async function waterfallDialog(index: number, h: WaterfallDialogHooks): P
       splash.checked = (w.flags & FALLFLAG_SPLASH) !== 0;
       sound.checked = (w.flags & FALLFLAG_SOUND) !== 0;
       source.value = String(w.source);
+      // Rough from: 0 shows the engine default, 25; off (255) keeps the last value in the greyed box.
+      roughFrom.value = fallRoughText(w, roughPrev);
+      rough.checked = w.roughfrom !== FALL_ROUGH_OFF;
     }
+    roughFrom.disabled = w.roughfrom === FALL_ROUGH_OFF;
+    for (const b of roughSpin.querySelectorAll("button")) (b as HTMLButtonElement).disabled = w.roughfrom === FALL_ROUGH_OFF;
     // A sourced fall's height is the lake's: not typed here.
     height.disabled = w.source !== 0;
     for (const b of heightSpin.querySelectorAll("button")) (b as HTMLButtonElement).disabled = w.source !== 0;
@@ -96,7 +109,7 @@ export async function waterfallDialog(index: number, h: WaterfallDialogHooks): P
     readouts();
   };
 
-  const applyHeight = (raw: number) => { if (applyFallHeight(h.fall(), raw)) h.changed(true); refresh(true); };
+  const applyHeight = (raw: number) => { if (applyFallHeight(h.fall(), raw, h.heightBounds?.())) h.changed(true); refresh(true); };
   const applyHeightText = () => { const raw = fallHeightRaw(height.value); if (raw !== null) applyHeight(raw); else refresh(true); };
   const applySpeedText = () => { if (applyFallSpeedText(h.fall(), speed.value)) h.changed(true); refresh(true); };
   const small: [HTMLInputElement, FallPercent][] = [[opacity, "opacity"], [mist, "mist"], [mistdepth, "mistdepth"], [mistheight, "mistheight"], [volume, "volume"]];
@@ -104,7 +117,7 @@ export async function waterfallDialog(index: number, h: WaterfallDialogHooks): P
   const applyNames = () => { applyFallNames(h.fall(), soundFile.value, texture.value); h.changed(false); readouts(); };
 
   const heightSpin = spin((up) => applyHeight((fallHeightRaw(height.value) ?? 0) + up));
-  height.addEventListener("input", () => { if (!loading && liveFallHeight(h.fall(), height.value)) { h.changed(true); readouts(); } });
+  height.addEventListener("input", () => { if (!loading && liveFallHeight(h.fall(), height.value, h.heightBounds?.())) { h.changed(true); readouts(); } });
   height.addEventListener("blur", () => { if (!loading && !closing && !height.disabled) applyHeightText(); });
   height.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); applyHeightText(); } });
   speed.addEventListener("input", () => { if (!loading && liveFallSpeed(h.fall(), speed.value)) { h.changed(true); readouts(); } });
@@ -115,6 +128,18 @@ export async function waterfallDialog(index: number, h: WaterfallDialogHooks): P
     input.addEventListener("blur", () => { if (!loading && !closing) { applySmall(input, field); refresh(true); } });
   }
   const speedSpin = spin((up) => { stepFallSpeed(h.fall(), up); h.changed(true); refresh(true); });
+  /* Rough from: typing applies live (a value past 250 waits for the box to be left), the spin a ft/s a click. */
+  const applyRoughText = (final: boolean) => { if (applyFallRoughText(h.fall(), roughFrom.value, final)) { h.changed(false); readouts(); } };
+  roughFrom.addEventListener("input", () => { if (!loading && !closing) applyRoughText(false); });
+  roughFrom.addEventListener("blur", () => { if (!loading && !closing) { applyRoughText(true); refresh(true); } });
+  const roughSpin = spin((up) => { if (stepFallRough(h.fall(), up)) { h.changed(false); refresh(true); } });
+  /* OnRough: off writes 255 (the box greys); on restores the last value, or 0 (25) if there was none. */
+  rough.addEventListener("change", () => {
+    if (closing) return;
+    roughPrev = toggleFallRough(h.fall(), rough.checked, roughPrev);
+    h.changed(false);
+    refresh(true);
+  });
   const mistSpin = (field: "mistdepth" | "mistheight") => spin((up) => { stepFallMist(h.fall(), field, up); h.changed(false); refresh(true); });
 
   /* OnSelchangeSource: leaving a lake keeps the height the fall had (the lake's); another side is picked (FallFit). */
@@ -163,6 +188,8 @@ export async function waterfallDialog(index: number, h: WaterfallDialogHooks): P
       pair("Opacity (%)", [opacity], "Mist (%)", [mist]),
       pair("Mist depth (%)", [mistdepth, mistSpin("mistdepth")], "Mist height (%)", [mistheight, mistSpin("mistheight")]),
       el("div", { class: "opt-row" }, el("label", { class: "opt-check" }, freeze, "Freeze in snow"), el("label", { class: "opt-check" }, splash, "Splash (foam and droplets)")),
+      el("div", { class: "opt-row" }, el("label", { class: "opt-check" }, rough, "Rough water"), el("span", { class: "fld", style: "margin-left: 1em" }, "Rough from (ft/s)"), roughFrom, roughSpin),
+      el("p", { class: "hint" }, FALL_ROUGH_NOTE),
       el("div", { class: "opt-row" }, el("label", { class: "opt-check" }, sound, "Sound"), el("span", { class: "fld", style: "margin-left: 1em" }, "Sound volume (%)"), volume),
       row("Sound file", soundFile, soundBrowse, soundClear),
       el("p", { class: "hint" }, FALL_SOUND_NOTE),
@@ -183,6 +210,7 @@ export async function waterfallDialog(index: number, h: WaterfallDialogHooks): P
       if (!height.disabled) applyHeightText();
       applySpeedText();
       for (const [input, field] of small) applySmall(input, field);
+      applyRoughText(true);
       applyNames();
       closing = true;
       return true;

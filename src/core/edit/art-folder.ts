@@ -3,7 +3,7 @@
   Traxx/TraxxTexturesDlg.cpp). Three passes, .PNG then .TGA then .RAW:
 
     - an HD file is listed only when no <stem>.RAW is beside it, and never a map sibling
-      (_N, _AO) or a terrain _DTL / _MASK (TexPreviewHDStandsAlone);
+      (_N, _AO) or a track map _DTL / _MASK / _WDTL / _WMSK (TexPreviewHDStandsAlone);
     - a .RAW only when it is 32, 64 or 256 square by its length (TexPreviewRawSide).
 
   The filter is the search pattern Traxx builds: empty is "*", text with a "*" is used as it

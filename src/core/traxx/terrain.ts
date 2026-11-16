@@ -18,24 +18,26 @@ export const POD1_TOOL_STEM_MAX = 18;
   the final (int) truncation are kept, so results match Traxx's.
 */
 export function interpolateRawAtPoint(raw: Uint8Array, wx: number, wy: number): number {
-  const gx = (wx >> 6) & 255, gy = (wy >> 6) & 255;
-  const gx1 = (gx + 1) & 255, gy1 = (gy + 1) & 255;
+  // Track format version 6 (spec section 8.1): the grid is N x N, N told by its length (256 or 512).
+  const m = raw.length >= 512 * 512 ? 511 : 255, sh = m === 511 ? 9 : 8;
+  const gx = (wx >> 6) & m, gy = (wy >> 6) & m;
+  const gx1 = (gx + 1) & m, gy1 = (gy + 1) & m;
   const xoff = wx - (gx << 6), yoff = wy - (gy << 6);
   let x0, x1, x2, y0, y1, y2, z0, z1, z2;
   if ((gx + gy) & 1) {
     if (64 - xoff >= yoff) {
       x0 = 0; x1 = 64; x2 = 0; y0 = 0; y1 = 0; y2 = 64;
-      z0 = raw[gx + (gy << 8)]; z1 = raw[gx1 + (gy << 8)]; z2 = raw[gx + (gy1 << 8)];
+      z0 = raw[gx + (gy << sh)]; z1 = raw[gx1 + (gy << sh)]; z2 = raw[gx + (gy1 << sh)];
     } else {
       x0 = 64; x1 = 0; x2 = 64; y0 = 64; y1 = 64; y2 = 0;
-      z0 = raw[gx1 + (gy1 << 8)]; z1 = raw[gx + (gy1 << 8)]; z2 = raw[gx1 + (gy << 8)];
+      z0 = raw[gx1 + (gy1 << sh)]; z1 = raw[gx + (gy1 << sh)]; z2 = raw[gx1 + (gy << sh)];
     }
   } else if (xoff >= yoff) {
     x0 = 0; x1 = 64; x2 = 64; y0 = 0; y1 = 0; y2 = 64;
-    z0 = raw[gx + (gy << 8)]; z1 = raw[gx1 + (gy << 8)]; z2 = raw[gx1 + (gy1 << 8)];
+    z0 = raw[gx + (gy << sh)]; z1 = raw[gx1 + (gy << sh)]; z2 = raw[gx1 + (gy1 << sh)];
   } else {
     x0 = 64; x1 = 0; x2 = 0; y0 = 64; y1 = 64; y2 = 0;
-    z0 = raw[gx1 + (gy1 << 8)]; z1 = raw[gx + (gy1 << 8)]; z2 = raw[gx + (gy << 8)];
+    z0 = raw[gx1 + (gy1 << sh)]; z1 = raw[gx + (gy1 << sh)]; z2 = raw[gx + (gy << sh)];
   }
   const f = Math.fround;
   const denom = (x1 - x2) * (y0 - y1) - (x0 - x1) * (y1 - y2);
@@ -46,9 +48,10 @@ export function interpolateRawAtPoint(raw: Uint8Array, wx: number, wy: number): 
 }
 
 /** A flat light plane: ground byte `value`, the other six zero (BuildLte with min == max). */
-export function flatLte(value = FLAT_LTE): Uint8Array {
-  const lte = new Uint8Array(CELLS * 7);
-  for (let c = 0; c < CELLS; c++) lte[c * 7] = value;
+export function flatLte(value = FLAT_LTE, cells = GRID): Uint8Array {
+  const n = cells * cells;
+  const lte = new Uint8Array(n * 7);
+  for (let c = 0; c < n; c++) lte[c * 7] = value;
   return lte;
 }
 

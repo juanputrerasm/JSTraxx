@@ -28,12 +28,17 @@ export interface GroundBoxGeometry {
   faceOf: Int32Array;
 }
 
-/** The RA0 / RA1 grids for a set of boxes (what neighbour tests read). */
-export function boxGrids(boxes: readonly TxxGroundBox[]): { ra0: Uint8Array; ra1: Uint8Array } {
-  const ra0 = new Uint8Array(65536), ra1 = new Uint8Array(65536);
+/**
+  The RA0 / RA1 grids for a set of boxes (what neighbour tests read), N x N (N = 256, or a track
+  format version 6 world's worldCells, spec section 8.2). Kept as numbers, not bytes: a version 6
+  box's heights may lie outside 0..255 steps (16-bit boxes, a terrain below 0 ft, section 8.3).
+*/
+export function boxGrids(boxes: readonly TxxGroundBox[], cells = 256): { ra0: Float64Array; ra1: Float64Array } {
+  const m = cells - 1;
+  const ra0 = new Float64Array(cells * cells), ra1 = new Float64Array(cells * cells);
   for (const b of boxes) {
     for (let j = 0; j < b.h; j++) for (let i = 0; i < b.w; i++) {
-      const c = ((b.x + i) & 255) + (((b.y + j) & 255) << 8);
+      const c = ((b.x + i) & m) + ((b.y + j) & m) * cells;
       ra0[c] = b.lower;
       ra1[c] = b.upper;
     }
@@ -41,14 +46,15 @@ export function boxGrids(boxes: readonly TxxGroundBox[]): { ra0: Uint8Array; ra1
   return { ra0, ra1 };
 }
 
-export function groundBoxGeometry(boxes: readonly TxxGroundBox[], tiles: TileSet | null): GroundBoxGeometry {
-  const { ra0, ra1 } = boxGrids(boxes);
+export function groundBoxGeometry(boxes: readonly TxxGroundBox[], tiles: TileSet | null, cells = 256): GroundBoxGeometry {
+  const { ra0, ra1 } = boxGrids(boxes, cells);
+  const last = cells - 1;
   const p: number[] = [], uv: number[] = [], tl: number[] = [], cell: number[] = [], faceOf: number[] = [];
   boxes.forEach((b, bi) => {
     const x0 = b.x * 64, y0 = b.y * 64, x1 = x0 + b.w * 64, y1 = y0 + b.h * 64;
     const zl = ALTITUDE_SCALE * b.lower, zu = ALTITUDE_SCALE * b.upper;
     const corner = [[x0, y0, zl], [x1, y0, zl], [x1, y1, zl], [x0, y1, zl], [x0, y0, zu], [x1, y0, zu], [x1, y1, zu], [x0, y1, zu]];
-    const covered = (nx: number, ny: number) => ra0[nx + (ny << 8)] <= b.lower && ra1[nx + (ny << 8)] >= b.upper;
+    const covered = (nx: number, ny: number) => ra0[nx + ny * cells] <= b.lower && ra1[nx + ny * cells] >= b.upper;
     const add = (face: number, tri: [number, number, number], corners: [number, number, number]) => {
       const word = b.faces[face] ?? 0;
       const tex = word & 0x0fff;
@@ -64,8 +70,8 @@ export function groundBoxGeometry(boxes: readonly TxxGroundBox[], tiles: TileSet
     };
     const sideVisible = [
       !(b.y > 0 && covered(b.x, b.y - 1)),
-      !(b.y < 255 && covered(b.x, b.y + 1)),
-      !(b.x < 255 && covered(b.x + 1, b.y)),
+      !(b.y < last && covered(b.x, b.y + 1)),
+      !(b.x < last && covered(b.x + 1, b.y)),
       !(b.x > 0 && covered(b.x - 1, b.y)),
     ];
     for (let s = 0; s < 4; s++) {
@@ -74,7 +80,7 @@ export function groundBoxGeometry(boxes: readonly TxxGroundBox[], tiles: TileSet
       add(s, SIDE_TRIS[s + 4], SIDE_UV2);
     }
     for (const t of TOP) add(4, t.tri, t.uv);
-    if (ra0[b.x + (b.y << 8)] !== 0) for (const t of BOTTOM) add(5, t.tri, t.uv);
+    if (ra0[b.x + b.y * cells] !== 0) for (const t of BOTTOM) add(5, t.tri, t.uv);
   });
   return { positions: new Float32Array(p), uvs: new Float32Array(uv), tiles: new Float32Array(tl), cells: new Float32Array(cell), faceOf: new Int32Array(faceOf) };
 }

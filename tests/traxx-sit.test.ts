@@ -62,8 +62,8 @@ const FIXTURE = [
   "length,width,height", "64.000000,8.000000,30.000000", ...MOTION, "!type,flags", "6,0", "priority", "0", ...SOUNDS,
   DELIM, "ipos", "800.000000,40.000000,900.000000", "theta,phi,psi", "0.000000,0.000000,0.000000", "model", "LAMP.BIN", ...MOTION,
   "!type,flags", "12,0", "priority", "0", ...SOUNDS,
-  "Llight rad,hgt,r,g,b,glow,glowRad,coneLen,coneRim,coneBase,bright,aimOff",
-  "80.000000,10.000000,1.000000,0.500000,0.250000,2,6.000000,125.000000,10.000000,3.500000,1.250000,4.000000",
+  "Llight rad,hgt,r,g,b,glow,glowRad,coneLen,coneRim,coneBase,bright,aimOff,allWx",
+  "80.000000,10.000000,1.000000,0.500000,0.250000,2,6.000000,125.000000,10.000000,3.500000,1.250000,4.000000,1",
   "*** Cylinders ***", "1", DELIM, "ipos", "1,2,3",
   "*** Top Crush ***", "1", DELIM, "ipos", "300.000000,30.000000,400.000000", "ipos2", "300.000000,34.000000,400.000000",
   "theta,phi,psi", "0.000000,0.000000,0.000000", "modelName", "CPCRUB2.BIN", "cabModelName", "CPCRUB1.BIN", ...MOTION,
@@ -143,6 +143,7 @@ test("a SIT laid out as Traxx writes it reads into Traxx's fields", () => {
   assert.equal(lamp.light.glowMode, 2);
   assert.equal(lamp.light.bright, 1.25);
   assert.equal(lamp.light.aimOffset, 4);
+  assert.equal(lamp.light.allWx, 1);
   assert.equal(crush.type, 98);
   assert.equal(crush.modelName, "CPCRUB2.BIN");
   assert.equal(crush.crushName, "CPCRUB1.BIN");
@@ -164,6 +165,40 @@ test("a SIT laid out as Traxx writes it reads into Traxx's fields", () => {
 test("writeTraxxSit writes back the same bytes Traxx wrote", () => {
   const out = writeTraxxSit(readTraxxSit(latin1(FIXTURE), "TEST.SIT"));
   assert.equal(new TextDecoder("latin1").decode(out), FIXTURE);
+});
+
+/*
+  Traxx 1.8.0 (a114974, tools/txxtest.cpp test_light_allwx_sit): the 'L' header is the engine's
+  78-character one, the data line has 13 fields ending ",1" / ",0", and an old 12-field block
+  (header without ",allWx", data line without its last field) reads allWx 0.
+*/
+test("Traxx 1.8.0: the 13-field 'L' block, its 78-character header, and a 12-field block reading 0", () => {
+  const sit = readTraxxSit(latin1(FIXTURE), "TEST.SIT");
+  const lamp = sit.boxes[3]!;
+  const second = structuredClone(lamp);
+  second.light.allWx = 0;
+  sit.boxes.splice(4, 0, second);
+  const text = new TextDecoder("latin1").decode(writeTraxxSit(sit));
+  const lines = text.split("\r\n");
+  const heads = lines.flatMap((l, i) => (l.startsWith("Llight") ? [i] : []));
+  assert.equal(heads.length, 2);
+  for (const h of heads) {
+    assert.equal(lines[h], "Llight rad,hgt,r,g,b,glow,glowRad,coneLen,coneRim,coneBase,bright,aimOff,allWx");
+    assert.equal(lines[h]!.length, 78);
+    assert.equal(lines[h + 1]!.split(",").length, 13);
+  }
+  assert.ok(lines[heads[0]! + 1]!.endsWith(",1"));
+  assert.ok(lines[heads[1]! + 1]!.endsWith(",0"));
+  // Every light block stripped back to 12 fields: allWx reads 0, the rest as before.
+  const old = text.replace(/(Llight[^\r]*),allWx\r\n([^\r]*),[01]\r\n/g, "$1\r\n$2\r\n");
+  assert.ok(!old.includes("allWx"));
+  const back = readTraxxSit(old, "TEST.SIT");
+  const lights = back.boxes.filter((b) => b.type === 12);
+  assert.deepEqual(lights.map((b) => b.light.allWx), [0, 0]);
+  assert.equal(lights[0]!.light.glowMode, 2);
+  assert.equal(lights[0]!.light.bright, 1.25);
+  // As written: 1 then 0.
+  assert.deepEqual(readTraxxSit(text, "TEST.SIT").boxes.filter((b) => b.type === 12).map((b) => b.light.allWx), [1, 0]);
 });
 
 test("an arena track writes the MTM2 stadium line and an empty backdrop", () => {

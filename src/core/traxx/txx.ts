@@ -8,27 +8,81 @@
   backdrop, fog map, ground boxes, sounds, animations and the sun. Art and models are kept by
   name only; Traxx reloads them from its ART and MODELS folders.
 
-  The header names the generation, TRAXXV1 to TRAXXV18 (V12 to V17 are Traxx 1.7's: fog,
-  vegetation, lakes and the terrain modes; V18 is Traxx 1.7.1's waterfalls). Each one appends fields, and Traxx
-  writes the LOWEST generation the track's contents need (txxVersionFor), so a track that uses
-  nothing new stays readable by an older Traxx. Every rule below says which generation adds it.
+  The header names the generation, TRAXXV1 to TRAXXV20 (V12 to V17 are Traxx 1.7's: fog,
+  vegetation, lakes and the terrain modes; V18 is Traxx 1.7.1's waterfalls; V19 is Traxx 1.7.2's
+  water detail normal and water mask; V20 is Traxx 1.8.0's light all-weather flag). Each one appends fields, and Traxx writes the LOWEST
+  generation the track's contents need (txxVersionFor), so a track that uses nothing new stays
+  readable by an older Traxx. Every rule below says which generation adds it.
 
   Strings are one length byte then the bytes, the length counting the terminating NUL. A reader
   keeps what fits the destination and consumes the rest, as LOADSTRINGN does.
+
+  TRAXXV19 (Traxx 1.7.2, TrackPODBinary.cpp): V18, then after the waterfalls the water detail
+  record and the water mask record, each in the V9 detail / mask layout (string ext, i32 length,
+  bytes). Written only when either water map is set.
+
+  TRAXXV20 (Traxx 1.8.0, a114974, TrackPODBox.cpp BOXBIN_VERSION_ALLWX): one more i32 (light.allwx)
+  at the very end of EVERY box record, after the fog values (the record is read positionally, so
+  the reader cannot know a box is a light before reading it). Stamped only when some light has
+  allwx set (BoxLightNeedsAllWxField), so every other track saves byte-identical to before. The
+  reader normalises a value other than 0 / 1 to (value != 0).
+
+  TRAXXV99 IS JSTRAXX'S OWN GENERATION, NOT TRAXX'S. The number is temporary: the final proposal
+  takes Traxx's next free one. It holds a track format version 6 document (v6.ts isV6Document: a
+  512-cell world, heights outside 0..512 ft or in the 32-bit store, 16-bit ground boxes, or a
+  track opened from a .SI3), which no Traxx generation can. It is written for such a track and
+  only for it; every other track keeps the generation and the bytes Traxx 1.8.0 writes. Traxx's
+  LoadBinary knows TRAXXV1..TRAXXV20 by name and aborts on any other header (version = 0,
+  FILE_ABORT), so it refuses a V99 file instead of misreading it.
+
+  V99 is the V20 layout, records in the same order, with these differences (N = worldCells):
+    - every box record ends with V20's i32 allwx, ALWAYS (not only when a light sets it): 0 for a
+      box that is not a light or whose light has it clear; read as V20 reads it (a value other
+      than 0 / 1 becomes value != 0). V99 files written before Traxx 1.8.0 was ported lack it and
+      no longer open (the number is temporary and v6 is JSTraxx-only work in progress);
+    - before the terrain record: i32 worldCells (256 or 512);
+    - the terrain record: each plane (heights, CLR low and high, the 7 LTE planes) is N x N cells,
+      run-length coded as V18's 256 x 256 ones;
+    - a ground box: lower and upper as two f64 (2 ft units, any value a version 6 box holds)
+      instead of two u8;
+    - a lake seed: 0..N - 1;
+    - the V17 heights (mode not Classic 8-bit): i32 store bits (16 or 32), then the samples, N x N
+      (16-bit / Spline) or 4N x 4N (Full Map), u16 or i32 each (the 32-bit 1/128 ft store);
+    - the V19 water detail and water mask records are always there (an empty ext and length 0
+      when a map is unset);
+    - after them, the version 6 block: i32 block version (1), i32 flags (0x1 opened from a .SI3,
+      0x2 a height step and base are set), i32 terrainHeightStep, i32 terrainHeightBase.
+  The fog map (32 KB), the art, the vegetation image (the .VEG bytes) and the waterfalls are as
+  V18 has them. The JSTraxx trailer, when there is one, still comes last.
 */
+import type { StoredLakes } from "./lakes.ts";
 import { f32 } from "./cformat.ts";
+import type { HeightGrid } from "./world.ts";
 import {
   clampTraxxFog, traxxBoxDefaults, traxxFogEngineDefaults, traxxLightDefaults, traxxTruckDefaults, traxxUiBitmapName,
   TRAXX_BOX_CRUSH, TRAXX_BOX_FOG, TRAXX_BOX_LIGHT,
 } from "./sit.ts";
 import type { TraxxArena, TraxxBox, TraxxCourseSegment, TraxxTruck } from "./sit.ts";
 import { fallDefaults, FALL_MAX_FALLS, FALL_MAX_POINTS, FALL_NAMELEN, type TraxxFall } from "./falls.ts";
+import { TRACK_WATER_MAX4, TRACK_WATER_V6_MAX4, TRACK_WATER_V6_MIN4, isV6Document } from "./v6.ts";
 import {
   refreshRaw, syncFromRaw, wordsOf, RAWLEN_16BIT, RAWLEN_FINE, TERRAIN_FINE, TERRAINMODE_CLASSIC8, TERRAINMODE_FINE,
 } from "./terrain16.ts";
 
-/** The newest generation this port reads and writes. */
-export const TXX_LATEST_VERSION = 18;
+/** The newest generation Traxx 1.8.0 knows: V20, the light all-weather flag. */
+export const TXX_TRAXX_VERSION = 20;
+/** Traxx 1.7.2's water maps generation. */
+export const TXX_WATER_MAPS_VERSION = 19;
+/** Traxx 1.8.0's light all-weather generation (BOXBIN_VERSION_ALLWX). */
+export const TXX_ALLWX_VERSION = 20;
+/** JSTraxx's track format version 6 generation (temporary number; see the header comment). */
+export const TXX_V6_VERSION = 99;
+/** The newest generation this port reads and writes: JSTraxx's own V99. */
+export const TXX_LATEST_VERSION = TXX_V6_VERSION;
+/** The version 6 block's own version, and its flags. */
+const V6_BLOCK_VERSION = 1;
+const V6_FROM_SI3 = 0x1;
+const V6_STEP_BASE = 0x2;
 
 const MISCFLAG_FOGMAP = 0x1;
 const MISCFLAG_SUNPOS = 0x2;
@@ -54,7 +108,6 @@ const BOXFLAG_CONT = 0x1;
 const BOXFLAG_IMPACT = 0x2;
 /** The pre-V4 fixed sound-name field. */
 const SOUND_FIELD_V3 = 12;
-const CELLS = 256 * 256;
 const ANI_FRAMES = 8;
 /** UIART_LOGO, UIART_MAP, UIART_INFO. */
 export const TXX_UI_ART_SLOTS = 3;
@@ -163,6 +216,14 @@ export interface TxxTrack {
   detailMap: Uint8Array | null;
   maskExt: string;
   maskMap: Uint8Array | null;
+  /**
+    V19 (Traxx 1.7.2): the water detail normal (<stem>_WDTL) and the world-space water mask
+    (<stem>_WMSK), a twin of the terrain pair, each with the extension it came in as.
+  */
+  waterDetailExt: string;
+  waterDetailMap: Uint8Array | null;
+  waterMaskExt: string;
+  waterMaskMap: Uint8Array | null;
   /** V10: HD track art, one slot each for the logo, map and info photo. */
   uiHd: (TxxHdArt | null)[];
   paletteName: string;
@@ -197,8 +258,20 @@ export interface TxxTrack {
   sun: TxxSun | null;
   /** V17: TERRAINMODE_* (terrain16.ts); `heights` is then the 8-bit mirror of h16 or fine. */
   terrainMode: number;
-  h16: Uint16Array | null;
-  fine: Uint16Array | null;
+  h16: HeightGrid | null;
+  fine: HeightGrid | null;
+  /**
+    Track format version 6 (world.ts): cells a side, 256 or 512. A .SI3 track's .TXV sets it; a
+    .TXX holds it from TRAXXV99 (JSTraxx's generation) on, 256 before.
+  */
+  worldCells: number;
+  /**
+    The terrainHeightStep and terrainHeightBase the track was opened or imported with (version 6),
+    null when none: Write POD keeps them when they still hold every height exactly, else picks new
+    ones (spec section 11).
+  */
+  heightStep: number | null;
+  heightBase: number | null;
   /** What the mirror last wrote into `heights` (rawshadow), for syncFromRaw. */
   rawShadow: Uint8Array | null;
   /** MISCFLAG_PNGHEIGHTS: Store heights as PNG. */
@@ -207,8 +280,23 @@ export interface TxxTrack {
   vegetation: TxxVegetation | null;
   /** V16. */
   lakes: TxxLake[];
+  /**
+    The lakes' containment rule (Traxx 1.7.3, LAKE_RULE_*), derived and never saved: set from a
+    pod's .WTR header (a tile-rule file built before 1.7.3), absent (EDGE, the default) otherwise.
+  */
+  lakeRule?: number;
+  /**
+    JSTraxx's own, never saved: the pod's .WTR when Traxx's fill does not give its tile map, kept
+    while the lakes are the pod's (lakes.ts StoredLakes, withStoredLakes).
+  */
+  storedLakes?: StoredLakes | null;
   /** V18 (Traxx 1.7.1): the waterfalls, the authored part only. */
   falls: TraxxFall[];
+  /**
+    V99 only, as read: the track was opened from a .SI3 (PodCarryOver.situationIsSi3). openTxx
+    moves it into the document's carry; nothing else reads it.
+  */
+  txxFromSi3?: boolean;
 }
 
 export class TxxError extends Error {
@@ -234,6 +322,7 @@ class Reader {
   u16(what: string): number { this.need(2, what); const v = this.view.getUint16(this.pos, true); this.pos += 2; return v; }
   i32(what: string): number { this.need(4, what); const v = this.view.getInt32(this.pos, true); this.pos += 4; return v; }
   f32(what: string): number { this.need(4, what); const v = this.view.getFloat32(this.pos, true); this.pos += 4; return v; }
+  f64(what: string): number { this.need(8, what); const v = this.view.getFloat64(this.pos, true); this.pos += 8; return v; }
   take(n: number, what: string): Uint8Array { this.need(n, what); const out = this.bytes.slice(this.pos, this.pos + n); this.pos += n; return out; }
   /** LOADSTRINGN: a length byte, then the bytes; keeps up to cap - 1 of them and drops the rest. */
   string(cap: number, what: string): string {
@@ -256,7 +345,8 @@ export function readTxx(bytes: Uint8Array): TxxTrack {
   const header = cString(r.take(10, "the header"));
   const match = /^TRAXXV(\d+)$/.exec(header);
   const version = match ? Number(match[1]) : 0;
-  if (version < 1 || version > TXX_LATEST_VERSION) throw new TxxError(`not a Traxx working file (header "${header}")`);
+  // Traxx's generations 1..20, and JSTraxx's own V99; nothing between.
+  if (version < 1 || (version > TXX_TRAXX_VERSION && version !== TXX_V6_VERSION)) throw new TxxError(`not a Traxx working file (header "${header}")`);
 
   const comment = r.string(CAP.comment, "the comment");
   const prefix = r.string(CAP.prefix, "the stem");
@@ -301,7 +391,9 @@ export function readTxx(bytes: Uint8Array): TxxTrack {
   }
   let waterLevel4 = 4 * waterLevel;
   if (version >= 11) waterLevel4 += r.i32("the water quarters");
-  waterLevel4 = Math.min(4 * 255, Math.max(0, waterLevel4));
+  // Traxx keeps 0..510 ft; a TRAXXV99 file is a version 6 document, whose water has no 510 ft cap (v6.ts trackWaterRange).
+  if (version >= TXX_V6_VERSION) waterLevel4 = Math.min(TRACK_WATER_V6_MAX4, Math.max(TRACK_WATER_V6_MIN4, waterLevel4));
+  else waterLevel4 = Math.min(TRACK_WATER_MAX4, Math.max(0, waterLevel4));
 
   const paletteName = r.string(CAP.podItem, "the palette name");
   const palette = r.take(768, "the palette");
@@ -335,7 +427,14 @@ export function readTxx(bytes: Uint8Array): TxxTrack {
     if (i < extendedCourses.length) extendedCourses[i] = segments;
   }
 
-  const terrain = readTerrain(r);
+  // V99: the world's size, then a terrain of N x N cells.
+  let worldCells = 256;
+  if (version >= TXX_V6_VERSION) {
+    worldCells = r.i32("the world size");
+    if (worldCells !== 256 && worldCells !== 512) throw new TxxError("the world size is not 256 or 512 cells");
+  }
+  const N = worldCells, NN = N * N;
+  const terrain = readTerrain(r, NN);
 
   const trucks: TraxxTruck[] = [];
   for (let i = 0; i < 9; i++) trucks.push(readTruck(r));
@@ -361,7 +460,8 @@ export function readTxx(bytes: Uint8Array): TxxTrack {
   const groundBoxCount = r.i32("the ground box count");
   for (let i = 0; i < groundBoxCount; i++) {
     const x = r.i32("a ground box"), y = r.i32("a ground box"), w = r.i32("a ground box"), h = r.i32("a ground box");
-    const lower = r.u8("a ground box"), upper = r.u8("a ground box");
+    const v99 = version >= TXX_V6_VERSION;
+    const lower = v99 ? r.f64("a ground box") : r.u8("a ground box"), upper = v99 ? r.f64("a ground box") : r.u8("a ground box");
     const faces: number[] = [];
     for (let face = 0; face < 6; face++) faces.push(r.u16("a ground box"));
     groundBoxes.push({ x, y, w, h, lower, upper, faces });
@@ -421,7 +521,7 @@ export function readTxx(bytes: Uint8Array): TxxTrack {
       const seeds: [number, number][] = [];
       for (let s = 0; s < ns; s++) {
         const x = r.i32("a lake seed"), z = r.i32("a lake seed");
-        if (x < 0 || x > 255 || z < 0 || z > 255) throw new TxxError("a lake seed is off the map");
+        if (x < 0 || x > N - 1 || z < 0 || z > N - 1) throw new TxxError("a lake seed is off the map");
         seeds.push([x, z]);
       }
       lakes.push({ height, flags, seeds });
@@ -430,25 +530,35 @@ export function readTxx(bytes: Uint8Array): TxxTrack {
 
   // V17: the terrain mode and its real heights (CTrackPODTerrain::LoadTXXHeights). The
   // mid-file block held only the 8-bit mirror, which is rebuilt from them.
-  const t16 = { terrainMode: TERRAINMODE_CLASSIC8, h16: null as Uint16Array | null, fine: null as Uint16Array | null, rawShadow: null as Uint8Array | null, heights: terrain.heights };
+  const t16 = { terrainMode: TERRAINMODE_CLASSIC8, h16: null as HeightGrid | null, fine: null as HeightGrid | null, rawShadow: null as Uint8Array | null, heights: terrain.heights, worldCells };
   if (version >= 17) {
     const mode = r.i32("the terrain mode");
     if (mode < TERRAINMODE_CLASSIC8 || mode > TERRAINMODE_FINE) throw new TxxError("the terrain mode is unknown");
     if (mode !== TERRAINMODE_CLASSIC8) {
       const fine = mode === TERRAINMODE_FINE;
-      const words = wordsOf(r.take(fine ? RAWLEN_FINE : RAWLEN_16BIT, "the terrain heights"), fine ? TERRAIN_FINE * TERRAIN_FINE : 256 * 256);
+      let words: HeightGrid;
+      if (version >= TXX_V6_VERSION) {
+        // V99: the store's bits, then N x N or 4N x 4N samples.
+        const bits = r.i32("the terrain store");
+        if (bits !== 16 && bits !== 32) throw new TxxError("the terrain store is not 16 or 32-bit");
+        const count = fine ? 16 * NN : NN;
+        const bytes = r.take(count * (bits / 8), "the terrain heights");
+        if (bits === 16) words = wordsOf(bytes, count);
+        else { const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength); words = new Int32Array(count); for (let i = 0; i < count; i++) words[i] = dv.getInt32(4 * i, true); }
+      } else words = wordsOf(r.take(fine ? RAWLEN_FINE : RAWLEN_16BIT, "the terrain heights"), fine ? TERRAIN_FINE * TERRAIN_FINE : 256 * 256);
       t16.terrainMode = mode;
       if (fine) t16.fine = words; else t16.h16 = words;
-      t16.rawShadow = new Uint8Array(CELLS);
+      t16.rawShadow = new Uint8Array(NN);
       refreshRaw(t16);
     }
   }
 
-  // V18: the waterfalls (CTrackPODFalls::LoadTXX, block version 2; 1 is read with the mist size 100).
+  // V18: the waterfalls (CTrackPODFalls::LoadTXX, block version 3 since Traxx 1.7.3: + roughfrom after the
+  // mist height; 1 is read with the mist size 100, 1 and 2 with roughfrom 0).
   const falls: TraxxFall[] = [];
   if (version >= 18) {
     const v = r.i32("the waterfalls");
-    if (v !== 1 && v !== 2) throw new TxxError("the waterfalls block has an unknown version");
+    if (v !== 1 && v !== 2 && v !== 3) throw new TxxError("the waterfalls block has an unknown version");
     const n = r.i32("the waterfall count");
     if (n < 0 || n > FALL_MAX_FALLS) throw new TxxError("the waterfall count is out of range");
     for (let i = 0; i < n; i++) {
@@ -469,12 +579,37 @@ export function readTxx(bytes: Uint8Array): TxxTrack {
         if (md > 250) md = 250;
         if (mh > 250) mh = 250;
       }
+      let rf = 0;
+      if (v >= 3) {
+        rf = r.i32("a waterfall");
+        if (rf < 0 || rf > 255) throw new TxxError("a waterfall is corrupt");
+      }
       // char[16] each: no NUL in the 16 bytes leaves a 16-character stem, which Errors refuses (FALL_NAME).
       w.sound = cString(r.take(FALL_NAMELEN, "a waterfall's sound"));
       w.texture = cString(r.take(FALL_NAMELEN, "a waterfall's texture"));
-      Object.assign(w, { source: src, npoints: np, flags: fl, opacity: op, mist: mi, volume: vo, mistdepth: md, mistheight: mh });
+      Object.assign(w, { source: src, npoints: np, flags: fl, opacity: op, mist: mi, volume: vo, mistdepth: md, mistheight: mh, roughfrom: rf });
       falls.push(w);
     }
+  }
+
+  // V19 (Traxx 1.7.2): the water detail normal, then the water mask, in the V9 pair's layout.
+  let waterDetailExt = "", waterDetailMap: Uint8Array | null = null, waterMaskExt = "", waterMaskMap: Uint8Array | null = null;
+  if (version >= TXX_WATER_MAPS_VERSION) {
+    waterDetailExt = r.string(CAP.ext, "the water detail extension");
+    waterDetailMap = r.blob("the water detail map");
+    waterMaskExt = r.string(CAP.ext, "the water mask extension");
+    waterMaskMap = r.blob("the water mask map");
+  }
+
+  // V99: the version 6 block (JSTraxx's own; see the header comment).
+  let heightStep: number | null = null, heightBase: number | null = null, txxFromSi3 = false;
+  if (version >= TXX_V6_VERSION) {
+    const bv = r.i32("the version 6 block");
+    if (bv !== V6_BLOCK_VERSION) throw new TxxError("the version 6 block has an unknown version");
+    const flags = r.i32("the version 6 block");
+    const step = r.i32("the version 6 block"), base = r.i32("the version 6 block");
+    txxFromSi3 = (flags & V6_FROM_SI3) !== 0;
+    if (flags & V6_STEP_BASE) { heightStep = step; heightBase = base; }
   }
 
   // The JSTraxx trailer, when there is one (see extraBackdrops): after the last block Traxx reads.
@@ -488,11 +623,12 @@ export function readTxx(bytes: Uint8Array): TxxTrack {
   return {
     version, comment, prefix, trackName, localeName, logoBmpName, mapBmpName, trackType, waterLevel4,
     versionFlags, ambientSound, weatherMask, logoBmp, mapBmp, music, text, infoBmp, infoText,
-    detailExt, detailMap, maskExt, maskMap, uiHd, paletteName, palette, textures, models, boxes, course,
-    extendedCourses, heights: terrain.heights, clr: terrain.clr, lte: terrain.lte, trucks, backdropName, extraBackdrops, arena,
+    detailExt, detailMap, maskExt, maskMap, waterDetailExt, waterDetailMap, waterMaskExt, waterMaskMap,
+    uiHd, paletteName, palette, textures, models, boxes, course, extendedCourses, heights: terrain.heights, clr: terrain.clr, lte: terrain.lte, trucks, backdropName, extraBackdrops, arena,
     omitRawFallback: (miscflags & MISCFLAG_NORAWFALLBACK) !== 0, fogMap, groundBoxes, sounds, animations, sun,
-    terrainMode: t16.terrainMode, h16: t16.h16, fine: t16.fine, rawShadow: t16.rawShadow,
+    terrainMode: t16.terrainMode, h16: t16.h16, fine: t16.fine, rawShadow: t16.rawShadow, worldCells, heightStep, heightBase,
     pngHeights: (miscflags & MISCFLAG_PNGHEIGHTS) !== 0, vegetation, lakes, falls,
+    ...(version >= TXX_V6_VERSION ? { txxFromSi3 } : {}),
   };
 }
 
@@ -550,6 +686,12 @@ function readBox(r: Reader, version: number): TraxxBox {
     else if (box.type === TRAXX_BOX_FOG) f.bot = 0;
     clampTraxxFog(f);
   } else if (box.type === TRAXX_BOX_FOG) box.fog = traxxFogEngineDefaults();
+  // V20 (and V99) only: the light's all-weather flag, last in the record, for every box. Below that
+  // allWx keeps LIGHTDEF_ALLWX (0), which every older file meant.
+  if (version >= TXX_ALLWX_VERSION) {
+    const allWx = r.i32("a light");
+    box.light.allWx = allWx !== 0 ? 1 : 0;
+  }
   return box;
 }
 
@@ -565,8 +707,8 @@ function readCourse(r: Reader): TxxCourseSegment[] {
   return segments;
 }
 
-/** CTrackPODTerrain::Load: the flags word, then each plane raw or run-length coded. */
-function readTerrain(r: Reader): { heights: Uint8Array; clr: Uint16Array; lte: Uint8Array | null } {
+/** CTrackPODTerrain::Load: the flags word, then each plane raw or run-length coded (CELLS cells; N x N in V99). */
+function readTerrain(r: Reader, CELLS = 256 * 256): { heights: Uint8Array; clr: Uint16Array; lte: Uint8Array | null } {
   const flags = r.u16("the terrain");
   const heights = new Uint8Array(CELLS).fill(100);
   const clrBytes = new Uint8Array(CELLS * 2);
@@ -617,8 +759,12 @@ function readTruck(r: Reader): TraxxTruck {
   The writing half.
 */
 
-/** SaveBinary's rule: the lowest generation that holds everything this track uses. */
-export function txxVersionFor(track: TxxTrack): number {
+/**
+  SaveBinary's rule: the lowest generation that holds everything this track uses. A track format
+  version 6 document (`fromSi3`: it was opened from a .SI3) is JSTraxx's V99, nothing else.
+*/
+export function txxVersionFor(track: TxxTrack, fromSi3 = false): number {
+  if (isV6Document(track, fromSi3)) return TXX_V6_VERSION;
   let version = 2;
   const lights = track.boxes.filter((b) => b.type === TRAXX_BOX_LIGHT);
   if (lights.length) version = 3;
@@ -638,6 +784,10 @@ export function txxVersionFor(track: TxxTrack): number {
   if (track.terrainMode !== TERRAINMODE_CLASSIC8) version = 17;
   // V18 only with waterfalls: a superset of V17 (a classic track writes the V17 block as the mode alone).
   if (track.falls?.length) version = 18;
+  // V19 (Traxx 1.7.2) only with a water detail normal or a water mask, either alone being enough.
+  if (track.waterDetailMap || track.waterMaskMap) version = TXX_WATER_MAPS_VERSION;
+  // V20 (Traxx 1.8.0) only when some light has the all-weather flag set (BoxLightNeedsAllWxField).
+  if (lights.some((b) => b.light.allWx !== 0)) version = TXX_ALLWX_VERSION;
   return version;
 }
 
@@ -650,6 +800,7 @@ class Writer {
   u16(v: number): void { this.scratch.setUint16(0, v, true); this.chunks.push(new Uint8Array(this.scratch.buffer.slice(0, 2))); }
   i32(v: number): void { this.scratch.setInt32(0, v | 0, true); this.chunks.push(new Uint8Array(this.scratch.buffer.slice(0, 4))); }
   f32(v: number): void { this.scratch.setFloat32(0, v, true); this.chunks.push(new Uint8Array(this.scratch.buffer.slice(0, 4))); }
+  f64(v: number): void { const b = new DataView(new ArrayBuffer(8)); b.setFloat64(0, v, true); this.chunks.push(new Uint8Array(b.buffer)); }
   /** SAVESTRING: strlen + 1, clamped to 255, then that many bytes. */
   string(text: string): void {
     const encoded = latin1(text);
@@ -676,10 +827,14 @@ class Writer {
 /**
   Write a .TXX as Traxx's SaveBinary does, stamped with txxVersionFor. Like SaveBinary it first
   folds any 8-bit height edits into a 16-bit terrain (syncFromRaw), so the track is updated.
+  `fromSi3` is the document's PodCarryOver.situationIsSi3: such a track, and any other track
+  format version 6 document, is written as JSTraxx's TRAXXV99.
 */
-export function writeTxx(track: TxxTrack): Uint8Array {
+export function writeTxx(track: TxxTrack, opts: { fromSi3?: boolean } = {}): Uint8Array {
   syncFromRaw(track);
-  const version = txxVersionFor(track);
+  const version = txxVersionFor(track, opts.fromSi3 ?? false);
+  const v99 = version >= TXX_V6_VERSION;
+  const N = v99 ? (track.worldCells === 512 ? 512 : 256) : 256;
   const w = new Writer();
   const header = new Uint8Array(10);
   header.set(latin1(`TRAXXV${version}`));
@@ -735,7 +890,8 @@ export function writeTxx(track: TxxTrack): Uint8Array {
   w.i32(extended.length);
   for (const course of extended) writeCourse(w, course);
 
-  writeTerrain(w, track);
+  if (v99) w.i32(N);
+  writeTerrain(w, track, N * N);
   for (let i = 0; i < 9; i++) writeTruck(w, track.trucks[i] ?? traxxTruckDefaults());
 
   if (!track.backdropName) w.string("");
@@ -765,7 +921,8 @@ export function writeTxx(track: TxxTrack): Uint8Array {
 
   w.i32(track.groundBoxes.length);
   for (const g of track.groundBoxes) {
-    w.i32(g.x); w.i32(g.y); w.i32(g.w); w.i32(g.h); w.u8(g.lower); w.u8(g.upper);
+    w.i32(g.x); w.i32(g.y); w.i32(g.w); w.i32(g.h);
+    if (v99) { w.f64(g.lower); w.f64(g.upper); } else { w.u8(g.lower); w.u8(g.upper); }
     for (let face = 0; face < 6; face++) w.u16(g.faces[face] ?? 0);
   }
 
@@ -824,23 +981,49 @@ export function writeTxx(track: TxxTrack): Uint8Array {
     const src = track.terrainMode === TERRAINMODE_CLASSIC8 ? null : track.fine ?? track.h16;
     if (track.terrainMode !== TERRAINMODE_CLASSIC8) {
       if (!src) throw new TxxError("a 16-bit terrain has no 16-bit heights");
-      const out = new Uint8Array(src.length * 2);
-      for (let i = 0; i < src.length; i++) { out[2 * i] = src[i] & 255; out[2 * i + 1] = src[i] >> 8; }
-      w.bytes(out);
+      if (v99) {
+        // V99: the store's bits, then the samples as the store holds them.
+        const wide = src instanceof Int32Array;
+        w.i32(wide ? 32 : 16);
+        const out = new Uint8Array(src.length * (wide ? 4 : 2));
+        const dv = new DataView(out.buffer);
+        for (let i = 0; i < src.length; i++) { if (wide) dv.setInt32(4 * i, src[i]!, true); else dv.setUint16(2 * i, src[i]!, true); }
+        w.bytes(out);
+      } else {
+        const out = new Uint8Array(src.length * 2);
+        for (let i = 0; i < src.length; i++) { out[2 * i] = src[i] & 255; out[2 * i + 1] = src[i] >> 8; }
+        w.bytes(out);
+      }
     }
   }
 
-  // V18: the waterfalls (CTrackPODFalls::SaveTXX): block version 2, the count, every field as an
-  // int (all 8 points; mist depth and height after the volume), then the two char[16].
+  // V18: the waterfalls (CTrackPODFalls::SaveTXX): block version 3, the count, every field as an
+  // int (all 8 points; mist depth and height after the volume, roughfrom after them), then the two char[16].
   if (version >= 18) {
-    w.i32(2);
+    w.i32(3);
     w.i32(track.falls.length);
     for (const f of track.falls.slice(0, FALL_MAX_FALLS)) {
       w.i32(f.source); w.i32(f.npoints); w.i32(f.flags); w.i32(f.speed); w.i32(f.height);
       for (let k = 0; k < FALL_MAX_POINTS; k++) { w.i32(f.pt[k]?.[0] ?? 0); w.i32(f.pt[k]?.[1] ?? 0); }
-      w.i32(f.opacity); w.i32(f.mist); w.i32(f.volume); w.i32(f.mistdepth); w.i32(f.mistheight);
+      w.i32(f.opacity); w.i32(f.mist); w.i32(f.volume); w.i32(f.mistdepth); w.i32(f.mistheight); w.i32(f.roughfrom ?? 0);
       for (const name of [f.sound, f.texture]) { const b = new Uint8Array(FALL_NAMELEN); b.set(latin1(name).subarray(0, FALL_NAMELEN)); w.bytes(b); }
     }
+  }
+
+  // V19 (Traxx 1.7.2): the water detail normal and the water mask, the V9 pair's layout. V99
+  // always carries both records, an empty ext and length 0 for a map that is not set.
+  if (version >= TXX_WATER_MAPS_VERSION) {
+    w.string(track.waterDetailMap ? track.waterDetailExt : ""); w.blob(track.waterDetailMap);
+    w.string(track.waterMaskMap ? track.waterMaskExt : ""); w.blob(track.waterMaskMap);
+  }
+
+  // V99: the version 6 block (JSTraxx's own generation; see the header comment).
+  if (v99) {
+    const hasStepBase = track.heightStep !== null && track.heightBase !== null;
+    w.i32(V6_BLOCK_VERSION);
+    w.i32((opts.fromSi3 ? V6_FROM_SI3 : 0) | (hasStepBase ? V6_STEP_BASE : 0));
+    w.i32(hasStepBase ? track.heightStep! : 0);
+    w.i32(hasStepBase ? track.heightBase! : 0);
   }
 
   // The JSTraxx trailer goes after everything Traxx reads, so Traxx stops before it.
@@ -897,6 +1080,10 @@ function writeBox(w: Writer, box: TraxxBox, version: number): void {
     if (version >= BOXBIN_VERSION_FOGLOOK) { w.f32(f.round); w.f32(f.wisp); w.f32(f.wsize); w.f32(f.wspeed); }
     if (version >= BOXBIN_VERSION_FOGBOT) w.f32(f.bot);
   }
+  // V20: the all-weather flag, for every box of the file (CTrackPODBox::Save writes the int as held).
+  // V99 always carries it too (track-format-v6 proposal 15.3): 0 for a box that is not a light.
+  if (version >= TXX_V6_VERSION) w.i32(box.type === TRAXX_BOX_LIGHT && box.light.allWx ? 1 : 0);
+  else if (version >= TXX_ALLWX_VERSION) w.i32(box.light.allWx);
 }
 
 function writeCourse(w: Writer, segments: readonly TxxCourseSegment[]): void {
@@ -906,8 +1093,8 @@ function writeCourse(w: Writer, segments: readonly TxxCourseSegment[]): void {
   }
 }
 
-/** CTrackPODTerrain::Save: always compressed, runs of at most 255, each plane ending with a 0. */
-function writeTerrain(w: Writer, track: TxxTrack): void {
+/** CTrackPODTerrain::Save: always compressed, runs of at most 255, each plane ending with a 0 (CELLS cells; N x N in V99). */
+function writeTerrain(w: Writer, track: TxxTrack, CELLS = 256 * 256): void {
   const lte = track.lte ?? new Uint8Array(CELLS * 7);
   w.u16(TERFILE_RAW | TERFILE_CLR | TERFILE_LTE | TERFILE_COMPRESS);
   const plane = (get: (cell: number) => number) => {

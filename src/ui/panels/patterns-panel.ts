@@ -15,6 +15,7 @@
   Traxx 1.7 (e4b4cd5): the window is resizable, opens larger and remembers its size (the
   floating panel does both), the preview fills it and the thumbnail keeps its aspect.
 */
+import { cellsOf } from "../../core/traxx/world.ts";
 import { el } from "../../shared/dom.ts";
 import type { AppState } from "../../app/state.ts";
 import type { Editor } from "../../app/editor.ts";
@@ -193,7 +194,9 @@ export function patternsPanel(ctx: PatternsPanelContext): void {
       recs.push(recordFields(d, ["textures"], "Paste Pattern", { textures: true }), recordFields(d.track, ["textures"], "Paste Pattern", { textures: true }));
       for (const tex of results as TextureAsset[]) addTexture(d, tex);
     }
-    const rect = { minX: a.x0, minY: a.y0, maxX: Math.min(255, a.x0 + p.w - 1), maxY: Math.min(255, a.y0 + p.h - 1) };
+    // The last cell is N - 1 (256, or a track format version 6 world's worldCells, spec section 8.1).
+    const last = cellsOf(d.track) - 1;
+    const rect = { minX: a.x0, minY: a.y0, maxX: Math.min(last, a.x0 + p.w - 1), maxY: Math.min(last, a.y0 + p.h - 1) };
     const grid = recordGrid(d.track.clr, rect, "Paste Pattern", (r) => ({ clr: r }));
     pastePattern(d.track.clr, p, pasteMapping(d, p), a);
     editor.commitAll("Paste Pattern", [...recs, grid]);

@@ -10,6 +10,7 @@
 */
 
 import { heightPngEncode } from "./height-image.ts";
+import { asU16 } from "./world.ts";
 import { syncFromRaw, TERRAINMODE_CLASSIC8, type Terrain16 } from "./terrain16.ts";
 
 /** A POD directory entry name is char[32]: 31 characters and the terminator. */
@@ -28,8 +29,9 @@ export function encodeHeightsPng(t: Terrain16): Uint8Array | null {
     for (let i = 0; i < 256 * 256; i++) v[i] = t.heights[i]! << 8;
     return heightPngEncode(v, 256, 8);
   }
-  if (t.fine) return heightPngEncode(t.fine, 1024, 16);
-  if (t.h16) return heightPngEncode(t.h16, 256, 16);
+  // A CP4 file: a version 6 track writes its terrainHeightMap instead (v6.ts), so a 32-bit store never gets here unclamped.
+  if (t.fine) return heightPngEncode(asU16(t.fine), 1024, 16);
+  if (t.h16) return heightPngEncode(asU16(t.h16), 256, 16);
   return null;
 }
 

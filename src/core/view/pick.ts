@@ -11,7 +11,8 @@
 
   Traxx 1.7.1 world-wrap border (3f26cfc, e7bdc4b): the pick geometry is the ground as drawn,
   the map plus its 3-cell border of wrapped copies (SurfaceCornerInWrapBand); a hit whose point
-  is off the map's 0..255 cells is no hit, so a click on the border does nothing and is never
+  is off the map's 0..N-1 cells is no hit (N = 256, or a track format version 6 world's
+  worldCells, spec section 8.1), so a click on the border does nothing and is never
   wrapped onto a real cell. The point is floored, so a hit just past the low edge is off it.
 */
 import { ALTITUDE_SCALE } from "./camera.ts";
@@ -19,10 +20,11 @@ import type { Terrain16 } from "../traxx/terrain16.ts";
 import { TERRAINMODE_CLASSIC8 } from "../traxx/terrain16.ts";
 import { pickPoint, pickRay } from "../traxx/surface-pick.ts";
 import { SURFACE_WRAP_BORDER_CELLS } from "./surface-tiles.ts";
+import { cellsOf, sideOf } from "../traxx/world.ts";
 
-/** PickTerrainRay's border test: the hit's whole ipos point is off the map. */
-function offMap(x: number, y: number): boolean {
-  return x < 0 || x >= 256 << 6 || y < 0 || y >= 256 << 6;
+/** PickTerrainRay's border test: the hit's whole ipos point is off the map of `cells` a side. */
+function offMap(x: number, y: number, cells = 256): boolean {
+  return x < 0 || x >= cells << 6 || y < 0 || y >= cells << 6;
 }
 
 export interface TerrainHit {
@@ -62,9 +64,11 @@ function triangle(o: V3, d: V3, a: V3, b: V3, c: V3): number {
 
 /** The first terrain cell the ray hits, or null. `dir` need not be normalised. */
 export function pickTerrain(heights: Uint8Array, origin: V3, dir: V3, maxT = 1e6): TerrainHit | null {
-  // The cells the ground is drawn on: the map and the border, -3..258; corners wrap & 255.
-  const lo = -SURFACE_WRAP_BORDER_CELLS, hi = 255 + SURFACE_WRAP_BORDER_CELLS;
-  const corner = (i: number, j: number): V3 => [i * 64, j * 64, ALTITUDE_SCALE * heights[(i & 255) + ((j & 255) << 8)]];
+  // The heights are N x N (spec section 8.2), so they say N.
+  const cells = sideOf(heights.length), mask = cells - 1;
+  // The cells the ground is drawn on: the map and the border, -3..N+2; corners wrap & (N - 1).
+  const lo = -SURFACE_WRAP_BORDER_CELLS, hi = mask + SURFACE_WRAP_BORDER_CELLS;
+  const corner = (i: number, j: number): V3 => [i * 64, j * 64, ALTITUDE_SCALE * heights[(i & mask) + (j & mask) * cells]];
   const hitCell = (i: number, j: number): number => {
     if (i < lo || j < lo || i > hi || j > hi) return -1;
     const v00 = corner(i, j), v10 = corner(i + 1, j), v11 = corner(i + 1, j + 1), v01 = corner(i, j + 1);
@@ -95,14 +99,14 @@ export function pickTerrain(heights: Uint8Array, origin: V3, dir: V3, maxT = 1e6
   let tMaxY = Math.abs(dir[1]) < 1e-12 ? Infinity : nextY(j);
   const tDeltaX = Math.abs(dir[0]) < 1e-12 ? Infinity : 64 / Math.abs(dir[0]);
   const tDeltaY = Math.abs(dir[1]) < 1e-12 ? Infinity : 64 / Math.abs(dir[1]);
-  for (let guard = 0; guard < 1024; guard++) {
+  for (let guard = 0, guards = Math.max(1024, 4 * (cells + 6)); guard < guards; guard++) {
     const t = hitCell(i, j);
     if (t >= 0 && t <= tExit + 1e-6) {
       const point: V3 = [origin[0] + dir[0] * t, origin[1] + dir[1] * t, origin[2] + dir[2] * t];
       const ix = Math.floor(point[0]), iy = Math.floor(point[1]);
-      if (offMap(ix, iy)) return null;
+      if (offMap(ix, iy, cells)) return null;
       return {
-        point, cell: [ix >> 6, iy >> 6], vertex: [Math.round(point[0] / 64) & 255, Math.round(point[1] / 64) & 255], t,
+        point, cell: [ix >> 6, iy >> 6], vertex: [Math.round(point[0] / 64) & mask, Math.round(point[1] / 64) & mask], t,
         ipos: [ix, iy, Math.trunc(point[2] / ALTITUDE_SCALE)], fraction: [0, 0, 0],
       };
     }
@@ -129,15 +133,16 @@ export function pickSurface(t: Terrain16, origin: V3, dir: V3, window: { x0: num
   const hit = pickRay(t, org, d, 0, x0, y0, x0 + n - 2, y0 + n - 2);
   if (!hit) return null;
   const { px, py, v } = pickPoint(t, org, d, hit.t);
-  if (offMap(px >> 8, py >> 8)) return null;
+  const cells = cellsOf(t), last = cells - 1;
+  if (offMap(px >> 8, py >> 8, cells)) return null;
   const ci = Math.min(n - 2, Math.max(0, hit.cellx - x0)), cj = Math.min(n - 2, Math.max(0, hit.celly - y0));
   const inx = px - (x0 + ci) * 16384, iny = py - (y0 + cj) * 16384;
   const vx = x0 + ci + (inx >= 8192 ? 1 : 0), vy = y0 + cj + (iny >= 8192 ? 1 : 0);
   return {
     point: [px / 256, py / 256, (ALTITUDE_SCALE * v) / 256],
-    // On the map (the border was refused above); the vertex past cell 255 is column / row 0.
-    cell: [Math.min(255, Math.max(0, x0 + ci)), Math.min(255, Math.max(0, y0 + cj))],
-    vertex: [vx & 255, vy & 255],
+    // On the map (the border was refused above); the vertex past cell N - 1 is column / row 0.
+    cell: [Math.min(last, Math.max(0, x0 + ci)), Math.min(last, Math.max(0, y0 + cj))],
+    vertex: [vx & last, vy & last],
     t: hit.t,
     ipos: [px >> 8, py >> 8, v >> 8],
     fraction: [px & 255, py & 255, v & 255],

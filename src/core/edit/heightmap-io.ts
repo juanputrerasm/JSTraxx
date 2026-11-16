@@ -30,6 +30,13 @@ import {
   RAWLEN_16BIT, RAWLEN_8BIT, RAWLEN_FINE, saveRaw, syncFromRaw,
   TERRAINMODE_CLASSIC16, TERRAINMODE_CLASSIC8, TERRAINMODE_FINE, type Terrain16,
 } from "../traxx/terrain16.ts";
+import { asU16, cellsOf, fitsCp4, type HeightGrid } from "../traxx/world.ts";
+import { decodeMtm2V6Heights, mtm2V6HeightsH128, mtm2V6StepAndBase, encodeMtm2HeightRaw16 } from "../../vendor/openphotex/mtm/heights.js";
+import { encodeGreyPng } from "../../vendor/openphotex/texture/png-write.js";
+import { heightsChanged } from "../traxx/surface.ts";
+import { refreshRaw, TERRAINMODE_SPLINE } from "../traxx/terrain16.ts";
+import type { TxxTrack } from "../traxx/txx.ts";
+import { pickStepAndBase, v6HeightSamples } from "../traxx/v6.ts";
 
 export { HEIGHTMAP_EXPORT_PNG16, HEIGHTMAP_EXPORT_PNG8, HEIGHTMAP_EXPORT_RAW };
 
@@ -231,10 +238,106 @@ export function heightmapExportBytes(t: Terrain16, format: number): Uint8Array |
   if (format === HEIGHTMAP_EXPORT_RAW) return saveRaw(t);
   syncFromRaw(t);
   const size = t.terrainMode === TERRAINMODE_FINE ? 1024 : 256;
-  let v = t.terrainMode === TERRAINMODE_FINE ? t.fine : t.h16;
+  const g = t.terrainMode === TERRAINMODE_FINE ? t.fine : t.h16;
+  // A CP4 file (0..512 ft): a version 6 track's 32-bit heights are clamped here; Export Heightmap
+  // (Version 6) writes them whole (v6ExportBytes).
+  let v = g ? asU16(g) : null;
   if (!v) {
     v = new Uint16Array(256 * 256);
     for (let i = 0; i < 256 * 256; i++) v[i] = t.heights[i]! << 8;
   }
   return heightPngEncode(v, size, format === HEIGHTMAP_EXPORT_PNG8 ? 8 : 16);
+}
+
+// ---- Track format version 6 (JSTraxx; spec sections 7 and 11) -----------------------------------
+
+/*
+  Import Heightmap (Version 6): a greyscale PNG (8 or 16-bit) or a u16 little-endian .RAW, N x N or
+  4N x 4N for the track's N (spec 7.2), read as height_ft = base + sample / step (7.1) with the step
+  and base the author gives for the file (128 and 0 read a CP4 file exactly as Import Heightmap
+  does). The track then keeps the heights at 1/128 ft, in the 32-bit store when they leave CP4's
+  0..512 ft or the world is 512 cells, and its terrainHeightStep and terrainHeightBase are picked
+  from the imported range (mtm2V6StepAndBase, spec section 11).
+*/
+
+export const HEIGHTMAP_V6_IMPORT_CAPTION = "Import Heightmap (Version 6)";
+export const HEIGHTMAP_V6_EXPORT_CAPTION = "Export Heightmap (Version 6)";
+/** The steps a version 6 file may use (spec section 6). */
+export const HEIGHTMAP_V6_STEPS = [128, 64, 32, 16, 8, 4, 2, 1] as const;
+
+export interface V6HeightmapImport {
+  /** The terrain mode the import leaves the track in: 16-bit or Spline for an N file, Full Map for 4N. */
+  mode: number;
+  /** The heights in v (1/128 ft), N x N or 4N x 4N. */
+  grid: HeightGrid;
+  /** The step and base Write POD will start from (spec section 11). */
+  step: number;
+  base: number;
+  /** The lowest and highest point imported, in feet. */
+  lowFt: number;
+  highFt: number;
+  warning: string | null;
+}
+
+/**
+  The file decoded at the track's N. `fileName` says PNG or RAW by its extension (a PNG is also told
+  by its signature). A wrong size or format, or a range a track cannot hold, gives a message.
+*/
+export function v6ImportHeights(file: Uint8Array, fileName: string, t: Pick<TxxTrack, "worldCells" | "terrainMode">, fileStep: number, fileBase: number): { ok: true; v: V6HeightmapImport } | { ok: false; message: HeightmapMessage } {
+  const n = cellsOf(t);
+  const png = file.length >= 8 && file[0] === 0x89 && file[1] === 0x50 && file[2] === 0x4e && file[3] === 0x47;
+  const name = png ? "HEIGHTS.PNG" : /\.png$/i.test(fileName) ? "HEIGHTS.PNG" : "HEIGHTS.RAW";
+  const refuse = (text: string) => ({ ok: false as const, message: { text, caption: HEIGHTMAP_V6_IMPORT_CAPTION, icon: "warning" as const } });
+  let decoded;
+  try {
+    // terrainGrid fine for a 4N file, spline when the track is Spline, else classic (spec 7.2).
+    const grid = t.terrainMode === TERRAINMODE_SPLINE ? "spline" : null;
+    decoded = decodeMtm2V6Heights(file, { name, cells: n, step: fileStep, base: fileBase, terrainGrid: grid });
+  } catch (err) {
+    return refuse(`${(err as Error).message}\n\nThis track's world is ${n} x ${n} cells, so the heightmap must be ${n} x ${n} or ${4 * n} x ${4 * n} (a 16-bit .RAW of ${(2 * n * n).toLocaleString("en-US")} or ${(32 * n * n).toLocaleString("en-US")} bytes, or a greyscale PNG).`);
+  }
+  const fine = decoded.mode === "fine";
+  const samples = fine ? decoded.fine! : decoded.coarse;
+  const h128 = mtm2V6HeightsH128(samples, fileStep, fileBase);
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < h128.length; i++) { const v = h128[i]!; if (v < lo) lo = v; if (v > hi) hi = v; }
+  let picked;
+  try { picked = mtm2V6StepAndBase(lo / 128, hi / 128); } catch (err) { return refuse((err as Error).message); }
+  const wide = n !== 256 || !fitsCp4(h128);
+  const grid = wide ? h128 : Uint16Array.from(h128);
+  const mode = fine ? TERRAINMODE_FINE : decoded.mode === "spline" ? TERRAINMODE_SPLINE : TERRAINMODE_CLASSIC16;
+  return { ok: true, v: { mode, grid, step: picked.step, base: picked.base, lowFt: lo / 128, highFt: hi / 128, warning: decoded.warning } };
+}
+
+/** The import into the track: the mode, the heights, the 8-bit mirror and the step and base. */
+export function v6ApplyImport(t: TxxTrack, im: V6HeightmapImport): void {
+  const n = cellsOf(t);
+  t.terrainMode = im.mode;
+  if (im.mode === TERRAINMODE_FINE) { t.fine = im.grid; t.h16 = null; }
+  else { t.h16 = im.grid; t.fine = null; }
+  t.rawShadow = new Uint8Array(n * n);
+  if (t.heights.length !== n * n) t.heights = new Uint8Array(n * n);
+  refreshRaw(t);
+  t.heightStep = im.step;
+  t.heightBase = im.base;
+  heightsChanged(t);
+}
+
+/** The message after a version 6 import: the range and the step and base picked. */
+export function v6ImportSummary(im: V6HeightmapImport): string {
+  const ft = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return `Imported heights from ${ft(im.lowFt)} ft to ${ft(im.highFt)} ft.\n\nWrite POD will use terrainHeightStep=${im.step} (${ft(12 * 25.4 / im.step)} mm steps) and terrainHeightBase=${im.base}.${im.warning ? `\n\n${im.warning}` : ""}`;
+}
+
+/**
+  Export Heightmap (Version 6): the samples Write POD would store, at the step and base it would
+  pick (spec section 11), as a 16-bit greyscale PNG (encodeGreyPng) or a u16 .RAW
+  (encodeMtm2HeightRaw16), N x N or 4N x 4N on a Full Map. Returned with the step and base, which
+  the author needs to read the file back.
+*/
+export function v6ExportBytes(t: TxxTrack, format: "png" | "raw"): { bytes: Uint8Array; step: number; base: number; side: number } {
+  const { step, base } = pickStepAndBase(t);
+  const { samples, side } = v6HeightSamples(t, step, base);
+  const bytes = format === "raw" ? encodeMtm2HeightRaw16(samples) : encodeGreyPng(samples, side, side, 16);
+  return { bytes, step, base, side };
 }

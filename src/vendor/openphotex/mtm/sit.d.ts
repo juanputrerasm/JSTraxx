@@ -18,7 +18,7 @@ export interface SitBox {
     bvel?: [number, number, number];
     /** The record's `p,q,r` line as written, when it has one. */
     rates?: [number, number, number];
-    /** The game loader's view (MONSTER.EXE 0x5495e0): feet, negative x and z wrapped by +8192. */
+    /** The game loader's view (MONSTER.EXE 0x5495e0): feet, negative x and z wrapped by +8192 (+W in a track format version 6 world). */
     positionFt?: [number, number, number];
     /** Full length, width and height in feet as written, unrounded (a model's extents replace them in game). */
     sizeFt?: [number, number, number];
@@ -56,6 +56,8 @@ export interface SitBox {
  * A Community Patch 3 track light (box type 12). Feet unless noted. `rad` is the lit pool's radius on the ground, `hgt` the lamp
  * head's height above the box's origin, `glow` 0 (no visible source), 1 (a glow sprite) or 2 (glow and cone), `bright` how
  * strongly it lights the ground (0.25 to 3.75; 1 is a truck headlight), `aimOff` how far along the box's facing the pool lands.
+ * `allWx` (Community Patch 4 beta 0.53 hotfix 4, Traxx 1.8, the 13th field, an integer, 0 when absent): non-zero draws the
+ * glow and cone in every weather (stadium lights); the ground pool is unaffected. Older engines ignore it.
  */
 export interface SitLight {
     rad: number;
@@ -68,10 +70,14 @@ export interface SitLight {
     coneBase: number;
     bright: number;
     aimOff: number;
+    allWx: number;
 }
 /** The box types Community Patch 3 added: a static light, and a mover with no train sound, horn or light. */
 export declare const BOX_LIGHT = 12;
 export declare const BOX_MOVING = 13;
+/** The `L` block's header line as hotfix 4 and Traxx 1.8 write it (13 fields), and the 12-field one before. */
+export declare const SIT_LIGHT_HEADER = "Llight rad,hgt,r,g,b,glow,glowRad,coneLen,coneRim,coneBase,bright,aimOff,allWx";
+export declare const SIT_LIGHT_HEADER_12 = "Llight rad,hgt,r,g,b,glow,glowRad,coneLen,coneRim,coneBase,bright,aimOff";
 /**
  * The `L` block's data line, read as the engine reads it: tolerantly, missing trailing fields keeping their defaults and
  * surplus ones ignored; `bright` snapped to 0.25 steps within 0.25..3.75 and `rad` clamped to 4095.
@@ -117,7 +123,7 @@ export interface SitCourseSegment {
     speedLimit: number;
     /** As stored; the parser's historical default when the `&` line is absent is 64. */
     trackWidth: number;
-    /** The game loader's view (MONSTER.EXE 0x4e0970): feet, negative x and z wrapped by +8192. */
+    /** The game loader's view (MONSTER.EXE 0x4e0970): feet, negative x and z wrapped by +8192 (+W in a track format version 6 world). */
     startFt: [number, number, number];
     endFt: [number, number, number];
     /** 1 in every stock SIT: the file holds straights only; the game builds the arcs between them. */
@@ -144,7 +150,7 @@ export interface SitTruck {
     name: string;
     /** The "Your Truck (Not used anymore)" slot: a saved player slot, not a grid vehicle. */
     playerSlot?: boolean;
-    /** The game loader's view of ipos: feet, negative x and z wrapped by +8192. */
+    /** The game loader's view of ipos: feet, negative x and z wrapped by +8192 (+W in a track format version 6 world). */
     positionFt?: [number, number, number];
     /** `!ap.courseToFollow`: the course this vehicle drives, 0 the primary and 1..4 the extended ones. */
     courseToFollow?: number;
@@ -296,10 +302,16 @@ export interface MtmSit {
 }
 export declare function detectSitOrigin(lines: readonly string[], sitTitle?: string): SitOrigin;
 export declare function sitTrackTypeName(code: number, origin: SitOrigin): string;
-export declare function sitFeetTriplet(value: string): [number, number, number];
+export declare function sitFeetTriplet(value: string, worldFt?: number): [number, number, number];
 export declare function sitWorldTriplet(value: string): [number, number, number];
-/** Parse a .SIT (MTM1, MTM2 or CPR). `sitTitle` lets the .SI2 extension settle the origin. */
-export declare function parseMtmSit(input: Uint8Array | string, sitTitle?: string): MtmSit;
+/**
+ * Parse a .SIT (MTM1, MTM2 or CPR). `sitTitle` lets the .SI2 or .SI3 extension settle the origin.
+ * `worldFt` is the world the loader's feet (`positionFt`, `startFt`, `endFt`) wrap a negative x or
+ * z into: 8192, or 32 * worldCells for a .SI3 track (track format version 6, 8.4).
+ */
+export declare function parseMtmSit(input: Uint8Array | string, sitTitle?: string, { worldFt }?: {
+    worldFt?: number;
+}): MtmSit;
 /** An MTM-family .LVL: the level's asset references and environment, by line. */
 export interface MtmLvl {
     lineCount: number;
@@ -360,3 +372,9 @@ export interface TtyEntry {
     depth: number;
 }
 export declare function parseTty(input: Uint8Array | string): TtyEntry[];
+export declare const MTM2_SITUATION_EXTENSIONS: readonly ["SIT", "SI2", "SI3"];
+export type Mtm2SituationExtension = typeof MTM2_SITUATION_EXTENSIONS[number];
+/** The situation extension of an entry name (SIT, SI2 or SI3), or null for anything else. */
+export declare function mtm2SituationExtension(name: string): Mtm2SituationExtension | null;
+/** True for a track format version 6 situation file (WORLD\<stem>.SI3). */
+export declare function isMtm2V6Situation(name: string): boolean;

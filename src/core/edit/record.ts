@@ -1,7 +1,8 @@
 /*
   Recording changes. Two kinds cover every edit:
 
-    a grid patch  a rectangle of a 256 x 256 grid (heights, CLR words), copied before and
+    a grid patch  a rectangle of an N x N grid (heights, CLR words; N = 256, or 512 in a track
+                  format version 6 world, told by the grid's length), copied before and
                   after; small, so terrain brushes and texture paint cost little;
     a snapshot    named fields of an object (the track's boxes, courses, trucks, ground
                   boxes...), deep-copied before and after.
@@ -10,19 +11,29 @@
   start is taken on the press and the finish on the release, so the whole drag is one step.
 */
 import type { Change, Rect, Touch } from "./history.ts";
+import { sideOf } from "../traxx/world.ts";
 
-type Grid = Uint8Array | Uint16Array;
+/** A grid of cells: bytes, words, or the 32-bit heights of a version 6 track (world.ts). */
+type Grid = Uint8Array | Uint16Array | Int32Array;
 
 function copyRect(grid: Grid, r: Rect): Grid {
   const w = r.maxX - r.minX + 1, h = r.maxY - r.minY + 1;
+  const n = sideOf(grid.length);
   const out = new (grid.constructor as { new (n: number): Grid })(w * h);
-  for (let j = 0; j < h; j++) out.set(grid.subarray(r.minX + (r.minY + j) * 256, r.minX + (r.minY + j) * 256 + w), j * w);
+  for (let j = 0; j < h; j++) {
+    const row = r.minX + (r.minY + j) * n;
+    for (let i = 0; i < w; i++) out[j * w + i] = grid[row + i]!;
+  }
   return out;
 }
 
 function pasteRect(grid: Grid, r: Rect, data: Grid): void {
   const w = r.maxX - r.minX + 1, h = r.maxY - r.minY + 1;
-  for (let j = 0; j < h; j++) grid.set(data.subarray(j * w, (j + 1) * w), r.minX + (r.minY + j) * 256);
+  const n = sideOf(grid.length);
+  for (let j = 0; j < h; j++) {
+    const row = r.minX + (r.minY + j) * n;
+    for (let i = 0; i < w; i++) grid[row + i] = data[j * w + i]!;
+  }
 }
 
 export function clampRect(r: Rect, max = 255): Rect {
@@ -33,7 +44,7 @@ export interface Recording { finish(label?: string): Change | null }
 
 /** Start recording a rectangle of a grid. `touch` names what changes there. */
 export function recordGrid(grid: Grid, rect: Rect, label: string, touch: (r: Rect) => Touch): Recording {
-  const r = clampRect(rect);
+  const r = clampRect(rect, sideOf(grid.length) - 1);
   const before = copyRect(grid, r);
   return {
     finish(finalLabel = label) {

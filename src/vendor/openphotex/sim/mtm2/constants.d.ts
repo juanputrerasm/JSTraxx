@@ -114,6 +114,10 @@ export declare const TERRAIN_CELLS = 256;
 export declare const CELL_FT = 32;
 export declare const WORLD_FT: number;
 export declare const HEIGHT_STEP_FT = 2;
+/** Track format version 6 worlds (worldCells): 256 cells as retail, or 512, 16,384 ft a side. */
+export declare const WORLD_CELLS_V6: readonly [256, 512];
+/** The side in feet of a world of `cells` cells: W = 32 N. */
+export declare function worldFtOf(cells?: number): number;
 /** Weather states (A§13) and their grip factors (§2.3). */
 export declare const WEATHER: Readonly<{
     CLEAR: 0;

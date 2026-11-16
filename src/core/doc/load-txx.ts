@@ -18,6 +18,7 @@ import { rawSide, swapExt } from "../traxx/pod-items.ts";
 import { emptyCarry, MTM2_ONLY, type ModelAsset, type TextureAsset, type TrackDocument } from "./document.ts";
 import { deriveBoxHeights, findModelTexture, modelAsset } from "./load-pod.ts";
 import { findAsset } from "./names.ts";
+import { frameNameTooLongForPod } from "../traxx/keyframe.ts";
 
 /** Where a .TXX's art and models come from. Each returns the file's bytes, or null. */
 export interface AssetSource {
@@ -48,13 +49,16 @@ export async function openTxx(bytes: Uint8Array, fileName: string, assets: Asset
   const track = readTxx(bytes);
   // CTrackPODPalette::Create writes the system colours over 246..255.
   track.palette = withSysColors(track.palette);
-  // Reset leaves the flat light plane when the file carries none.
-  track.lte ??= flatLte();
+  // Reset leaves the flat light plane when the file carries none (N x N: a TRAXXV99 file's world).
+  track.lte ??= flatLte(undefined, track.worldCells);
   const doc: TrackDocument = {
     track, textures: [], modelTextures: [], models: [], carry: emptyCarry(), prefixAuto: true, viewOnly: false,
     source: { kind: "txx", fileName, project: options.project ?? null },
     objectsShort: 0, objectsDropped: 0, groundBoxOverflow: 0, missingTextures: [], missingModels: [], warnings: [],
   };
+  // TRAXXV99 (JSTraxx's track format version 6 generation): the track came from a .SI3, so Write POD keeps it one.
+  if (track.txxFromSi3) doc.carry.situationIsSi3 = true;
+  delete track.txxFromSi3;
   deriveBoxHeights(track);
   doc.prefixAuto = inferPrefixAuto(track.trackName, track.prefix);
 
@@ -96,8 +100,10 @@ export async function loadTrackAssets(doc: TrackDocument, assets: AssetSource, p
     const model = await loadModel(queue[i], assets, doc);
     doc.models.push(model);
     for (const frame of model.frameNames) {
+      // LoadBinary (Traxx 1.8.0): a name longer than a pod entry is skipped, never cut (CheckIntegrity reports it).
+      if (frameNameTooLongForPod(frame)) continue;
       if (queue.some((q) => findAsset([{ name: q }], frame) >= 0)) continue;
-      queue.push(`MODELS\\${frame}`.slice(0, 31));
+      queue.push(`MODELS\\${frame}`);
     }
   }
   track.models = queue;

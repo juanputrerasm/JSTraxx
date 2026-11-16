@@ -41,7 +41,7 @@ export interface TopCrushSource {
     rates: ArrayLike<number>;
 }
 /** A car at load (`0x54a000`): a model's bounds replace that part's sizes (length z, width x, height y). */
-export declare function createTopCrush(src: TopCrushSource, bodyBounds?: ModelBounds | null, cabBounds?: ModelBounds | null): SimTopCrush;
+export declare function createTopCrush(src: TopCrushSource, bodyBounds?: ModelBounds | null, cabBounds?: ModelBounds | null, worldFt?: number): SimTopCrush;
 /** The part's eight corners in the box order of §14.15, car axes about its centre. */
 export declare function crushCorners(part: CrushPart): V3[];
 export interface TopCrushContext extends EdgeContext {

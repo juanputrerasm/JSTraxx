@@ -38,7 +38,7 @@ export function indexToType(index: number): number {
 
 const moves = (t: number) => t === TYPE_TRAIN || t === TYPE_MOVING;
 
-/* The engine's budgets (BoxTypeBudgetGroup / Cap): 20 checkpoints, 100 ramps, 100 top crush, 100 Train + Moving together, 100 lights, 50 fogs. */
+/* The engine's budgets (BoxTypeBudgetGroup / Cap): 20 checkpoints, 100 ramps, 100 top crush, 100 Train + Moving together, 100 lights, 64 fogs (Traxx 1.8.0). */
 export function budgetGroup(type: number): number {
   if (type === CHECKPOINT) return 1;
   if (type === TRAXX_BOX_RAMP) return 2;
@@ -49,18 +49,19 @@ export function budgetGroup(type: number): number {
   return 0;
 }
 
-export function budgetCap(group: number): number {
-  return [MAX_OBJECTS, 20, 100, 100, 100, 100, TRAXX_MAX_FOGS][group] ?? MAX_OBJECTS;
+/** A group's cap; `max` the document's object limit (v6.ts objectLimit: 4096, or 16,384 for version 6). */
+export function budgetCap(group: number, max = MAX_OBJECTS): number {
+  return [max, 20, 100, 100, 100, 100, TRAXX_MAX_FOGS][group] ?? max;
 }
 
 /**
   OnObjectInsert: a default box on the ground point (whole ipos, steps truncated). Null when the
-  track is full. Traxx 1.7 (b100b6b, 0acc316): on a 16-bit, Spline or Full Map track the pick's
+  track is full: `max` objects (MAXNPODBOXES, or 16,384 for a version 6 document, v6.ts objectLimit). Traxx 1.7 (b100b6b, 0acc316): on a 16-bit, Spline or Full Map track the pick's
   z is ignored; the box takes the pick's x / y fractions and is seated on the drive surface
   (BoxHeightPairStore, its pair 0 above).
 */
-export function insertObject(track: TxxTrack, at: [number, number, number], fraction: readonly [number, number, number] = [0, 0, 0]): number | null {
-  if (track.boxes.length >= MAX_OBJECTS) return null;
+export function insertObject(track: TxxTrack, at: [number, number, number], fraction: readonly [number, number, number] = [0, 0, 0], max = MAX_OBJECTS): number | null {
+  if (track.boxes.length >= max) return null;
   const box = traxxBoxDefaults();
   box.ipos = [Math.trunc(at[0]), Math.trunc(at[1]), Math.trunc(at[2]) + box.heightAboveGround];
   if (surfaceTrack(track)) {
@@ -251,9 +252,9 @@ export function modelBaseZ(upCoordinates: Iterable<number>): number {
   and a message when the type was refused. Traxx 1.7 (0acc316): on the drive surface the copy's
   height (the clipboard holds the height pair, copyForClipboard) is seated on the ground here.
 */
-export function pasteObject(track: TxxTrack, copy: TraxxBox, at: [number, number, number], fraction: readonly [number, number, number] = [0, 0, 0]): { index: number | null; refusal: string | null } {
-  const index = insertObject(track, at, fraction);
-  if (index === null) return { index: null, refusal: "Max. 4096 Objects!" };
+export function pasteObject(track: TxxTrack, copy: TraxxBox, at: [number, number, number], fraction: readonly [number, number, number] = [0, 0, 0], max = MAX_OBJECTS): { index: number | null; refusal: string | null } {
+  const index = insertObject(track, at, fraction, max);
+  if (index === null) return { index: null, refusal: `Max. ${max} Objects!` };
   const box = track.boxes[index];
   const pos = box.ipos;
   Object.assign(box, structuredClone(copy));

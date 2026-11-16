@@ -50,7 +50,8 @@ test("a light's pool is a ring of 72 segments plus the stem", () => {
   const box = { ...traxxBoxDefaults(), type: 12 };
   const lines = lightPoolLines(box, box.light, doc.track.heights);
   assert.equal(lines.length, 73);
-  assert.equal(lightPoolLines(box, { ...box.light, radius: 0 }, doc.track.heights).length, 0);
+  // Traxx 1.8.0: R = int(rad) < 1 draws no ring, the stem still (the warning says why).
+  assert.equal(lightPoolLines(box, { ...box.light, radius: 0 }, doc.track.heights).length, 1);
 });
 
 test("Group Properties: shared fields shown, differing ones blank, only changes applied", async () => {

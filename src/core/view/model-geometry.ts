@@ -18,6 +18,7 @@
   MRGLMAT_TWOSIDED is drawn from both sides. Traxx draws every face from both sides.
 */
 import { parseBin } from "../../vendor/openphotex/model/bin.js";
+import { keyframeWidth, modelFrameNames } from "../traxx/keyframe.ts";
 
 const UV_SCALE = 0xff0000;
 const CUTOUT = new Set([0x11, 0x33]);
@@ -52,7 +53,8 @@ export interface ModelGeometry {
 
 export function modelGeometry(bytes: Uint8Array): ModelGeometry | null {
   const bin = parseBin(bytes);
-  if (bin.kind === "animated") return { groups: [], vertices: new Float32Array(), raw: new Int32Array(), frameNames: bin.frameNames, outlines: new Float32Array(), polygons: 0 };
+  // CTrackPODModel::Load (Traxx 1.8.0): a KEYFRAME (0x20) or KEYFRAME64 (0x41) record; its frames read by GetAniName.
+  if (keyframeWidth(bytes) > 0) return { groups: [], vertices: new Float32Array(), raw: new Int32Array(), frameNames: modelFrameNames(bytes), outlines: new Float32Array(), polygons: 0 };
   if (bin.kind !== "mrgl" || !bin.vertexListValid) return null;
   const w = bin.vertices;
   const count = w.length / 3;

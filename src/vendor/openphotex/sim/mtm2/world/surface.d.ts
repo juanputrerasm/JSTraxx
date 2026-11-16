@@ -1,5 +1,7 @@
 import { type Mtm2Terrain } from "./terrain.ts";
 export interface Mtm2SurfaceMap {
+    /** N, cells a side: 256, or 512 in a track format version 6 world. Absent means 256. */
+    cells?: number;
     /** The level `.CLR`: one texture word per terrain cell, row-major, rows along z. */
     clr: Uint16Array;
     /** The type value (`type * 100 + depth`) of each texture index. */
@@ -10,7 +12,7 @@ export declare function textureTypeValues(textureNames: readonly string[], tty: 
     name: string;
     value: number;
 }[]): Int32Array;
-export declare function createSurfaceMap(clr: Uint16Array, textureValues: Int32Array): Mtm2SurfaceMap;
+export declare function createSurfaceMap(clr: Uint16Array, textureValues: Int32Array, cells?: number): Mtm2SurfaceMap;
 /** The type value of a texture word (unknown textures read 0). */
 export declare function textureWordValue(map: Mtm2SurfaceMap, word: number): number;
 /**

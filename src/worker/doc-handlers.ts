@@ -81,8 +81,9 @@ export function trackFileName(name: string): string {
 
 export function docHandlers(vfs: () => Vfs) {
   return {
-    async "doc.new"() {
-      return sendDocument(newTrackDocument());
+    /* File > New; `cells` is the world size (track format version 6: 256, or 512 for a .SI3 track). */
+    async "doc.new"(payload?: { cells?: number }) {
+      return sendDocument(newTrackDocument(payload?.cells));
     },
 
     async "pod.tracks"(payload: { source: PodSource }) {
@@ -115,8 +116,10 @@ export function docHandlers(vfs: () => Vfs) {
     */
     async "clone.list"(payload: { files: File[] }) {
       const all = [...trackedFolder(payload.files).paths()];
-      const sits = all.filter((p) => /(^|\\)WORLD\\[^\\]+$/.test(p) && situationKind(p.slice(p.lastIndexOf("\\") + 1))).sort();
-      const loose = sits.length ? [] : all.filter((p) => situationKind(p.slice(p.lastIndexOf("\\") + 1)));
+      // A .SI3 (track format version 6) is not a TrackEd track: Clone reads .SIT and .SI2 only.
+      const cloneable = (p: string) => { const k = situationKind(p.slice(p.lastIndexOf("\\") + 1)); return k === "sit" || k === "si2"; };
+      const sits = all.filter((p) => /(^|\\)WORLD\\[^\\]+$/.test(p) && cloneable(p)).sort();
+      const loose = sits.length ? [] : all.filter(cloneable);
       return { sits, loose };
     },
 
@@ -130,17 +133,17 @@ export function docHandlers(vfs: () => Vfs) {
       return loading(async () => sendLoaded(await cloneFromSit(folder, payload.sitPath, assets, progress)));
     },
 
-    /* Save a track as .TXX in tracks/. Returns its path and size. */
-    async "doc.saveTxx"(payload: { track: TrackDocument["track"]; fileName: string }) {
-      const bytes = writeTxx(payload.track);
+    /* Save a track as .TXX in tracks/ (`fromSi3`: the document's situationIsSi3, for V99). Returns its path and size. */
+    async "doc.saveTxx"(payload: { track: TrackDocument["track"]; fileName: string; fromSi3?: boolean }) {
+      const bytes = writeTxx(payload.track, { fromSi3: payload.fromSi3 });
       const path = `${TRACKS_DIR}/${trackFileName(payload.fileName)}`;
       await writeBytesToFile(path, bytes);
       return { path, size: bytes.length };
     },
 
     /* The .TXX bytes, for a download. */
-    async "doc.txxBytes"(payload: { track: TrackDocument["track"] }) {
-      const bytes = writeTxx(payload.track);
+    async "doc.txxBytes"(payload: { track: TrackDocument["track"]; fromSi3?: boolean }) {
+      const bytes = writeTxx(payload.track, { fromSi3: payload.fromSi3 });
       return transfer(bytes, [bytes.buffer]);
     },
 

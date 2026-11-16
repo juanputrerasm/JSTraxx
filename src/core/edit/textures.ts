@@ -3,34 +3,42 @@
   the texture index (bits 0-11), mirror (12, 13) and rotation (14, 15).
 
   `Area` is an inclusive cell rectangle (texturefirst .. texturelast).
+
+  Track format version 6 (spec section 8.2): the grid is N x N, N told by its length (256, or
+  512 in a version 6 world).
 */
+import { sideOf } from "../traxx/world.ts";
 import type { TrackDocument } from "../doc/document.ts";
 import type { TxxAnimation } from "../traxx/txx.ts";
 
 export interface Area { x0: number; y0: number; x1: number; y1: number }
 
-const inMap = (x: number, y: number) => x >= 0 && x <= 255 && y >= 0 && y <= 255;
+const inMapOf = (n: number) => (x: number, y: number) => x >= 0 && x < n && y >= 0 && y < n;
 
 /** ApplyTexture: every cell of the area to texture `index`, unrotated and unmirrored. */
 export function applyTexture(clr: Uint16Array, a: Area, index: number): void {
-  for (let j = a.y0; j <= a.y1; j++) for (let i = a.x0; i <= a.x1; i++) if (inMap(i, j)) clr[i + (j << 8)] = index;
+  const n = sideOf(clr.length), inMap = inMapOf(n);
+  for (let j = a.y0; j <= a.y1; j++) for (let i = a.x0; i <= a.x1; i++) if (inMap(i, j)) clr[i + j * n] = index;
 }
 
 /** FloodTexture (Replace): every cell showing the texture of (x, y) becomes `index`. */
 export function floodTexture(clr: Uint16Array, x: number, y: number, index: number): void {
-  const key = clr[x + (y << 8)] & 0x0fff;
-  for (let c = 0; c < 65536; c++) if ((clr[c] & 0x0fff) === key) clr[c] = index;
+  const n = sideOf(clr.length), inMap = inMapOf(n);
+  const key = clr[x + y * n]! & 0x0fff;
+  for (let c = 0; c < clr.length; c++) if ((clr[c]! & 0x0fff) === key) clr[c] = index;
 }
 
 /** OnTextureMirror: each cell's mirror bit 12 flipped. */
 export function mirrorCells(clr: Uint16Array, a: Area): void {
-  for (let j = a.y0; j <= a.y1; j++) for (let i = a.x0; i <= a.x1; i++) clr[i + (j << 8)] ^= 0x1000;
+  const n = sideOf(clr.length), inMap = inMapOf(n);
+  for (let j = a.y0; j <= a.y1; j++) for (let i = a.x0; i <= a.x1; i++) clr[i + j * n] ^= 0x1000;
 }
 
 /** OnTextureRotate90: each cell's rotation one quarter on. */
 export function rotateCells(clr: Uint16Array, a: Area): void {
+  const n = sideOf(clr.length), inMap = inMapOf(n);
   for (let j = a.y0; j <= a.y1; j++) for (let i = a.x0; i <= a.x1; i++) {
-    const c = i + (j << 8);
+    const c = i + j * n;
     clr[c] = (clr[c] & 0x3fff) | ((((clr[c] >> 14) + 1) & 3) << 14);
   }
 }
@@ -42,9 +50,10 @@ export function rotateCells(clr: Uint16Array, a: Area): void {
   Returns the rectangle written.
 */
 export function rotateArea(clr: Uint16Array, a: Area): Area {
+  const n = sideOf(clr.length), inMap = inMapOf(n);
   const w = a.x1 - a.x0 + 1, h = a.y1 - a.y0 + 1;
   const temp = new Uint16Array(w * h);
-  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) temp[i + j * w] = clr[i + a.x0 + ((j + a.y0) << 8)];
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) temp[i + j * w] = clr[i + a.x0 + (j + a.y0) * n];
   for (let j = 0; j < w; j++) for (let i = 0; i < h; i++) {
     if (!inMap(i + a.x0, j + a.y0)) continue;
     let word = temp[(w - 1 - j) + i * w];
@@ -52,17 +61,18 @@ export function rotateArea(clr: Uint16Array, a: Area): Area {
     // (arg - 1) % 4 in C is -1 for 0, which sets every high bit: rotation 3.
     arg = word & 0x1000 ? (arg + 3) & 3 : (arg + 1) & 3;
     word = (word & 0x3fff) | (arg << 14);
-    clr[i + a.x0 + ((j + a.y0) << 8)] = word;
+    clr[i + a.x0 + (j + a.y0) * n] = word;
   }
-  return { x0: a.x0, y0: a.y0, x1: Math.min(255, a.x0 + h - 1), y1: Math.min(255, a.y0 + w - 1) };
+  return { x0: a.x0, y0: a.y0, x1: Math.min(n - 1, a.x0 + h - 1), y1: Math.min(n - 1, a.y0 + w - 1) };
 }
 
 /** OnTextureAreaMirror: the area's rows reversed, each cell's mirror bit 12 flipped. */
 export function mirrorArea(clr: Uint16Array, a: Area): void {
+  const n = sideOf(clr.length), inMap = inMapOf(n);
   const w = a.x1 - a.x0 + 1, h = a.y1 - a.y0 + 1;
   const temp = new Uint16Array(w * h);
-  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) temp[i + j * w] = clr[i + a.x0 + ((j + a.y0) << 8)];
-  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) clr[i + a.x0 + ((j + a.y0) << 8)] = temp[i + (h - 1 - j) * w] ^ 0x1000;
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) temp[i + j * w] = clr[i + a.x0 + (j + a.y0) * n];
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) clr[i + a.x0 + (j + a.y0) * n] = temp[i + (h - 1 - j) * w] ^ 0x1000;
 }
 
 /*
@@ -71,10 +81,11 @@ export function mirrorArea(clr: Uint16Array, a: Area): void {
   pasted into; cells beyond the map read as 0.
 */
 export function pasteArea(clr: Uint16Array, from: { x: number; y: number }, a: Area): void {
+  const n = sideOf(clr.length), inMap = inMapOf(n);
   const w = a.x1 - a.x0 + 1, h = a.y1 - a.y0 + 1;
   const temp = new Uint16Array(w * h);
-  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) temp[i + j * w] = inMap(i + from.x, j + from.y) ? clr[i + from.x + ((j + from.y) << 8)] : 0;
-  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (inMap(i + a.x0, j + a.y0)) clr[i + a.x0 + ((j + a.y0) << 8)] = temp[i + j * w];
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) temp[i + j * w] = inMap(i + from.x, j + from.y) ? clr[i + from.x + (j + from.y) * n] : 0;
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (inMap(i + a.x0, j + a.y0)) clr[i + a.x0 + (j + a.y0) * n] = temp[i + j * w];
 }
 
 /*
@@ -104,10 +115,11 @@ export interface TransitionSettings {
   corner is within its altitude.
 */
 export function transitionTextures(clr: Uint16Array, raw: Uint8Array, a: Area, t: TransitionSettings): void {
+  const n = sideOf(clr.length), inMap = inMapOf(n);
   for (let j = a.y0; j <= a.y1; j++) {
-    const jj = j << 8;
+    const jj = j * n, jn = ((j + 1) & (n - 1)) * n, m = n - 1;
     for (let i = a.x0; i <= a.x1; i++) {
-      const r = [raw[i + jj], raw[((i + 1) & 255) + jj], raw[i + ((jj + 256) & 0xff00)], raw[((i + 1) & 255) + ((jj + 256) & 0xff00)]];
+      const r = [raw[i + jj]!, raw[((i + 1) & m) + jj]!, raw[i + jn]!, raw[((i + 1) & m) + jn]!];
       let mask = 0;
       r.forEach((v, k) => { if (t.invert ? v <= t.threshold : v >= t.threshold) mask |= 1 << k; });
       let index = -1;
@@ -152,7 +164,7 @@ export function deleteTexture(doc: TrackDocument, index: number): void {
     if (tex < index) return w;
     return (w & 0xf000) | (tex > index ? (tex - 1) & 0x0fff : 0);
   };
-  for (let c = 0; c < 65536; c++) t.clr[c] = fix(t.clr[c]);
+  for (let c = 0; c < t.clr.length; c++) t.clr[c] = fix(t.clr[c]!);
   for (const g of t.groundBoxes) g.faces = g.faces.map(fix);
   t.animations = textureDeletedFromAnimations(t.animations, index);
   doc.textures.splice(index, 1);

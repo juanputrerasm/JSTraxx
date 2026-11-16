@@ -8,9 +8,11 @@ import { newTrackDocument } from "../src/core/doc/new-track.ts";
 test("HD size policy follows HDTexture.cpp", () => {
   assert.equal(hdDimensionRefusal("A", 64, 64), null);
   assert.match(hdDimensionRefusal("A", 64, 32)!, /SQUARE/);
-  assert.match(hdDimensionRefusal("A", 96, 96)!, /power of two/);
-  assert.match(hdDimensionRefusal("A", 16, 16)!, /32 to 1024/);
-  assert.match(hdDimensionRefusal("A", 2048, 2048)!, /32 to 1024/);
+  assert.match(hdDimensionRefusal("A", 96, 96)!, /power of two \(32, 64, 128, 256, 512, 1024 or 2048\)/);
+  assert.match(hdDimensionRefusal("A", 16, 16)!, /32 to 2048/);
+  // Traxx 1.7.2 (28568e2): the cap follows the engine to 2048.
+  assert.equal(hdDimensionRefusal("A", 2048, 2048), null);
+  assert.match(hdDimensionRefusal("A", 4096, 4096)!, /32 to 2048/);
   assert.deepEqual([32, 64, 128, 256, 1024].map(legacySize), [64, 64, 64, 256, 256]);
   assert.deepEqual([64, 256].map(borderInset), [2, 8]);
 });
@@ -108,4 +110,39 @@ test("HD-only textures get their legacy tile on load", async () => {
   assert.equal(doc.textures[0]!.legacyBuilt, true);
   assert.equal(doc.modelTextures[0]!.indices, null);
   assert.match(doc.warnings.at(-1)!, /power of two/);
+});
+
+test("detail normal verdicts, costs and the export check (Traxx 1.7.2, 28568e2)", async () => {
+  const { hdDetailMapVerdict, hdDetailCostLine, hdGetInfoMem, resampleDetailRgb, HDTEX_DTL_OK, HDTEX_DTL_TOOBIG, HDTEX_DTL_ODD, HDTEX_DTL_TINY } = await import("../src/core/image/hd-texture.ts");
+  const { detailExportCheck, detailLoadWarning, encodePngRgb, maskGreyWarning } = await import("../src/core/image/detail-map.ts");
+  // TOOBIG first, so a 3000 x 100 map is reported as what stops it working.
+  assert.equal(hdDetailMapVerdict(256, 256), HDTEX_DTL_OK);
+  assert.equal(hdDetailMapVerdict(2048, 2048), HDTEX_DTL_OK);
+  assert.equal(hdDetailMapVerdict(2056, 2056), HDTEX_DTL_TOOBIG);
+  assert.equal(hdDetailMapVerdict(3000, 100), HDTEX_DTL_TOOBIG);
+  assert.equal(hdDetailMapVerdict(16, 16), HDTEX_DTL_TINY);
+  assert.equal(hdDetailMapVerdict(256, 128), HDTEX_DTL_ODD);
+  assert.equal(hdDetailMapVerdict(300, 300), HDTEX_DTL_ODD);
+  assert.equal(hdDetailCostLine(2048, 2048), "A 2048x2048 detail map takes about 16.0 MB of the engine's HD texture budget (hdTextureBudgetMB) and about 21.3 MB of video memory with mips.");
+  // Load: the big one is a resample question; 1024 and up states the cost; a small square one is silent.
+  assert.equal(detailLoadWarning(4096, 4096).tooBig, true);
+  assert.match(detailLoadWarning(1024, 1024).text, /16\.0|4\.0 MB/);
+  assert.equal(detailLoadWarning(256, 256).text, "");
+  assert.match(maskGreyWarning(3, 100, "water"), /MaskArt\\<stem>_MASK_ref\.png.*water you never painted/s);
+  assert.match(maskGreyWarning(3, 100, "terrain"), /ground you never painted/);
+  // The size is read from the bytes (HDTexGetInfoMem), the PNG it writes is the size asked.
+  const rgb = new Uint8Array(4 * 4 * 3).fill(128);
+  const png = encodePngRgb(rgb, 4, 4);
+  assert.deepEqual(hdGetInfoMem(png), { width: 4, height: 4 });
+  assert.ok("err" in hdGetInfoMem(new Uint8Array(10)));
+  assert.equal(detailExportCheck(null, "", "terrain"), null);
+  assert.match(detailExportCheck(png, ".PNG", "water")!.text, /water detail normal is only 4x4/);
+  assert.equal(detailExportCheck(png, ".PNG", "water")!.caption, "Water Detail Normal");
+  const big = new Uint8Array(png); new DataView(big.buffer).setUint32(16, 3000); new DataView(big.buffer).setUint32(20, 3000);
+  assert.equal(detailExportCheck(big, ".PNG", "terrain")!.kind, "resample");
+  // HDTexResampleDetailMem: exact area means, rounded; a 3 x 1 row of 0, 90, 180 to 2 x 2.
+  const src = new Uint8Array([0, 0, 0, 90, 90, 90, 180, 180, 180]);
+  const out = resampleDetailRgb(src, 3, 1, 2);
+  // Texel 0 covers [0, 1.5): (0 * 1 + 90 * 0.5) / 1.5 = 30; texel 1 covers [1.5, 3): 150.
+  assert.deepEqual([...out], [30, 30, 30, 150, 150, 150, 30, 30, 30, 150, 150, 150]);
 });

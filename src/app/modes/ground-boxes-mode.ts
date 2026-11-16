@@ -13,7 +13,7 @@ import type { ModeHandler, ViewPoint } from "../editor.ts";
 import type { ModeContext } from "./context.ts";
 import { CONTEXT_MENUS } from "../../ui/shell/commands.ts";
 import { recordFields } from "../../core/edit/record.ts";
-import { clampBottom, clampTop, copyGroundBox, insertGroundBox, mirrorFace, paintGroundBox, pasteGroundBox, rotateFace, type GroundBoxClip } from "../../core/edit/ground-boxes.ts";
+import { clampBottom, clampTop, groundBoxesWide, copyGroundBox, insertGroundBox, mirrorFace, paintGroundBox, pasteGroundBox, rotateFace, type GroundBoxClip } from "../../core/edit/ground-boxes.ts";
 import { outlineCells } from "./textures-mode.ts";
 import { ALTITUDE_SCALE } from "../../core/view/camera.ts";
 import { EDIT_BUILDINGS } from "../../core/settings.ts";
@@ -28,6 +28,8 @@ export function groundBoxesMode(ctx: ModeContext): ModeHandler {
   let syncing = false;
 
   const track = () => editor.doc!.track;
+  /** Version 6 tracks keep box heights unclamped to a byte (spec section 8.3). */
+  const wideBoxes = () => (editor.doc ? groundBoxesWide(editor.doc.track) : false);
   const box = () => (selected ? track().groundBoxes[selected[0]] ?? null : null);
   const touch = { groundBoxes: true };
   const edit = (label: string, change: () => unknown) => {
@@ -147,12 +149,12 @@ export function groundBoxesMode(ctx: ModeContext): ModeHandler {
         case "KeyR": registry.exec("ID_BUILDING_ROT90"); return true;
         case "KeyM": registry.exec("ID_BUILDING_MIRROR"); return true;
         case "KeyS": case "BracketRight":
-          if (topFace) app.setTools({ gbTop: clampTop(app.tools.gbTop + 1, app.tools.gbBottom) });
-          else if (selected) app.setTools({ gbBottom: clampBottom(app.tools.gbBottom + 1, app.tools.gbTop) });
+          if (topFace) app.setTools({ gbTop: clampTop(app.tools.gbTop + 1, app.tools.gbBottom, wideBoxes()) });
+          else if (selected) app.setTools({ gbBottom: clampBottom(app.tools.gbBottom + 1, app.tools.gbTop, wideBoxes()) });
           return true;
         case "KeyX": case "BracketLeft":
-          if (topFace) app.setTools({ gbTop: clampTop(app.tools.gbTop - 1, app.tools.gbBottom) });
-          else if (selected) app.setTools({ gbBottom: clampBottom(app.tools.gbBottom - 1, app.tools.gbTop) });
+          if (topFace) app.setTools({ gbTop: clampTop(app.tools.gbTop - 1, app.tools.gbBottom, wideBoxes()) });
+          else if (selected) app.setTools({ gbBottom: clampBottom(app.tools.gbBottom - 1, app.tools.gbTop, wideBoxes()) });
           return true;
       }
       return false;

@@ -56,12 +56,19 @@ export function pasteGroundBox(boxes: TxxGroundBox[], clip: GroundBoxClip, x: nu
 
 /*
   The Top and Bottom spins (CTraxxFrame::OnBuildingTop, OnBuildingBottom): Top stays above
-  Bottom, at most 255; Bottom below Top, at least 0.
+  Bottom, at most 255; Bottom below Top, at least 0. On a track format version 6 track (`wide`)
+  a box may sit anywhere in the terrain's range and be stored 16-bit (spec section 8.3), so only
+  Top above Bottom holds.
 */
-export function clampTop(top: number, bottom: number): number {
-  return top <= bottom ? bottom + 1 : Math.min(255, top);
+export function clampTop(top: number, bottom: number, wide = false): number {
+  return top <= bottom ? bottom + 1 : wide ? top : Math.min(255, top);
 }
 
-export function clampBottom(bottom: number, top: number): number {
-  return bottom < 0 ? 0 : bottom >= top ? top - 1 : bottom;
+export function clampBottom(bottom: number, top: number, wide = false): number {
+  return !wide && bottom < 0 ? 0 : bottom >= top ? top - 1 : bottom;
+}
+
+/** Whether a track's ground boxes follow version 6's range (a 512 world or 32-bit heights). */
+export function groundBoxesWide(t: { worldCells?: number; h16: unknown; fine: unknown }): boolean {
+  return (t.worldCells ?? 256) !== 256 || t.h16 instanceof Int32Array || t.fine instanceof Int32Array;
 }

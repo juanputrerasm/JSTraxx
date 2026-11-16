@@ -20,7 +20,9 @@ import {
   VEG_LAYER_GRASS, VEG_LAYER_TREES, VEG_MAX_CLUMPS_PER_TILE, VEG_MAX_ENTRIES, VEG_MODELNAME,
 } from "../../core/traxx/veg.ts";
 import type { VegColour, VegEntry, Vegetation } from "../../core/traxx/veg.ts";
-import { vegDecodeMask, vegSyncPalette, VEG_UNMATCHED_WARN } from "../../core/edit/veg-planter.ts";
+import { spacedInt, vegDecodeMask, vegMasksIdentical, vegSyncPalette, VEG_SAME_MASK_NOTE, VEG_UNMATCHED_WARN } from "../../core/edit/veg-planter.ts";
+/** VEGDLG_GRASS_WARN (VegetationDlg.cpp, Traxx 1.8.0): past this many clumps the author is told once per planting. */
+const VEGDLG_GRASS_WARN = 500000;
 import type { VegPlantResult } from "../../core/edit/veg-planter.ts";
 
 const VEGDLG_SPACING_MIN = 2;
@@ -248,6 +250,8 @@ export async function vegetationDialog(opts: VegetationDialogOptions): Promise<V
     if (sync.unmatched > VEG_UNMATCHED_WARN) {
       await alertDialog("Vegetation", `Paint vegetation masks with a hard-edged brush (no anti-aliasing).\n\n${(sync.unmatched * 100).toFixed(1)}% of the painted pixels match none of the colours found.`);
     }
+    // Traxx 1.8.0: a grass mask that is a copy of the tree mask (or the other way round), told once when the load made them the same.
+    if (vegMasksIdentical(work)) await alertDialog("Vegetation", VEG_SAME_MASK_NOTE);
   }
 
   async function onClearMask(): Promise<void> {
@@ -301,6 +305,10 @@ export async function vegetationDialog(opts: VegetationDialogOptions): Promise<V
     updateStatus(); updateEnables();
     if (result.report.length) await alertDialog("Vegetation", result.report.join("\n"));
     else if (!result.ok && !quiet) await alertDialog("Vegetation", "Nothing could be planted.");
+    // Traxx 1.8.0 (VEGDLG_GRASS_WARN): heavy for slower PCs; said, never refused.
+    if (result.ok && work.clumps.length > VEGDLG_GRASS_WARN) {
+      await alertDialog("Vegetation", `This planting places ${spacedInt(work.clumps.length)} grass clumps. More than 500 000 can lower the frame rate on slower PCs. Players can reduce it with the Grass Distance / Grass Density settings.`);
+    }
     return result.ok;
   }
 

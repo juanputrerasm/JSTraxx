@@ -1,7 +1,8 @@
 /*
   The terrain, as Traxx's GL view draws it (COpenGLTerrainRenderer::CompileTerrainFillDisplayList):
 
-    - 256 x 256 cells (Traxx 1.7.1, 992ef9f: cell 255 is textured and its far corners are
+    - N x N cells, 256 in Traxx (track format version 6, spec section 8.1: N = worldCells, 256
+      or 512; the view range and the cells drawn do not change, there is just more map) (Traxx 1.7.1, 992ef9f: cell 255 is textured and its far corners are
       column / row 0, the world wraps), each its own quad of two triangles split along the checkerboard
       diagonal ((gx + gy) & 1, the same split InterpolateRawAtPoint uses);
     - heights at ALTITUDESCALE (3) units per step, x and y at 64 units per cell;
@@ -34,17 +35,17 @@
   it do nothing (core/view/pick.ts).
 */
 import * as THREE from "three";
+import { ENGDET_GLSL_BAKED_I, ENGDET_GLSL_TERR_DETAIL_I, engineDetailGlslDefines } from "./engine-detail-glsl.ts";
 import type { TileSet } from "../core/view/tiles.ts";
 import { cornerUv } from "../core/view/tiles.ts";
 import { ALTITUDE_SCALE } from "../core/view/camera.ts";
 import type { Terrain16 } from "../core/traxx/terrain16.ts";
 import { TERRAINMODE_CLASSIC8 } from "../core/traxx/terrain16.ts";
 import { cornerV } from "../core/traxx/surface.ts";
+import { cellsOf } from "../core/traxx/world.ts";
 import { hasFineLod, surfaceTileStamp, SurfaceTileGrids, SURFACE_LOD_8FT, SURFACE_WRAP_BORDER_CELLS, TILE_SIZE, WRAP_BORDER_TINT, WRAP_BORDER_TINT_WEIGHT } from "../core/view/surface-tiles.ts";
 
-const CELLS = 256;
 const CHUNK = 16;
-const CHUNKS = Math.ceil(CELLS / CHUNK);
 
 const vertexShader = /* glsl */ `
   in vec3 position;
@@ -58,7 +59,10 @@ const vertexShader = /* glsl */ `
   flat out vec2 vTile;
   flat out vec3 vCell;
   out vec2 vLocal;
+  out vec2 vWorldFt;
   void main() {
+    // World feet (Traxx 1.8.0 detail maps): x, y are 2 scene units a foot; a border copy samples its source.
+    vWorldFt = position.xy * 0.5;
     vUv = uv;
     vTile = tile;
     vCell = cell;
@@ -67,9 +71,27 @@ const vertexShader = /* glsl */ `
   }
 `;
 
-const fragmentShader = /* glsl */ `
+const fragmentShaderFor = (cells: number) => /* glsl */ `
   precision highp float;
   precision highp sampler2DArray;
+${engineDetailGlslDefines(cells)}
+  // Traxx 1.8.0 (b6d56f2) View > Show Detail Maps / Show Detail Strength: the engine's terrain detail
+  // term (render/engine-detail-glsl.ts), and (2e8a268) View > Show Water Mask's orange tint.
+  uniform bool detailOn;      // the track has its own _MASK and the maps are uploaded
+  uniform sampler2D uDet;
+  uniform sampler2D uMask;
+  uniform sampler2D uLight;
+  uniform float uDetStr;
+  uniform float uDetRepFt;
+  uniform float uMapFt;
+  uniform vec3 uSun;
+  uniform float uLook;
+  uniform float uWash;
+  uniform float uLightN;
+  uniform bool wmaskOn;
+  uniform sampler2D wmaskCells;
+  in vec2 vWorldFt;
+${ENGDET_GLSL_BAKED_I}${ENGDET_GLSL_TERR_DETAIL_I}
   uniform sampler2DArray smallTiles;
   uniform sampler2DArray largeTiles;
   uniform vec4 window;        // min x, min y, max x, max y, in cells (exclusive max)
@@ -88,6 +110,7 @@ const fragmentShader = /* glsl */ `
   uniform vec3 borderTint;
   uniform float borderWeight;
   uniform float borderCells;
+  uniform float worldCells;   // N, the world's cells a side (spec section 8.1)
   in vec2 vUv;
   flat in vec2 vTile;
   flat in vec3 vCell;    // the 32 ft cell, and its wire steps a side (1, or 4 on an 8 ft tile)
@@ -96,13 +119,33 @@ const fragmentShader = /* glsl */ `
   void main() {
     vec2 at = vCell.xy + shift;
     if (at.x < window.x || at.y < window.y || at.x >= window.z || at.y >= window.w) discard;
-    if (border && (at.x < -borderCells || at.y < -borderCells || at.x >= 256.0 + borderCells || at.y >= 256.0 + borderCells)) discard;
+    if (border && (at.x < -borderCells || at.y < -borderCells || at.x >= worldCells + borderCells || at.y >= worldCells + borderCells)) discard;
     vec3 colour;
     if (vTile.x < -0.5) colour = fallbackColor;
     else if (vTile.x < 0.5) colour = texture(smallTiles, vec3(vUv, vTile.y)).rgb;
     else colour = texture(largeTiles, vec3(vUv, vTile.y)).rgb;
-    // The painted detail mask, washed over the ground (COpenGLTerrainRenderer::MaskWash).
-    if (maskOn) colour *= texture(maskWash, (vCell.xy + 0.5) / 256.0).rgb;
+    // The painted detail mask, washed over the ground (COpenGLTerrainRenderer::MaskWash): the
+    // fallback when the detail shader is not running.
+    if (maskOn) colour *= texture(maskWash, (vCell.xy + 0.5) / worldCells).rgb;
+    if (detailOn) {
+      // g_EngDetTerrainFS: both samples outside any branch; textured = a tile, not the fallback colour.
+      vec4 dt = texture(uDet, vWorldFt / uDetRepFt);
+      float mk = (uMapFt > 0.0) ? texture(uMask, vWorldFt / max(uMapFt, 1.0)).r : 0.0;
+      bool textured = vTile.x > -0.5;
+      if (textured && uLook > 0.5) {
+        float i = terrDetailI(bakedI(vWorldFt), dt, mk);
+        colour = (i <= 1.0) ? colour * i : mix(colour, vec3(1.0), clamp(i - 1.0, 0.0, 1.0));
+      }
+      if (textured && uWash > 0.5 && uMapFt > 0.0) {
+        float t = (1.0 + MASK_SPAN * mk) / (1.0 + MASK_SPAN);
+        colour *= vec3(1.0) - vec3(WASH_R, WASH_G, WASH_B) * t;
+      }
+    }
+    // The water mask tint (DrawWaterMaskWash): per cell, orange, alpha (38 + 115 v / 255) / 255; 0 draws nothing.
+    if (wmaskOn) {
+      float v = floor(texture(wmaskCells, (vCell.xy + 0.5) / worldCells).r * 255.0 + 0.5);
+      if (v > 0.0) colour = mix(colour, vec3(1.0, 140.0 / 255.0, 0.0), floor(38.0 + floor(115.0 * v / 255.0)) / 255.0);
+    }
     if (wireMode != 0 && wireCells) {
       // Distance to the nearest grid line of the drawn mesh (8 ft on an 8 ft tile, 32 ft
       // elsewhere: CompileSurfaceTileWireframeList) and the drawn diagonal, in pixels. Each
@@ -135,8 +178,8 @@ export interface TerrainSource extends Partial<Terrain16> {
 }
 
 /** The view's z of a 32 ft corner: ALTITUDESCALE per step, v / 256 steps on a 16-bit track. */
-function cornerZ(src: TerrainSource, vx: number, vy: number): number {
-  if (!src.terrainMode || src.terrainMode === TERRAINMODE_CLASSIC8) return ALTITUDE_SCALE * src.heights[(vx & 255) + ((vy & 255) << 8)]!;
+function cornerZ(src: TerrainSource, vx: number, vy: number, cells: number): number {
+  if (!src.terrainMode || src.terrainMode === TERRAINMODE_CLASSIC8) return ALTITUDE_SCALE * src.heights[(vx & (cells - 1)) + (vy & (cells - 1)) * cells]!;
   return (ALTITUDE_SCALE * cornerV(src as Terrain16, vx, vy)) / 256;
 }
 
@@ -161,23 +204,44 @@ export class TerrainMesh {
   private smallTex: THREE.DataArrayTexture | null = null;
   private largeTex: THREE.DataArrayTexture | null = null;
   private source: TerrainSource;
+  /** N, the world's cells a side (fixed for the mesh: a new track builds a new mesh). */
+  readonly cells: number;
   /** The camera's cell the levels are for (DrawTerrainScene's lastgridx, lastgridy). */
-  private camera: [number, number] = [128, 128];
+  private camera: [number, number];
   /** The world-wrap border's copies of the edge chunks, each sharing its chunk's geometry. */
   private copies = new Map<THREE.Mesh, THREE.Mesh[]>();
   private borderMaterials = new Map<string, THREE.RawShaderMaterial>();
+  private readonly fragmentShader: string;
+  private shownMask: object | null = null;
+  private shownWaterMask: Uint8Array | null = null;
 
   constructor(source: TerrainSource) {
     this.source = source;
+    const CELLS = this.cells = cellsOf(source);
+    const CHUNKS = Math.ceil(CELLS / CHUNK);
+    this.camera = [CELLS >> 1, CELLS >> 1];
     this.material = new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3,
       vertexShader,
-      fragmentShader,
+      fragmentShader: this.fragmentShader = fragmentShaderFor(CELLS),
       side: THREE.DoubleSide,
       uniforms: {
+        detailOn: { value: false },
+        uDet: { value: null },
+        uMask: { value: null },
+        uLight: { value: null },
+        uDetStr: { value: 0 },
+        uDetRepFt: { value: 64 },
+        uMapFt: { value: CELLS * 32 },
+        uSun: { value: new THREE.Vector3(0, -1, 0) },
+        uLook: { value: 0 },
+        uWash: { value: 0 },
+        uLightN: { value: CELLS },
+        wmaskOn: { value: false },
+        wmaskCells: { value: null },
         smallTiles: { value: null },
         largeTiles: { value: null },
-        window: { value: new THREE.Vector4(0, 0, 256, 256) },
+        window: { value: new THREE.Vector4(0, 0, CELLS, CELLS) },
         wireMode: { value: 0 },
         wireCells: { value: true },
         wireDiagonals: { value: false },
@@ -193,6 +257,7 @@ export class TerrainMesh {
         borderTint: { value: new THREE.Color(...WRAP_BORDER_TINT) },
         borderWeight: { value: WRAP_BORDER_TINT_WEIGHT },
         borderCells: { value: SURFACE_WRAP_BORDER_CELLS },
+        worldCells: { value: CELLS },
       },
     });
     for (let cy = 0; cy < CHUNKS; cy++) {
@@ -211,15 +276,16 @@ export class TerrainMesh {
   }
 
   /*
-    The border copies of a chunk: shifted +256 cells when it holds cells within 3 of the low
-    edge, -256 when within 3 of the high one, on each axis and both in a corner (the border
-    tiles -1 and 64, SurfaceBorderTileSource, at cell rather than tile grain).
+    The border copies of a chunk: shifted +N cells when it holds cells within 3 of the low
+    edge, -N when within 3 of the high one, on each axis and both in a corner (the border
+    tiles -1 and N / 4, SurfaceBorderTileSource, at cell rather than tile grain).
   */
   private addCopies(mesh: THREE.Mesh): void {
     const { x0, y0, w, h } = mesh.userData as ChunkData;
     const b = SURFACE_WRAP_BORDER_CELLS;
-    const sx = [0, ...(x0 < b ? [256] : []), ...(x0 + w > 256 - b ? [-256] : [])];
-    const sy = [0, ...(y0 < b ? [256] : []), ...(y0 + h > 256 - b ? [-256] : [])];
+    const n = this.cells;
+    const sx = [0, ...(x0 < b ? [n] : []), ...(x0 + w > n - b ? [-n] : [])];
+    const sy = [0, ...(y0 < b ? [n] : []), ...(y0 + h > n - b ? [-n] : [])];
     const list: THREE.Mesh[] = [];
     for (const dy of sy) {
       for (const dx of sx) {
@@ -241,7 +307,7 @@ export class TerrainMesh {
     if (!m) {
       const u = this.material.uniforms;
       m = new THREE.RawShaderMaterial({
-        glslVersion: THREE.GLSL3, vertexShader, fragmentShader, side: THREE.DoubleSide,
+        glslVersion: THREE.GLSL3, vertexShader, fragmentShader: this.fragmentShader, side: THREE.DoubleSide,
         uniforms: { ...u, shift: { value: new THREE.Vector2(dx, dy) }, border: { value: true } },
       });
       this.borderMaterials.set(key, m);
@@ -333,7 +399,7 @@ export class TerrainMesh {
       for (let i = i0; i < i1; i++) {
         const gi = d.x0 + i, gj = d.y0 + j, c = j * d.w + i;
         const per = d.per[c]!, v = d.start[c]!, row = per + 1;
-        const word = src.clr[gi + (gj << 8)]!;
+        const word = src.clr[gi + gj * this.cells]!;
         const texIndex = word & 0x0fff;
         const where = this.tiles && texIndex < this.tiles.where.length ? this.tiles.where[texIndex]! : -1;
         const side = where >= 0 ? this.tiles!.side[texIndex]! : 64;
@@ -346,7 +412,7 @@ export class TerrainMesh {
             P[q * 3 + 1] = gj * 64 + (b * 64) / per;
             P[q * 3 + 2] = tg
               ? (ALTITUDE_SCALE * tg.v[((gj & 3) * tg.per + b) * tg.n + (gi & 3) * tg.per + a]!) / 256
-              : cornerZ(src, gi + a, gj + b);
+              : cornerZ(src, gi + a, gj + b, this.cells);
             // Bilinear in the four corner mappings: m[0] (0,0), m[1] (1,0), m[2] (1,1), m[3] (0,1).
             U[q * 2] = (1 - s) * (1 - t) * m[0]![0] + s * (1 - t) * m[1]![0] + s * t * m[2]![0] + (1 - s) * t * m[3]![0];
             U[q * 2 + 1] = (1 - s) * (1 - t) * m[0]![1] + s * (1 - t) * m[1]![1] + s * t * m[2]![1] + (1 - s) * t * m[3]![1];
@@ -368,14 +434,15 @@ export class TerrainMesh {
     const grids = isClassic(this.source) ? null : new SurfaceTileGrids(this.source as Terrain16, this.camera[0], this.camera[1]);
     // A height change moves the cells on both sides of a vertex, so widen by one; a tile's
     // straightened side reads its corners, so whole tiles are rewritten. The world wraps
-    // (ComputeTerrainWindowStamp folds & 255, df1daa5): an edit at column 0 rewrites tile 63,
-    // whose far corners read it.
+    // (ComputeTerrainWindowStamp folds & 255, df1daa5): an edit at column 0 rewrites the last
+    // tile, whose far corners read it. N - 1 for a version 6 world (spec section 8.1).
+    const last = this.cells - 1;
     const ranges = (lo: number, hi: number): [number, number][] => {
       lo = (lo - spread) & ~3; hi = (hi + spread) | 3;
-      if (hi - lo >= 255) return [[0, 255]];
-      const out: [number, number][] = [[Math.max(0, lo), Math.min(255, hi)]];
-      if (lo < 0) out.push([lo + 256, 255]);
-      if (hi > 255) out.push([0, hi - 256]);
+      if (hi - lo >= last) return [[0, last]];
+      const out: [number, number][] = [[Math.max(0, lo), Math.min(last, hi)]];
+      if (lo < 0) out.push([lo + this.cells, last]);
+      if (hi > last) out.push([0, hi - this.cells]);
       return out;
     };
     const xs = ranges(minX, maxX), ys = ranges(minY, maxY);
@@ -425,7 +492,7 @@ export class TerrainMesh {
     this.largeTex = make(tiles.large);
     this.material.uniforms.smallTiles.value = this.smallTex;
     this.material.uniforms.largeTiles.value = this.largeTex;
-    this.updateCells(0, 0, CELLS - 1, CELLS - 1);
+    this.updateCells(0, 0, this.cells - 1, this.cells - 1);
   }
 
   /*
@@ -436,32 +503,74 @@ export class TerrainMesh {
   siblingMaterial(): THREE.RawShaderMaterial {
     const u = this.material.uniforms;
     return new THREE.RawShaderMaterial({
-      glslVersion: THREE.GLSL3, vertexShader, fragmentShader, side: THREE.DoubleSide,
-      uniforms: { ...u, maskOn: { value: false }, wireCells: { value: false }, shift: { value: new THREE.Vector2(0, 0) }, border: { value: false } },
+      glslVersion: THREE.GLSL3, vertexShader, fragmentShader: this.fragmentShader, side: THREE.DoubleSide,
+      uniforms: { ...u, maskOn: { value: false }, detailOn: { value: false }, wmaskOn: { value: false }, wireCells: { value: false }, shift: { value: new THREE.Vector2(0, 0) }, border: { value: false } },
     });
   }
 
   /*
     The detail mask overlay: one wash colour per cell from the mask image, sampled at
-    (gi * w / 256, gj * h / 256) (CompileTerrainFillDisplayList), or null for none.
+    (gi * w / N, gj * h / N) (CompileTerrainFillDisplayList, N = 256 there), or null for none.
   */
+  /**
+    Traxx 1.8.0 detail maps (GLDetailBeginTerrain): the textures (render/terrain-detail.ts builds
+    them) and the two switches; null turns the shader off (no _MASK: no detail, as the engine).
+  */
+  setDetail(d: { det: THREE.Texture; mask: THREE.Texture; light: THREE.Texture; lightN: number; sun: readonly number[]; strength: number; look: boolean; wash: boolean } | null): void {
+    const u = this.material.uniforms;
+    u.detailOn.value = Boolean(d && (d.look || d.wash));
+    if (!d) return;
+    u.uDet.value = d.det;
+    u.uMask.value = d.mask;
+    u.uLight.value = d.light;
+    u.uLightN.value = d.lightN;
+    (u.uSun.value as THREE.Vector3).set(d.sun[0]!, d.sun[1]!, d.sun[2]!);
+    u.uDetStr.value = d.strength;
+    u.uDetRepFt.value = 64;
+    u.uMapFt.value = this.cells * 32;
+    u.uLook.value = d.look ? 1 : 0;
+    u.uWash.value = d.wash ? 1 : 0;
+  }
+
+  /** View > Show Water Mask (2e8a268): the _WMSK cell table (N x N red values, row 0 = z 0), or null for none. */
+  setWaterMask(cells: Uint8Array | null): void {
+    if (cells === this.shownWaterMask) return;
+    this.shownWaterMask = cells;
+    const u = this.material.uniforms;
+    (u.wmaskCells.value as THREE.Texture | null)?.dispose();
+    u.wmaskCells.value = null;
+    u.wmaskOn.value = false;
+    if (!cells) return;
+    const tex = new THREE.DataTexture(new Uint8Array(cells), this.cells, this.cells, THREE.RedFormat, THREE.UnsignedByteType);
+    tex.magFilter = tex.minFilter = THREE.NearestFilter;
+    tex.unpackAlignment = 1;
+    tex.colorSpace = THREE.NoColorSpace;
+    tex.needsUpdate = true;
+    u.wmaskCells.value = tex;
+    u.wmaskOn.value = true;
+  }
+
   setMask(mask: { width: number; height: number; grey: Uint8Array } | null, on: boolean): void {
+    const shown = on ? mask : null;
+    if (shown === this.shownMask) return;
+    this.shownMask = shown;
     const u = this.material.uniforms;
     (u.maskWash.value as THREE.Texture | null)?.dispose();
     u.maskWash.value = null;
     u.maskOn.value = false;
     if (!mask || !on) return;
-    const rgba = new Uint8Array(256 * 256 * 4);
-    for (let gj = 0; gj < 256; gj++) {
-      for (let gi = 0; gi < 256; gi++) {
-        const mx = Math.min(mask.width - 1, Math.trunc((gi * mask.width) / 256)), my = Math.min(mask.height - 1, Math.trunc((gj * mask.height) / 256));
+    const n = this.cells;
+    const rgba = new Uint8Array(n * n * 4);
+    for (let gj = 0; gj < n; gj++) {
+      for (let gi = 0; gi < n; gi++) {
+        const mx = Math.min(mask.width - 1, Math.trunc((gi * mask.width) / n)), my = Math.min(mask.height - 1, Math.trunc((gj * mask.height) / n));
         const k = mask.grey[my * mask.width + mx] / 255;
         let r = 1, g = 1, b = 1;
         if (k > 0) { const t = 0.3 + 0.7 * k; r = 1 - 0.85 * t; g = 1 - 0.6 * t; b = 1 - 0.15 * t; }
-        rgba.set([r * 255, g * 255, b * 255, 255], (gi + gj * 256) * 4);
+        rgba.set([r * 255, g * 255, b * 255, 255], (gi + gj * n) * 4);
       }
     }
-    const tex = new THREE.DataTexture(rgba, 256, 256, THREE.RGBAFormat);
+    const tex = new THREE.DataTexture(rgba, n, n, THREE.RGBAFormat);
     tex.magFilter = tex.minFilter = THREE.NearestFilter;
     tex.colorSpace = THREE.NoColorSpace;
     tex.needsUpdate = true;

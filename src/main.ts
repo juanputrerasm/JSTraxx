@@ -21,6 +21,7 @@ import { DocumentService } from "./app/document-service.ts";
 import { bindFileCommands } from "./app/file-commands.ts";
 import { attachProgress } from "./ui/shell/progress.ts";
 import { TrackView } from "./render/track-view.ts";
+import { createGamePods } from "./core/view/game-pods.ts";
 import { attachViewInput } from "./ui/input/view-input.ts";
 import { terrainMap } from "./core/traxx/map.ts";
 import type { AppShell as Shell } from "./ui/shell/app-shell.ts";
@@ -63,7 +64,7 @@ async function start(): Promise<void> {
   shell.viewport.append(empty);
   const editor = new Editor(app, docs);
   docs.on("saved", () => editor.saved());
-  bindView(app, registry, shell, docs, empty, editor);
+  bindView(app, registry, shell, docs, empty, editor, library);
   bindEditCommands(app, registry, docs, editor);
   texturesPanel({ app, editor, docs, registry, panel: shell.panels.textures, worker });
   transitionsPanel({ app, editor, docs, registry, panel: shell.panels.transitions });
@@ -101,13 +102,31 @@ async function start(): Promise<void> {
   toggleSetting("ID_FUNCTION_9", "show_backdrop");
   // View > Vegetation (CTraxxFrame::OnViewVegetation and friends): each a persisted switch, enabled
   // with the OpenGL renderer, which is the only one JSTraxx has.
-  const toggleVeg = (id: string, key: "show_vegetation" | "show_grass" | "show_veg_mask" | "show_veg_aids" | "show_lake_walls") =>
-    registry.bind(id, () => app.updateSettings((s) => { s[key] = !s[key]; }), { checked: () => app.settings[key] });
+  type ViewSwitch = "show_vegetation" | "show_grass" | "show_veg_mask" | "show_veg_aids" | "show_lake_walls" | "show_sun" | "show_sky"
+    | "show_light_glows" | "show_detail_maps" | "show_mask_overlay" | "show_water_mask" | "draw_all_fog" | "show_light_core";
+  // Greyed out without the 3D view, as Traxx greys them without its OpenGL renderer (Traxx 1.8.0, 4ebf477).
+  const toggleVeg = (id: string, key: ViewSwitch) =>
+    registry.bind(id, () => app.updateSettings((s) => { s[key] = !s[key]; }), { checked: () => app.settings[key], enabled: () => rendererReady });
   toggleVeg("ID_VIEW_VEGETATION", "show_vegetation");
   toggleVeg("ID_VIEW_GRASS", "show_grass");
   toggleVeg("ID_VIEW_VEGMASK", "show_veg_mask");
   toggleVeg("ID_VIEW_VEGAIDS", "show_veg_aids");
   toggleVeg("ID_VIEW_LAKEWALLS", "show_lake_walls");
+  // Traxx 1.7.2 View > Show Sun (OnViewSun) and 1.7.3 View > Field of View (OnViewFov; 0 is Legacy).
+  toggleVeg("ID_VIEW_SUN", "show_sun");
+  // Traxx 1.8.0: View > Visual Helpers, Light Guide and Preview Weather (CTraxxFrame::OnViewSky and friends).
+  toggleVeg("ID_VIEW_SKY", "show_sky");
+  toggleVeg("ID_VIEW_LIGHTGLOWS", "show_light_glows");
+  toggleVeg("ID_VIEW_DETAILMAPS", "show_detail_maps");
+  toggleVeg("ID_VIEW_DETAILMASK", "show_mask_overlay");
+  toggleVeg("ID_VIEW_WATERMASK", "show_water_mask");
+  toggleVeg("ID_VIEW_DRAWALLFOG", "draw_all_fog");
+  toggleVeg("ID_VIEW_LIGHTCORE", "show_light_core");
+  ["ID_VIEW_PW_CLEAR", "ID_VIEW_PW_CLOUDY", "ID_VIEW_PW_FOGGY", "ID_VIEW_PW_DENSEFOG", "ID_VIEW_PW_RAIN", "ID_VIEW_PW_SNOW", "ID_VIEW_PW_DUSK", "ID_VIEW_PW_NIGHT", "ID_VIEW_PW_PITCHBLACK"]
+    .forEach((id, w) => registry.bind(id, () => app.updateSettings((s) => { s.preview_weather = w; }), { checked: () => app.settings.preview_weather === w, enabled: () => rendererReady }));
+  for (const [id, deg] of [["ID_VIEW_FOV_50", 50], ["ID_VIEW_FOV_60", 60], ["ID_VIEW_FOV_70", 70], ["ID_VIEW_FOV_80", 80], ["ID_VIEW_FOV_90", 90], ["ID_VIEW_FOV_LEGACY", 0]] as const) {
+    registry.bind(id, () => app.updateSettings((s) => { s.opengl_fov = deg; }), { checked: () => app.settings.opengl_fov === deg });
+  }
 
   registry.bind("ID_VIEW_OPTIONS", () => showOptions(app, library));
   registry.bind("ID_VIEW_LIBRARY", () => showOptions(app, library, "library"));
@@ -140,6 +159,9 @@ async function start(): Promise<void> {
   The 3D view and what drives it. Without WebGL 2 the editor still opens and saves tracks, and
   the view says why it is blank.
 */
+/** The 3D view started (WebGL 2): Traxx's "OpenGL renderer present" for the view switches. */
+let rendererReady = false;
+
 /*
   Edit menu: Undo and Redo over the whole history; Copy and Paste go to the mode
   (CTraxxView::OnEditCopy, OnEditPaste). Cut does nothing in Traxx, and stays greyed.
@@ -159,11 +181,13 @@ function bindEditCommands(app: AppState, registry: CommandRegistry, docs: Docs, 
   void docs;
 }
 
-function bindView(app: AppState, registry: CommandRegistry, shell: Shell, docs: Docs, empty: HTMLElement, editor: Editor): void {
+function bindView(app: AppState, registry: CommandRegistry, shell: Shell, docs: Docs, empty: HTMLElement, editor: Editor, library: Library): void {
   let view: TrackView;
   try {
     view = new TrackView(shell.viewport, app);
+    rendererReady = true;
   } catch (err) {
+    shell.viewControl.enableRendererChecks(false);
     console.error(err);
     empty.replaceChildren(el("p", {}, "The 3D view needs WebGL 2, which this browser could not start. Check that hardware acceleration is on."));
     docs.on("opened", (doc) => {
@@ -172,6 +196,14 @@ function bindView(app: AppState, registry: CommandRegistry, shell: Shell, docs: 
     });
     return;
   }
+  // Traxx 1.8.0 GamePods: the game's own art (sky, light glows) read-only through the Game Library,
+  // in its mount order; a remount is a new generation.
+  const gamePods = createGamePods(async (path) => {
+    const r = await assetWorker().call<{ bytes: Uint8Array } | null>("vfs.read", { path });
+    return r?.bytes ?? null;
+  }, () => library.entries.some((e) => e.enabled && e.summary && !e.summary.error));
+  view.setGamePods(gamePods);
+  library.on("changed", () => { gamePods.invalidate(); view.requestRender(); });
   attachViewInput(shell.viewport, { camera: view.camera, groundAt: view.groundAt, changed: () => view.changed(), animate: () => view.animate(),
     pick: (x, y) => view.pick(x, y)?.point ?? null });
   attachEditInput(shell.viewport, editor, registry, app);
@@ -188,7 +220,7 @@ function bindView(app: AppState, registry: CommandRegistry, shell: Shell, docs: 
   });
   view.onCameraChange(() => {
     app.setIndicators(view.camera.indicators());
-    shell.viewControl.drawCamera(view.camera.gridx, view.camera.gridy, view.camera.dvector);
+    shell.viewControl.drawCamera(view.camera.gridx, view.camera.gridy, view.camera.dvector, view.camera.cells);
   });
   shell.viewControl.onMapClick((fx, fy) => { view.camera.mapClick(fx, fy); view.changed(); });
   docs.on("opened", (doc) => {

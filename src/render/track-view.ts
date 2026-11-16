@@ -4,12 +4,15 @@
 
   What shows follows Traxx: objects in Objects mode or with Always Show Objects (F6), ground
   boxes in Groundbox mode or with Always Show Ground Boxes (F7), water with Show Water (F8),
-  the backdrop with Show Backdrop (F9).
+  the backdrop with Show Backdrop (F9). Traxx 1.7.2: the sun marker with View > Show Sun; Traxx
+  1.7.3: the camera's field of view from View > Field of View.
 */
 import * as THREE from "three";
 import type { TrackDocument } from "../core/doc/document.ts";
 import type { AppState } from "../app/state.ts";
-import { TraxxCamera } from "../core/view/camera.ts";
+import { TraxxCamera, terrainZRange } from "../core/view/camera.ts";
+import { cellsOf, isWideGrid, worldFtOf } from "../core/traxx/world.ts";
+import { fallWorldOf } from "../core/traxx/v6.ts";
 import { buildTileSet, gammaMap, type RgbaImage, type TileSet } from "../core/view/tiles.ts";
 import { cameraGround } from "../core/traxx/box-ground.ts";
 import { BG_COL, EDIT_BUILDINGS, EDIT_OBJECTS, GRID_MAX, WIRE_COL, WIREO_COL, type TraxxSettings } from "../core/settings.ts";
@@ -19,18 +22,22 @@ import { decodeHd } from "./hd-decode.ts";
 import { ModelLibrary } from "./models.ts";
 import { ObjectLayer } from "./objects.ts";
 import { GroundBoxLayer } from "./ground-boxes.ts";
-import { FogBoxLayer } from "./fog-boxes.ts";
-import { effectiveFog, fogDriftArrow, FOG_DRIFT_COLOUR, type FogPreview } from "../core/view/fog-volume.ts";
+import { FogBoxLayer, type FogDrawVolume } from "./fog-boxes.ts";
+import { effectiveFog, fogDriftArrow, fogVolumeCorners, fogVolumeRing, FOG_DRIFT_COLOUR, FOG_RING, type FogPreview } from "../core/view/fog-volume.ts";
+import { engineFogAmbient, engineFogDrawn, engineFogParamsOf } from "../core/view/engine-fog.ts";
+import { mistDrawPlan, mistFog, mistFogId, mistFogParams, mistRegistered, type MistFogVol } from "../core/traxx/fall-mist.ts";
+import { fallEffectiveHeight, FALL_MAX_FALLS, FALL_MAX_POINTS, FALLWARN_DROPPED } from "../core/traxx/falls.ts";
+import { TRAXX_BOX_FOG } from "../core/traxx/sit.ts";
 import { WaterLayer, LakesLayer, type LakeWallGround } from "./water.ts";
 import { VegetationLayer } from "./vegetation.ts";
 import { vegWindow } from "../core/view/veg-draw.ts";
 import { tileMinMaxU } from "../core/traxx/surface.ts";
 import { hasFineLod, SurfaceTileGrids } from "../core/view/surface-tiles.ts";
 import { TERRAINMODE_CLASSIC8 } from "../core/traxx/terrain16.ts";
-import { trackLakes } from "../core/traxx/lakes.ts";
+import { trackLakes, lakeNotchEdgesOf } from "../core/traxx/lakes.ts";
 import { BackdropLayer } from "./backdrop.ts";
 import { WaterfallsLayer } from "./waterfalls.ts";
-import { FallShapeCache, fallPreviewList } from "../core/view/fall-shapes.ts";
+import { FallShapeCache, fallPreviewList, fallViewShift } from "../core/view/fall-shapes.ts";
 import { fallGroundFor, fallNameInPod } from "../core/traxx/falls.ts";
 import { buildLakeGround } from "../core/traxx/surface.ts";
 import { CourseLayer } from "./course.ts";
@@ -41,6 +48,14 @@ import { pickSurface, pickTerrain, type TerrainHit } from "../core/view/pick.ts"
 import { EDIT_COURSE } from "../core/settings.ts";
 import { ALTITUDE_SCALE } from "../core/view/camera.ts";
 import type { Touch } from "../core/edit/history.ts";
+import { SunMarker } from "./sun-marker.ts";
+import { glowLightsOf, LightGlowLayer } from "./light-glows.ts";
+import { SkyLayer } from "./sky.ts";
+import { TerrainDetail } from "./terrain-detail.ts";
+import type { GamePods } from "../core/view/game-pods.ts";
+import { MTM2_ONLY } from "../core/doc/document.ts";
+import { TRAXX_BOX_LIGHT, type TraxxBox, type TraxxLight } from "../core/traxx/sit.ts";
+import { trackLighting } from "../core/edit/lighting.ts";
 
 /* The object draw window is the grid window capped at 256 cells (TRAXX_GL_OBJECT_CULL_GRID). */
 const OBJECT_CULL_GRID = 256;
@@ -65,9 +80,25 @@ export class TrackView {
   readonly fallShapes = new FallShapeCache();
   /** The fall whose window is open (fallhighlight) and the crest being captured, in 1/16 ft. */
   private fallState: { highlight: number; capture: [number, number][] | null } = { highlight: -1, capture: null };
+  /** The frame's mist plan (DrawWaterfallsOpenGL's g_mistplan): per fall its fog records, the streams drawn, its view shift. */
+  private mistPlan: { plans: MistFogVol[][]; draw: number[]; shift: [number, number][] } = { plans: [], draw: [], shift: [] };
   /** The fog a properties dialog is previewing (CTraxxView::SetFogPreview), or null. */
   private fogPreview: FogPreview | null = null;
   readonly overlay: Overlay2D;
+  /** View > Show Sun's disc (DrawSunMarker), drawn after the scene. */
+  private sunMarker = new SunMarker();
+  /** View > Show Light Glows (DrawLightGlows), drawn after the fog volumes. */
+  private lightGlows = new LightGlowLayer();
+  /** The detail-map shading's inputs (GLDetailMaps), Traxx 1.8.0. */
+  private detail = new TerrainDetail();
+  /** View > Show Sky (DrawSky), drawn first. */
+  private sky = new SkyLayer();
+  /** The light a properties dialog is previewing (EffectiveLight), or null. */
+  private lightPreview: { box: TraxxBox; light: TraxxLight; isLight: boolean } | null = null;
+  /** The game's art, read-only through the Game Library (GamePods), or null before the library is up. */
+  private gamePods: GamePods | null = null;
+  /** The status notes last given (LightGlowNote, SkyNote), so each is said once. */
+  private notes = { glow: "", sky: "" };
   /** The truck selected in Course mode (1..8), or -1. */
   selectedTruck = -1;
   /** Decoded HD art by texture name (upper case): indices move when textures are added or removed. */
@@ -86,8 +117,30 @@ export class TrackView {
     this.app = app;
     this.viewport = new Viewport(host);
     this.viewport.onBeforeRender(() => this.step());
-    this.viewport.scene.add(this.water.group, this.lakes.mesh, this.lakes.walls, this.backdrop.arena, this.course.group, this.fogBoxes.group, this.vegetation.group, this.waterfalls.group);
+    // The fog pass for the camera as placed: order, the nearest 16, the slices (DrawFogVolumes).
+    this.viewport.onBeforeRender(() => this.fogBoxes.update(this.viewport.camera));
+    this.viewport.scene.add(this.water.group, this.lakes.mesh, this.lakes.walls, this.lakes.marks, this.backdrop.arena, this.course.group, this.fogBoxes.group, this.vegetation.group, this.waterfalls.group);
     this.overlay = new Overlay2D(host, this.viewport.camera);
+    // Traxx 1.8.0: every light's glow and cone after the fog volumes, not over a wireframe.
+    this.lightGlows.onLoaded = () => this.viewport.requestRender();
+    this.sky.onLoaded = () => this.viewport.requestRender();
+    this.detail.onReady = () => this.applyDetail();
+    this.viewport.onAfterRender(() => {
+      const s = this.app.settings;
+      if (!this.doc || !s.show_light_glows || s.edit.wireframe === 1 || !this.fogActive()) { this.lightGlows.note = ""; }
+      else {
+        const t = this.doc.track;
+        const lights = glowLightsOf(t.boxes, (box) => (this.lightPreview && this.lightPreview.box === box ? this.lightPreview : { light: box.light, isLight: box.type === TRAXX_BOX_LIGHT }));
+        this.lightGlows.render(this.viewport.renderer, this.viewport.camera, lights, s.preview_weather, this.gamePods, t.palette, (t.versionFlags & MTM2_ONLY) === 0);
+      }
+      this.say("glow", this.lightGlows.note);
+    });
+    // The sun after the scene, at the far plane against its depth (pod.sunvec, or Traxx's defaults).
+    this.viewport.onAfterRender(() => {
+      if (!this.doc || !this.app.settings.show_sun) return;
+      const c = this.viewport.canvas;
+      this.sunMarker.render(this.viewport.renderer, this.viewport.camera, trackLighting(this.doc.track).sun, c.clientWidth, c.clientHeight);
+    });
     this.viewport.onAfterRender(() => this.overlay.draw());
     this.overlay.add((g, project) => this.drawLabels(g, project));
     this.overlay.add((g) => this.drawFps(g));
@@ -97,9 +150,60 @@ export class TrackView {
     this.applySettings(app.settings);
   }
 
+  /** The Game Library as the engine's pods (GamePods): the sky and the light glows read their art there. */
+  setGamePods(pods: GamePods | null): void {
+    this.gamePods = pods;
+    this.viewport.requestRender();
+  }
+
+  /* DrawSky for the track as it is, then its note. */
+  private drawSky(renderer: THREE.WebGLRenderer, backdrop: boolean): void {
+    const doc = this.doc;
+    if (!doc) return;
+    const t = doc.track, c = this.viewport.canvas;
+    this.sky.render(renderer, this.viewport.camera, {
+      weather: this.app.settings.preview_weather, palette: t.palette, levelType4: (t.versionFlags & MTM2_ONLY) === 0,
+      sun: trackLighting(t).sun, backdrop,
+    }, this.gamePods, c.clientWidth, c.clientHeight);
+    this.say("sky", this.sky.note);
+  }
+
+  /** A properties dialog's working light (EffectiveLight), drawn in place of the box's own; null ends it. */
+  setLightPreview(preview: { box: TraxxBox; light: TraxxLight; isLight: boolean } | null): void {
+    this.lightPreview = preview;
+    this.viewport.requestRender();
+  }
+
+  /* A status-bar note (SetMessageText) when it changes; nothing when it goes. */
+  private say(which: "glow" | "sky", note: string): void {
+    if (this.notes[which] === note) return;
+    this.notes[which] = note;
+    if (note) this.app.status(note);
+  }
+
   /** Called whenever the camera moved or turned. */
   onCameraChange(fn: () => void): void {
     this.listeners.push(fn);
+  }
+
+  /*
+    The grid window's size: the Grid size setting, or the whole map with Whole Grid. A track
+    format version 6 world of 512 cells is 512 cells whole (spec section 8.1); the Grid size
+    setting keeps its 256 cap, and the object window its own (OBJECT_CULL_GRID).
+  */
+  private gridSizeOf(s: TraxxSettings): number {
+    return s.show_whole_grid ? Math.max(GRID_MAX, this.doc ? cellsOf(this.doc.track) : GRID_MAX) : s.polysize;
+  }
+
+  /* The camera's world and z range (TraxxCamera.setWorld) for the track as it is. */
+  private placeWorld(): void {
+    if (!this.doc) return;
+    const t = this.doc.track;
+    // Only a version 6 32-bit store can hold ground beyond 0..512 ft; a 16-bit or 8-bit track
+    // is always inside Traxx's range, so its grid is not scanned on every edit.
+    const [lo, hi] = isWideGrid(t.h16) || isWideGrid(t.fine) ? terrainZRange(t) : [0, 0];
+    this.camera.setWorld(cellsOf(t), lo, hi);
+    this.viewport.setFarFor(cellsOf(t) << 6, this.camera.zMax - this.camera.zMin);
   }
 
   /* The camera's ground in steps: whole on Classic 8-bit, v / 256 on the drive surface (cameraGround). */
@@ -109,13 +213,14 @@ export class TrackView {
     this.clear();
     this.doc = doc;
     if (!doc) { this.viewport.requestRender(); return; }
+    this.placeWorld();
     this.camera.resetForTrack(this.groundAt);
     this.terrain = new TerrainMesh(doc.track);
     this.viewport.scene.add(this.terrain.group);
     this.groundBoxes = new GroundBoxLayer(this.terrain.siblingMaterial());
     this.viewport.scene.add(this.groundBoxes.mesh);
     this.rebuildWater();
-    this.fogBoxes.rebuild(doc.track.boxes, this.fogPreview);
+    this.detail.open(doc);
     this.fallState = { highlight: -1, capture: null };
     this.fallShapes.invalidate();
     this.rebuildFalls();
@@ -156,7 +261,9 @@ export class TrackView {
     this.backdrop.arena.clear();
     this.course.group.clear();
     this.fogPreview = null;
-    this.fogBoxes.rebuild([], null);
+    this.mistPlan = { plans: [], draw: [], shift: [] };
+    this.fogBoxes.setVolumes([], false);
+    this.fogKey = "";
     this.viewport.backdrop = null;
     this.hd.clear();
     this.modelHd.clear();
@@ -188,7 +295,7 @@ export class TrackView {
   rebuildCourse(): void {
     if (!this.doc) return;
     const s = this.app.settings;
-    const gridsize = s.show_whole_grid ? GRID_MAX : s.polysize;
+    const gridsize = this.gridSizeOf(s);
     const half = (gridsize - 1) >> 1;
     const { gridx, gridy } = this.camera;
     this.course.rebuild(this.doc, { course: this.app.tools.course, alwaysMain: this.app.tools.alwaysMain, selectedTruck: this.selectedTruck },
@@ -209,7 +316,7 @@ export class TrackView {
     g.textAlign = "center";
     g.textBaseline = "alphabetic";
     g.fillStyle = "#ffffff";
-    const gridsize = s.show_whole_grid ? GRID_MAX : s.polysize;
+    const gridsize = this.gridSizeOf(s);
     const half = (gridsize - 1) >> 1;
     const inside = (x: number, y: number) => Math.abs((x >> 6) - this.camera.gridx) <= half && Math.abs((y >> 6) - this.camera.gridy) <= half;
     if (mode === EDIT_COURSE || s.always_course) {
@@ -283,7 +390,10 @@ export class TrackView {
       const doc = this.doc;
       void this.models?.loadHd().then((any) => { if (any && this.doc === doc) { this.buildModels(); this.viewport.requestRender(); } });
     }
-    if (touch.heights) this.terrain?.updateLevels();
+    if (touch.heights) { this.terrain?.updateLevels(); this.placeWorld(); this.detail.heightsChanged(); }
+    // Track Components may have replaced a map; the lighting may have changed (the light texture's key).
+    if (touch.track) this.detail.refresh();
+    this.applyDetail();
     for (const r of [touch.heights, touch.clr]) if (r) this.terrain?.updateCells(r.minX, r.minY, r.maxX, r.maxY);
     if (touch.heights || touch.water || touch.falls) this.rebuildWater();
     // The falls' ground, water and lake tiles (and the notches their crests cut) follow.
@@ -347,7 +457,7 @@ export class TrackView {
     const doc = this.doc;
     if (!doc) return [];
     const s = this.app.settings;
-    const gridsize = s.show_whole_grid ? GRID_MAX : s.polysize;
+    const gridsize = this.gridSizeOf(s);
     const oh = (Math.min(gridsize, OBJECT_CULL_GRID) - 1) >> 1;
     const { gridx, gridy } = this.camera;
     const cam = this.viewport.camera.position;
@@ -368,10 +478,124 @@ export class TrackView {
     if (!doc) return;
     const t = doc.track;
     const capture = this.fallState.capture;
-    if (!t.falls.length && !capture) { this.waterfalls.rebuild([], 0, 0); return; }
-    this.fallShapes.ensure(t, () => (t.lakes.length ? trackLakes(t) : null), fallNameInPod(t.sounds, doc.textures), () => buildLakeGround(t));
-    const g = fallGroundFor(t, null);
-    this.waterfalls.rebuild(fallPreviewList(t, this.fallShapes, g, this.fallState.highlight, capture), this.camera.gridx, this.camera.gridy);
+    if (!t.falls.length && !capture) { this.waterfalls.rebuild([], 0, 0); this.mistPlan = { plans: [], draw: [], shift: [] }; this.rebuildFog(); return; }
+    // Track format version 6 (spec 9.3): the falls are judged and walked in the track's N world.
+    this.fallShapes.ensure(t, () => (t.lakes.length ? trackLakes(t) : null), fallNameInPod(t.sounds, doc.textures, doc.modelTextures), () => buildLakeGround(t),
+      () => fallWorldOf(t, doc.carry.situationIsSi3));
+    const g = fallGroundFor(t, null, this.fallShapes.world);
+    const list = fallPreviewList(t, this.fallShapes, g, this.fallState.highlight, capture);
+    const mistDim = this.planMist(list, g);
+    this.waterfalls.rebuild(list, this.camera.gridx, this.camera.gridy, worldFtOf(cellsOf(t)), mistDim);
+    this.rebuildFog();
+    this.viewport.requestRender();
+  }
+
+  /** The fog pass runs (DrawFogVolumesOpenGL's condition): the objects are shown. */
+  private fogActive(): boolean {
+    return this.app.mode === EDIT_OBJECTS || this.app.settings.always_objects;
+  }
+
+  /*
+    Traxx 1.8.0 (35b087b) DrawWaterfallsOpenGL's mist plan: a fall the engine registers mist for
+    (mistRegistered) goes through mistFog, whose records the fog pass draws; the slots after the
+    fog boxes go landing-outer, fall-inner (mistDrawPlan). In the preview a stream the fog pass
+    draws has no outline (the volume carries its own guides); one it does not draw keeps it, dim
+    and dashed, as does every stream of a DROPPED fall. Returns the dim bits per preview entry and
+    rewrites `list`'s mist outlines. Without the fog pass every outline is plain.
+  */
+  private planMist(list: ReturnType<typeof fallPreviewList>, g: ReturnType<typeof fallGroundFor>): number[] {
+    const doc = this.doc!;
+    const t = doc.track;
+    const n = Math.min(t.falls.length, FALL_MAX_FALLS);
+    const active = this.fogActive() && this.app.settings.edit.wireframe !== 1;
+    const plans: MistFogVol[][] = [], index: number[] = [], shift: [number, number][] = [];
+    const dim = list.map(() => 0);
+    const worldFt = worldFtOf(cellsOf(t));
+    let li = 0;
+    for (let i = 0; i < n; i++) {
+      const w = t.falls[i]!;
+      const valid = w.npoints >= 1 && w.npoints <= FALL_MAX_POINTS;
+      index.push(valid ? li : -1);
+      plans.push([]);
+      const F = valid ? list[li] : undefined;
+      shift.push(F ? fallViewShift(F.px[0]!, F.pz[0]!, this.camera.gridx, this.camera.gridy, worldFt) : [0, 0]);
+      if (valid) li++;
+      const shape = this.fallShapes.shapes[i], err = this.fallShapes.errors[i] ?? 1;
+      if (!F || !F.shape || !g || !shape) continue;
+      if (mistRegistered(w, err, shape)) plans[i] = mistFog(w, fallEffectiveHeight(t.falls, i, t.lakes), F.shape, g, 100);
+      else if (active && err === 0 && shape.warn & FALLWARN_DROPPED) dim[index[i]!] = (1 << F.mist.length) - 1;
+    }
+    const nfogs = t.boxes.filter((b) => b.type === TRAXX_BOX_FOG).length;
+    const plan = mistDrawPlan(nfogs, plans, this.app.settings.preview_weather);
+    const draw = active ? plan.draw : plans.map(() => 0);
+    for (let i = 0; i < n; i++) {
+      const k = index[i]!;
+      if (k < 0 || !plans[i]!.length) continue;
+      const F = list[k]!;
+      const boxes: number[][] = [];
+      let d = 0;
+      plans[i]!.forEach((m, s) => {
+        if (active && draw[i]! & (1 << s)) return; // the fog pass draws it
+        if (active) d |= 1 << boxes.length;
+        boxes.push([m.x, m.floorY, m.z, m.W, m.L, m.H, m.axZx, m.axZz]);
+      });
+      F.mist = boxes;
+      dim[k] = d;
+    }
+    this.mistPlan = { plans, draw, shift };
+    return dim;
+  }
+
+  /*
+    DrawFogVolumesOpenGL (Traxx 1.8.0): the fog boxes the engine would draw in the Preview Weather
+    (wmask bit, W, L and H over 0.5 ft), then the mist the plan drew, through one renderer.
+  */
+  private rebuildFog(): void {
+    const doc = this.doc;
+    if (!doc) { this.fogBoxes.setVolumes([], false); return; }
+    const s = this.app.settings, t = doc.track;
+    const weather = s.preview_weather;
+    const ambient = engineFogAmbient(weather);
+    const out: FogDrawVolume[] = [];
+    t.boxes.forEach((box, b) => {
+      const { fog, isFog } = effectiveFog(box, this.fogPreview);
+      if (!isFog || !engineFogDrawn(fog.wmask, weather, box.width, box.length, box.height)) return;
+      const r = fogVolumeRing(box, fog), c = fogVolumeCorners(box, fog);
+      if (!r || !c || r.ring.length < 3) return;
+      out.push({
+        id: b + 1, params: engineFogParamsOf(box, fog), r: fog.r, g: fog.g, b: fog.b, ambient, ring: r.ring, floorz: r.floorz, topz: r.topz,
+        frame: {
+          cx: (c[0]![0] + c[2]![0]) * 0.5, cy: (c[0]![1] + c[2]![1]) * 0.5,
+          ex: [(c[1]![0] - c[0]![0]) / box.width, (c[1]![1] - c[0]![1]) / box.width],
+          ez: [(c[3]![0] - c[0]![0]) / box.length, (c[3]![1] - c[0]![1]) / box.length],
+          zpf: (c[4]![2] - c[0]![2]) / box.height, floorz: c[0]![2],
+        },
+      });
+    });
+    // AppendMistFogVolumes: landing-outer, fall-inner; no mist over a wireframe.
+    const { plans, draw, shift } = this.mistPlan;
+    if (s.edit.wireframe !== 1) {
+      for (let li = 0; li < 4; li++) {
+        for (let f = 0; f < plans.length; f++) {
+          const m = plans[f]![li];
+          if (!m || !(draw[f]! & (1 << li))) continue;
+          const [sx, sz] = shift[f]!;
+          const cx = (m.x + sx) * 2, cy = (m.z + sz) * 2;
+          const ex: [number, number] = [m.axXx * 2, m.axXz * 2], ez: [number, number] = [m.axZx * 2, m.axZz * 2];
+          const ring: [number, number][] = [];
+          for (let i = 0; i < FOG_RING; i++) {
+            const a = m.W * 0.5 * Math.cos((2 * Math.PI * i) / FOG_RING), bb = m.L * 0.5 * Math.sin((2 * Math.PI * i) / FOG_RING);
+            ring.push([cx + a * ex[0] + bb * ez[0], cy + a * ex[1] + bb * ez[1]]);
+          }
+          const floorz = m.floorY * 1.5;
+          out.push({
+            id: mistFogId(f, li), params: mistFogParams(m), r: m.r, g: m.g, b: m.b, ambient, ring, floorz, topz: floorz + m.H * 1.5,
+            frame: { cx, cy, ex, ez, zpf: 1.5, floorz },
+          });
+        }
+      }
+    }
+    this.fogBoxes.setVolumes(out, s.draw_all_fog);
     this.viewport.requestRender();
   }
 
@@ -389,7 +613,9 @@ export class TrackView {
     this.water.rebuild(t.heights, t.waterLevel4, tileMinMaxU(t));
     if (t.lakes.length) {
       const st = trackLakes(t);
-      this.lakes.rebuild(st.tmap, t.lakes.map((l) => l.height), st.lakes.map((l) => l.errors), this.wallGround());
+      // Traxx 1.7.3: the walls follow the lakes' rule (edges, notch edges cyan); the escape and at-H marks.
+      this.lakes.rebuild(st.tmap, t.lakes.map((l) => l.height), st.lakes.map((l) => l.errors), this.wallGround(),
+        { rule: st.rule, notchEdges: lakeNotchEdgesOf(st), lakes: st.lakes });
     } else this.lakes.rebuild(null, [], []);
     this.lodKey = this.currentLodKey();
   }
@@ -402,7 +628,8 @@ export class TrackView {
     if (!this.doc) return null;
     const t = this.doc.track;
     if (t.terrainMode === TERRAINMODE_CLASSIC8) {
-      return { per: () => 1, z: (gi, gj, a, b) => ALTITUDE_SCALE * t.heights[((gi + a) & 255) + (((gj + b) & 255) << 8)]! };
+      const n = cellsOf(t), m = n - 1;
+      return { per: () => 1, z: (gi, gj, a, b) => ALTITUDE_SCALE * t.heights[((gi + a) & m) + ((gj + b) & m) * n]! };
     }
     const grids = new SurfaceTileGrids(t, this.camera.gridx, this.camera.gridy);
     return { per: (gi, gj) => grids.per(gi, gj), z: (gi, gj, a, b) => (ALTITUDE_SCALE * grids.at(gi, gj, a, b)) / 256 };
@@ -427,7 +654,7 @@ export class TrackView {
     if (t.terrainMode === TERRAINMODE_CLASSIC8) return pickTerrain(t.heights, [o.x, o.y, o.z], [d.x, d.y, d.z]);
     // Traxx 1.7: the drive surface itself, over the grid window (PickSurfaceRay).
     const s = this.app.settings;
-    const gridsize = s.show_whole_grid ? GRID_MAX : s.polysize;
+    const gridsize = this.gridSizeOf(s);
     const half = (gridsize - 1) >> 1;
     return pickSurface(t, [o.x, o.y, o.z], [d.x, d.y, d.z], { x0: this.camera.gridx - half, y0: this.camera.gridy - half, n: gridsize });
   }
@@ -451,7 +678,7 @@ export class TrackView {
     this.doc.textures.forEach((t, i) => { const img = t?.hd ? this.hd.get(t.name.toUpperCase()) : null; if (img) hd.set(i, img); });
     this.tiles = buildTileSet(this.doc, this.app.settings.gamma, hd);
     this.terrain.setTiles(this.tiles);
-    this.groundBoxes?.rebuild(this.doc.track.groundBoxes, this.tiles);
+    this.groundBoxes?.rebuild(this.doc.track.groundBoxes, this.tiles, cellsOf(this.doc.track));
     this.viewport.requestRender();
   }
 
@@ -462,25 +689,44 @@ export class TrackView {
     this.viewport.requestRender();
   }
 
+  /*
+    Traxx 1.8.0 (b6d56f2, 2e8a268): View > Show Detail Maps and Show Detail Strength through the
+    engine's detail term when the track has its own _MASK (the per-cell wash otherwise), and View >
+    Show Water Mask's tint.
+  */
+  private applyDetail(): void {
+    const s = this.app.settings, doc = this.doc;
+    if (!this.terrain || !doc) return;
+    const d = s.show_detail_maps || s.show_mask_overlay ? this.detail.terrain() : null;
+    this.terrain.setDetail(d ? { ...d, look: s.show_detail_maps, wash: s.show_mask_overlay } : null);
+    this.terrain.setMask(this.mask, s.show_mask_overlay && !d);
+    this.terrain.setWaterMask(s.show_water_mask ? this.detail.waterMaskCells() : null);
+    const w = s.show_detail_maps ? this.detail.water() : null, mapFt = cellsOf(doc.track) * 32;
+    this.water.setDetail(w, mapFt);
+    this.lakes.setDetail(w, mapFt);
+    this.viewport.requestRender();
+  }
+
   /** The objects or ground boxes changed. */
   objectsChanged(): void {
     this.objectWindow = "";
     this.updateWindow();
-    if (this.doc && this.groundBoxes) this.groundBoxes.rebuild(this.doc.track.groundBoxes, this.tiles);
-    if (this.doc) this.fogBoxes.rebuild(this.doc.track.boxes, this.fogPreview);
+    if (this.doc && this.groundBoxes) this.groundBoxes.rebuild(this.doc.track.groundBoxes, this.tiles, cellsOf(this.doc.track));
+    this.rebuildFog();
     this.viewport.requestRender();
   }
 
   /** SetFogPreview: a dialog's working copy drawn in place of the box's own fog; null ends it. */
   setFogPreview(preview: FogPreview | null): void {
     this.fogPreview = preview;
-    if (this.doc) this.fogBoxes.rebuild(this.doc.track.boxes, preview);
+    this.rebuildFog();
     this.viewport.requestRender();
   }
 
   private shown = { gamma: 0, transparency: false, colliders: false };
   private applySettings(s: TraxxSettings): void {
     this.viewport.setBackground(s.colors[BG_COL]);
+    this.viewport.setFieldOfView(s.opengl_fov);
     if (!this.terrain || !this.doc) return;
     const p = this.doc.track.palette;
     const g = gammaMap(s.gamma);
@@ -489,15 +735,24 @@ export class TrackView {
     this.lakes.setOpacity(s.water_opacity);
     if (this.shown.gamma !== s.gamma) { this.shown.gamma = s.gamma; this.rebuildTiles(); this.buildModels(); }
     else if (this.shown.transparency !== s.model_transparency || this.shown.colliders !== s.hide_colliders) this.buildModels();
-    this.terrain.setMask(this.mask, s.show_mask_overlay);
+    this.applyDetail();
     this.shown.transparency = s.model_transparency;
     this.shown.colliders = s.hide_colliders;
     this.updateWindow();
     this.applyVisibility();
   }
 
+  /** What the fog and mist plan depend on beyond the track: the Preview Weather, Draw All, the fog pass, wireframe. */
+  private fogKey = "";
+
   private applyVisibility(): void {
     const s = this.app.settings, mode = this.app.mode;
+    const fogKey = `${s.preview_weather},${s.draw_all_fog},${this.fogActive()},${s.edit.wireframe}`;
+    if (fogKey !== this.fogKey && this.doc) {
+      this.fogKey = fogKey;
+      if (this.doc.track.falls.length) this.rebuildFalls();
+      else this.rebuildFog();
+    }
     this.course.group.visible = mode === EDIT_COURSE || s.always_course;
     if (this.objects) this.objects.group.visible = mode === EDIT_OBJECTS || s.always_objects;
     this.fogBoxes.group.visible = mode === EDIT_OBJECTS || s.always_objects;
@@ -505,10 +760,15 @@ export class TrackView {
     this.water.group.visible = s.show_water;
     this.lakes.mesh.visible = s.show_water && s.water_opacity > 0;
     this.lakes.walls.visible = s.show_water && s.show_lake_walls;
+    this.lakes.marks.visible = s.show_water;
     this.waterfalls.group.visible = s.edit.wireframe !== 1;
     this.updateVegetation();
-    const backdrop = s.show_backdrop && s.edit.wireframe !== 1 && !this.doc?.track.arena;
+    // Traxx 1.8.0: with the sky on, no backdrop in Snow and the fogs (the engine draws only the fog colour).
+    const skyOn = Boolean(this.doc) && s.show_sky && s.edit.wireframe !== 1;
+    const backdrop = s.show_backdrop && s.edit.wireframe !== 1 && !this.doc?.track.arena && (!skyOn || SkyLayer.backdropShows(s.preview_weather));
     this.viewport.backdrop = backdrop ? this.backdrop.scene : null;
+    this.viewport.sky = skyOn ? (renderer, hasBackdrop) => this.drawSky(renderer, hasBackdrop) : null;
+    if (!skyOn) this.say("sky", "");
     this.backdrop.arena.visible = s.show_backdrop;
     this.viewport.requestRender();
   }
@@ -521,7 +781,7 @@ export class TrackView {
     if (!this.vegetation.active) return;
     const s = this.app.settings;
     const solid = s.edit.wireframe !== 1;
-    const gridsize = s.show_whole_grid ? GRID_MAX : s.polysize;
+    const gridsize = this.gridSizeOf(s);
     const cam = this.viewport.camera;
     cam.updateMatrixWorld();
     const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
@@ -533,7 +793,7 @@ export class TrackView {
 
   private updateWindow(): void {
     const s = this.app.settings;
-    const gridsize = s.show_whole_grid ? GRID_MAX : s.polysize;
+    const gridsize = this.gridSizeOf(s);
     const { gridx, gridy } = this.camera;
     this.terrain?.setWindow(gridx, gridy, gridsize);
     // The 8 ft ring moved with the camera's tile: the lake walls ride it again (the mask wash

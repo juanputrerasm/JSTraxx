@@ -25,8 +25,15 @@ import {
   LAKEERR_CORNER_AT_H, LAKE_NO_BASIN, LAKES_NOT_SAVED, lakeNotches, lakeHasNotches, lakeHoldsUpTo, lakeMinHeight, lakeNearestLegalHeight,
   setNotchFarHolds, trackLakes,
 } from "../src/core/traxx/lakes.ts";
-import { LAKE_LIP_W } from "../src/core/traxx/lake-ground.ts";
+import { LAKE_LIP_W, LAKE_RULE_TILE, setLakeDefaultRule } from "../src/core/traxx/lake-ground.ts";
 import { fallDefaults } from "../src/core/traxx/falls.ts";
+
+/*
+  Every test here is the TILE rule's (Traxx 1.7.0 / 1.7.1, the rule of the .WTR files built before
+  Traxx 1.7.3): the default flips for this file, as laketest does for its tests of that rule. The
+  EDGE rule's tests are in lakes-edge.test.ts.
+*/
+setLakeDefaultRule(LAKE_RULE_TILE);
 
 const CP4 = process.env.JSTRAXX_CP4 ?? join(process.env.HOME ?? "", "games", "cp4sandbox");
 const TXX = join(CP4, "fog_test.txx");

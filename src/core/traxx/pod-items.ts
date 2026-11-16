@@ -72,7 +72,8 @@ export function pod1StemBudget(dirPrefix: string, ext: string): number {
 
 /** The map siblings a texture stem must carry (g_podMapSuffix), and the terrain-only ones. */
 export const MAP_SUFFIXES = ["_N", "_AO"];
-const TERRAIN_SUFFIXES = ["_DTL", "_MASK"];
+/** g_podTerrainSuffix: the terrain pair and (Traxx 1.7.2) the water pair. */
+const TERRAIN_SUFFIXES = ["_DTL", "_MASK", "_WDTL", "_WMSK"];
 
 /** Pod1ArtStemBudget: the stem fits ART\ with .RAW, .ACT, .PNG, .TGA and every map sibling. */
 export function pod1ArtStemBudget(): number {
@@ -108,7 +109,7 @@ export function isMapName(path: string): boolean {
   return stemEndsIn(path, MAP_SUFFIXES);
 }
 
-/** Pod1StemIsAnyMapName: a map sibling, or a terrain _DTL / _MASK. */
+/** Pod1StemIsAnyMapName: a map sibling, a terrain _DTL / _MASK or a water _WDTL / _WMSK. */
 export function isAnyMapName(path: string): boolean {
   return stemEndsIn(path, [...MAP_SUFFIXES, ...TERRAIN_SUFFIXES]);
 }

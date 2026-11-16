@@ -74,7 +74,7 @@ function advancedTab(w: TraxxSettings): HTMLElement {
     checkbox("Object X/Y in .SIT units (half of Traxx's own)", () => w.show_sit_units, (v) => { w.show_sit_units = v; }),
     // Stored inverted, as Traxx stores it: "do not explain".
     checkbox("Explain the legacy .RAW fallback when writing a pod", () => !w.pod_fallback_noask, (v) => { w.pod_fallback_noask = !v; }),
-    checkbox("Show the painted terrain mask over the ground", () => w.show_mask_overlay, (v) => { w.show_mask_overlay = v; }),
+    // Traxx 1.8.0 (4ebf477): Show Detail Mask moved to View > Visual Helpers > Show Detail Strength.
     // Traxx's "Keep HD art only" is how JSTraxx always works, so it is not offered.
     el("p", { class: "opt-hint" }, "HD art (PNG, TGA) is kept as it is: JSTraxx builds its 8-bit tile in memory and writes no .RAW or .ACT files when importing it. Write POD still packs the legacy fallback unless you omit it there."),
     el("div", { class: "opt-row" }, "Water opacity (0 = grid only):", opacity, "%"),

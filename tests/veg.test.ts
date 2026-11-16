@@ -19,7 +19,7 @@ import { readTxx } from "../src/core/traxx/txx.ts";
 import { modelGeometry } from "../src/core/view/model-geometry.ts";
 import {
   buildVeg, cG, emptyVegetation, vegCrc32, vegDefaultColour, vegDefaultEntry, vegetationFromPod, vegetationFromTxx,
-  vegParseEntry, vegParseImage, vegParseRule, vegRuleText, vegTxvLines, VEG_COLLIDE_MODEL, VEG_LAYER_GRASS, VEG_LAYER_TREES,
+  vegParseEntry, vegParseImage, vegParseRule, vegRuleText, vegTxvLines, VEG_COLLIDE_MODEL, VEG_LAYER_GRASS, VEG_LAYER_TREES, VEG_MAX_CLUMPS,
 } from "../src/core/traxx/veg.ts";
 import type { Vegetation } from "../src/core/traxx/veg.ts";
 import {
@@ -347,14 +347,18 @@ test("fog_test re-planted from its own rules and masks is Traxx 1.7's WORLD\\FOG
     const at = (t: typeof want.trees) => [t.position[3 * i], t.position[3 * i + 1], t.position[3 * i + 2], t.species[i], t.heading[i], t.scale[i], t.tier[i]];
     assert.deepEqual(at(mine.trees), at(want.trees), `tree ${i}: x, y, z, species, heading, scale, tier`);
   }
-  assert.equal(mine.clumps.count, want.clumps.count);
-  assert.deepEqual(mine.clumps.tiles, want.clumps.tiles);
-  for (let i = 0; i < want.clumps.count; i++) {
-    const at = (c: typeof want.clumps) => [c.species[i], c.offset[2 * i], c.offset[2 * i + 1], c.y[i], c.heading[i], c.scale[i]];
-    assert.deepEqual(at(mine.clumps), at(want.clumps), `clump ${i}: species, fx, fz, y, heading, scale`);
-  }
-  // With the date it was built on, the whole file is Traxx's, byte for byte.
-  assert.deepEqual(got, expected);
+  /*
+    Traxx 1.7's file stopped at the old grass cap of 131 072 clumps, all in the first tiles. Traxx
+    1.8.0 (a2b55ca) plans the grass first under the engine's new cap of 2 097 152 (no tile over
+    1 024, tiles wholly under water not counted), so the same masks now plant every painted tile.
+  */
+  assert.equal(want.clumps.count, 131072);
+  assert.ok(mine.clumps.count > want.clumps.count && mine.clumps.count <= VEG_MAX_CLUMPS, String(mine.clumps.count));
+  assert.ok(mine.clumps.tiles.every((t: { count: number }) => t.count <= 1024));
+  assert.equal(new Set(mine.clumps.tiles.map((t: { tz: number }) => t.tz)).size > new Set(want.clumps.tiles.map((t: { tz: number }) => t.tz)).size, true);
+  // The masks ask for more than the cap: thinned evenly, and the report says so.
+  const thin = result.report.find((l) => l.startsWith("Grass was thinned evenly to at most "));
+  assert.ok(thin && thin.endsWith("the limit is 2 097 152)."), thin);
 });
 
 test("model lookup takes a bare or MODELS\\ name, without case", () => {

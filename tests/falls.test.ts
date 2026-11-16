@@ -15,7 +15,7 @@ import { join } from "node:path";
 import {
   buildFallShape, buildNotches, buildWfl, crestLength, fallBadPoints, fallBudget, fallClassicHeightRaw, fallDefaults, fallEffectiveHeight,
   fallErrorText, fallErrors, fallNotchWarnings, fallNotchWarnText, fallOrient, fallReverse, fallWarnText, fallsLakeDeleted, fallsOnLake,
-  fallAdd, emptyFallShape, mistVolume, nearCrest, parseWflFalls, pointDirection, snapToLip, wrapDiff, fallPickSource, fallNearestToMenu,
+  fallAdd, emptyFallShape, nearCrest, parseWflFalls, pointDirection, snapToLip, wrapDiff, fallPickSource, fallNearestToMenu,
   FALLEND_GROUND, FALLEND_LIMIT, FALLEND_WATER, FALLERR_COUNT, FALLERR_COORD, FALLERR_DIRECTION, FALLERR_HEIGHT, FALLERR_LIP_LOW,
   FALLERR_NAME, FALLERR_NOTCH, FALLERR_NOTCH_SHARED, FALLERR_POINTS, FALLERR_SOURCE, FALLERR_SPEED, FALLERR_TURN, FALLERR_WIDTH,
   FALLWARN_COARSE, FALLWARN_DRY, FALLWARN_DROPPED, FALLWARN_LIP_HIGH, FALLWARN_LIP_UNCOVERED, FALLWARN_NOTCH_FLAT, FALLWARN_SHORTENED,
@@ -23,7 +23,7 @@ import {
 } from "../src/core/traxx/falls.ts";
 import { LAKE_LIP_E, LAKE_LIP_N, LAKE_LIP_S, LAKE_LIP_W } from "../src/core/traxx/lake-ground.ts";
 import { readTxx, writeTxx, txxVersionFor } from "../src/core/traxx/txx.ts";
-import { buildWtr, recomputeLakes, trackLakes } from "../src/core/traxx/lakes.ts";
+import { buildWtr, recomputeLakes, trackLakes, LAKE_RULE_TILE } from "../src/core/traxx/lakes.ts";
 import { buildLakeGround, type LakeGround } from "../src/core/traxx/surface.ts";
 import { resetTrack, newTrackDocument } from "../src/core/doc/new-track.ts";
 import { buildTrackPod, podRefusal } from "../src/core/traxx/pod-writer.ts";
@@ -344,7 +344,7 @@ test("every error code (TestErrors)", () => {
   assert.equal(fallAdd(many, structuredClone(w)), -1);
   assert.equal(E(many, 63), 0);
   assert.equal(fallErrors(many, 64, L), FALLERR_COUNT);
-  for (let bit = 1; bit <= FALLERR_LIP_LOW; bit <<= 1) assert.ok(fallErrorText(bit));
+  for (let bit = 1; bit <= FALLERR_LIP_LOW * 2; bit <<= 1) assert.ok(fallErrorText(bit)); // FALL_ROUGH (0x2000) is the last
   for (let bit = FALLWARN_DRY; bit <= FALLWARN_NOTCH_FLAT; bit <<= 1) assert.ok(fallWarnText(bit));
   assert.equal(fallErrorText(0x4000), "");
 });
@@ -431,7 +431,8 @@ const notchFall = (x = 3456, z0 = 3329, z1 = 3359) => Object.assign(crest2(x, z0
 const notchTmapLake = (h = NH): FallLakes => {
   const tmap = new Uint8Array(65536);
   for (let z = 102; z < 108; z++) for (let x = 102; x < 108; x++) tmap[NTILE(x, z)] = 1;
-  return { lakes: [{ height: h }], tmap };
+  // these tests pin the tile-form notches and the TILE rule's answers (wfltest 5627ad7)
+  return { lakes: [{ height: h }], tmap, rule: LAKE_RULE_TILE };
 };
 const rawGround = (raw: Uint8Array): LakeGround => ({ raw, tilemin: null, groundAtLevel: null });
 const rawFallGround = (raw: Uint8Array): FallGround => ({ height: (x, z) => fallClassicHeightRaw((tx, tz) => 128 * raw[(tz & 255) * 256 + (tx & 255)]!, x, z), water: null });
@@ -520,7 +521,8 @@ function handShape(width: number, pathlen: number, endk = FALLEND_GROUND): FallS
   return s;
 }
 
-test("the vertex budget: coarsen, shorten, foam, the track in file order, drop (TestBudget)", () => {
+test("the vertex budget: coarsen, shorten, foam, the track in file order, drop (TestBudget, Traxx 1.7.2's 32768 cap)", () => {
+  // fits at 2 ft: 513 columns * (25 + 1 rows)
   let s = [handShape(1024, 50)];
   s[0]!.warn = FALLWARN_DRY;
   let total = fallBudget(s);
@@ -528,21 +530,26 @@ test("the vertex budget: coarsen, shorten, foam, the track in file order, drop (
   assert.equal(total, 513 * 26);
   assert.equal(s[0]!.spacing, 2);
   assert.equal(s[0]!.warn, FALLWARN_DRY);
-  s = [handShape(1024, 100)];
+  // coarsened: 513 * 76 = 38988 at 2 ft (the cap is 32768, handover 4.6); at 3 ft 343 columns * 51 rows
+  s = [handShape(1024, 150)];
   total = fallBudget(s);
   assert.equal(s[0]!.spacing, 3);
-  assert.equal(s[0]!.vertices, 343 * 35);
+  assert.equal(s[0]!.vertices, 343 * 51);
   assert.ok(s[0]!.warn & FALLWARN_COARSE);
   assert.equal(s[0]!.warn & (FALLWARN_SHORTENED | FALLWARN_DROPPED), 0);
-  s = [handShape(1024, 250)];
+  assert.equal(total, 343 * 51);
+  // 6 ft reached: 4 ft is 257 * 151 = 38807 (over), 6 ft 172 * 101
+  s = [handShape(1024, 600)];
   fallBudget(s);
   assert.equal(s[0]!.spacing, 6);
-  assert.equal(s[0]!.vertices, 172 * 43);
+  assert.equal(s[0]!.vertices, 172 * 101);
+  // shortened: even 8 ft needs 129 * 501; cut to 129 * 254 = 32766
   s = [handShape(1024, 4000)];
   total = fallBudget(s);
   assert.equal(s[0]!.spacing, 8);
   assert.ok(s[0]!.warn & FALLWARN_SHORTENED && s[0]!.warn & FALLWARN_COARSE);
-  assert.equal(s[0]!.vertices, 129 * 127);
+  assert.equal(s[0]!.vertices, 129 * 254);
+  assert.equal(total, 129 * 254);
   s = [handShape(1024, 50, FALLEND_WATER)];
   fallBudget(s);
   assert.equal(s[0]!.vertices, 513 * 26 + 3 * 513);
@@ -555,16 +562,20 @@ test("the vertex budget: coarsen, shorten, foam, the track in file order, drop (
   s[0]!.stat[0]!.endk[3] = FALLEND_WATER;
   fallBudget(s);
   assert.equal(s[0]!.vertices, 66 + 9);
+  // the sink row: every column cut short (its rows exceed R) is no foam
   s = [handShape(1024, 4000, FALLEND_WATER)];
   for (let j = 0; j < FALL_NSPACINGS; j++) for (let k = 0; k < s[0]!.stat[j]!.ncols; k++) s[0]!.stat[j]!.rows[k]++;
   fallBudget(s);
-  assert.equal(s[0]!.vertices, 129 * 127);
+  assert.ok(s[0]!.spacing === 8 && (s[0]!.warn & FALLWARN_SHORTENED) !== 0);
+  assert.equal(s[0]!.vertices, 129 * 254);
   s = [emptyFallShape()];
   assert.equal(fallBudget(s), 0);
   assert.equal(s[0]!.warn, 0);
+  // the track in file order: min(32768, 262144 - used) each
   const many = Array.from({ length: 23 }, () => handShape(1024, 50));
   total = fallBudget(many.slice(0, 20));
   assert.equal(total, 19 * 513 * 26 + 6174);
+  for (let k = 0; k < 19; k++) assert.equal(many[k]!.warn & (FALLWARN_DROPPED | FALLWARN_COARSE), 0);
   assert.ok(many[19]!.spacing === 3 && many[19]!.vertices === 6174 && (many[19]!.warn & FALLWARN_COARSE) !== 0);
   total = fallBudget(many);
   assert.ok(many[20]!.spacing === 6 && many[20]!.vertices === 1720);
@@ -576,51 +587,14 @@ test("the vertex budget: coarsen, shorten, foam, the track in file order, drop (
   total = fallBudget(many);
   assert.equal(many[22]!.warn & FALLWARN_DROPPED, 0);
   assert.ok(many[22]!.vertices > 0 && many[22]!.vertices <= 54);
+  assert.equal(total, 19 * 513 * 26 + 6174 + 1720 + 774 + many[22]!.vertices);
+  // a re-run clears stale bits
+  many[0]!.warn |= FALLWARN_DROPPED | FALLWARN_COARSE;
+  fallBudget(many.slice(0, 1));
+  assert.equal(many[0]!.warn & (FALLWARN_DROPPED | FALLWARN_COARSE), 0);
 });
 
-/* MistShape: five 2-row columns landing at x 100..108, y 60 60 50 30 40, z 200..204 (column 3 on ground). */
-function mistShape(sx: number, sz: number): FallShape {
-  const lx = [100, 102, 104, 106, 108], ly = [60, 60, 50, 30, 40], lz = [200, 201, 202, 203, 204];
-  const s = emptyFallShape();
-  s.col = lx.map((_, k) => ({ n: 2, p: Float32Array.of(lx[k]! - sx, ly[k]! + 10, lz[k]! - sz, lx[k]!, ly[k]!, lz[k]!), end: k === 3 ? FALLEND_GROUND : FALLEND_WATER, pathlen: 0 }));
-  s.ncols = 5;
-  return s;
-}
-
-test("the mist box: landing centroid, W across, L along, the size percentages, the caps (TestMist)", () => {
-  const w = crest2(1000, 1000, 1000, 1016);
-  let m = mistVolume(w, 200, mistShape(5, 0))!;
-  near(m[0]!, 103.5 + 0.3 * 28.5, 1e-3); near(m[1]!, 50.5, 1e-4); near(m[2]!, 202, 1e-3);
-  near(m[3]!, 34.5, 1e-4); near(m[4]!, 28.5, 1e-4); near(m[5]!, 33.25, 1e-4); near(m[6]!, 1, 1e-6); near(m[7]!, 0, 1e-6);
-  m = mistVolume(w, 200, mistShape(0, 5))!;
-  near(m[0]!, 104, 1e-3); near(m[2]!, 201.75 + 0.3 * 28.5, 1e-3); near(m[3]!, 38.5, 1e-4);
-  m = mistVolume(w, 200, mistShape(3, 4))!;
-  near(m[6]!, 0.6, 1e-6); near(m[7]!, 0.8, 1e-6);
-  w.mistdepth = 200; w.mistheight = 50;
-  m = mistVolume(w, 200, mistShape(5, 0))!;
-  near(m[4]!, 57, 1e-4); near(m[5]!, 16.625, 1e-4); near(m[0]!, 103.5 + 0.3 * 57, 1e-3);
-  w.mistdepth = 100; w.mistheight = 100;
-  m = mistVolume(w, 200, mistShape(0, 0))!;
-  near(m[6]!, 1, 1e-6);
-  m = mistVolume(crest2(1000, 1000, 1016, 1000), 200, mistShape(0, 0))!;
-  near(m[7]!, -1, 1e-6); near(m[2]!, 201.75 - 0.3 * 28.5, 1e-3);
-  w.mist = 0;
-  assert.equal(mistVolume(w, 200, mistShape(5, 0)), null);
-  w.mist = 100;
-  const dry = mistShape(5, 0);
-  for (const c of dry.col) c.end = FALLEND_GROUND;
-  assert.equal(mistVolume(w, 200, dry), null);
-  const one = mistShape(5, 0);
-  one.col.forEach((c, k) => { c.end = k === 3 ? FALLEND_WATER : FALLEND_GROUND; });
-  one.col[3]!.p[4] = 96;
-  m = mistVolume(w, 200, one)!;
-  near(m[5]!, 2.8, 1e-4); near(m[3]!, 20, 1e-4); near(m[4]!, 20, 1e-4); near(m[1]!, 94, 1e-4);
-  one.col[3]!.p[4] = 0;
-  m = mistVolume(w, 1000, one)!;
-  near(m[5]!, 120, 1e-4); near(m[3]!, 302, 1e-3); near(m[4]!, 300, 1e-3);
-  w.mistheight = 250;
-  near(mistVolume(w, 1000, one)![5]!, 240, 1e-4);
-});
+/* The mist boxes (TestMist, TestMistStreams, ...) are in falls-173.test.ts. */
 
 test(".WFL: the effective height, v1.0 unless a mist size is set, and back (TestWFL, TestWFLMistSize)", () => {
   const L = makeLake();
@@ -727,9 +701,21 @@ test("the Waterfall window's rules: speed, percents, spins, stems, sources, read
   assert.deepEqual(fallSourceOptions([{ height: 100 }], Object.assign(fallDefaults(), { source: 3 })).map((o) => o.label), ["None (a spring)", "Lake 1 (50 ft)", "Lake 3 (missing)"]);
   const r = fallReadouts({ falls: [w], index: 0, lakes: { lakes: [], tmap: null }, names: null, lip: null, ground: null, vertices: 3120, shapeWarn: FALLWARN_DRY, trackVerts: 3120, loopingObjects: 30 });
   assert.equal(r.points, "Crest: 2 points, 40 ft wide");
-  assert.equal(r.verts, "Vertices: 3 120 of 16 384 (track 3 120 of 262 144)");
-  assert.equal(r.loops, "Looping sounds: 31 of 30 (30 objects + 1 waterfall)");
-  assert.deepEqual(r.problems, ["Warning: The water lands on dry ground", "Warning: The track already has 30 looping sounds: this fall will be silent"]);
+  assert.equal(r.verts, "Vertices: 3 120 of 32 768 (track 3 120 of 262 144)");
+  // Traxx 1.7.2: an empty sound stem takes no looping sound
+  assert.equal(r.loops, "Looping sounds: 30 of 30 (30 objects + 0 waterfalls)");
+  assert.deepEqual(r.problems, ["Warning: The water lands on dry ground: no foam strip or landing rings (mist and droplets still appear)"]);
+  // with a stem it takes one, and the over-30 line names no fall
+  w.sound = "ROAR";
+  const r2 = fallReadouts({ falls: [w], index: 0, lakes: { lakes: [], tmap: null }, names: null, lip: null, ground: null, vertices: 3120, shapeWarn: 0, trackVerts: 3120, loopingObjects: 30 });
+  assert.equal(r2.loops, "Looping sounds: 31 of 30 (30 objects + 1 waterfall)");
+  assert.deepEqual(r2.problems, ["Warning: 31 looping sounds of 30: some falls will be silent (the engine keeps the ones nearest the start)"]);
+  // a fall with errors takes none, is not counted in the vertices and shows no shape warning
+  w.speed = 1;
+  const r3 = fallReadouts({ falls: [w], index: 0, lakes: { lakes: [], tmap: null }, names: null, lip: null, ground: null, vertices: 3120, shapeWarn: FALLWARN_DRY, trackVerts: 0, loopingObjects: 30, uncounted: true });
+  assert.equal(r3.verts, "Vertices: 3 120 (not counted: the fall has errors) (track 0 of 262 144)");
+  assert.equal(r3.loops, "Looping sounds: 30 of 30 (30 objects + 0 waterfalls)");
+  assert.deepEqual(r3.problems, ["Error: The flow speed is outside 1..100 ft/s"]);
 });
 
 test("Write POD: a fall in error refuses the export, a good one packs a .WFL, its .KLP and waterfalls=<n>", () => {
@@ -796,20 +782,32 @@ test("0.53 sandbox: the lakes rebuilt with the falls' notches give the pod's .WT
   const t = readTxx(new Uint8Array(readFileSync(TXX053)));
   const pod = new Uint8Array(readFileSync(POD053));
   const theirs = readPodEntry(pod, findPodEntry(parsePod(pod), "WORLD\\FOGTEST.WTR")!);
-  const st = trackLakes(t);
+  // Traxx 1.7.1 filled them under the tile rule: the same rule gives its file byte for byte
+  t.lakeRule = LAKE_RULE_TILE;
+  let st = trackLakes(t);
   assert.ok(st.notches, "the lake-fed fall cuts a notch");
-  const mine = buildWtr(t.lakes, st);
+  let mine = buildWtr(t.lakes, st);
   assert.ok(mine, `errors ${st.lakes.map((l) => l.errors)}`);
   assert.ok(Buffer.from(mine).equals(Buffer.from(theirs)), "WTR differs");
+  // Traxx 1.7.3's edge rule (the notch EDGES) fills the same tiles: only the header's rule differs
+  t.lakeRule = undefined;
+  st = trackLakes(t);
+  assert.equal(st.notches!.edges.length, 3);
+  mine = buildWtr(t.lakes, st);
+  assert.ok(mine && Buffer.from(mine).equals(Buffer.from(asEdgeRuleWtr(theirs))), "edge-rule WTR differs");
   // without the notches the lake fed by the fall leaks (the notch is what holds it)
   const plain = recomputeLakes(buildLakeGround(t), t.lakes, t.waterLevel4);
   assert.notEqual(plain.lakes[1]!.errors, 0);
 });
 
-test("0.53 sandbox: the TXX V18 round trip is byte for byte", { skip: no053 }, () => {
+test("0.53 sandbox: the TXX V18 round trip keeps every field; the falls block goes out as Traxx 1.7.3's version 3", { skip: no053 }, () => {
   const bytes = new Uint8Array(readFileSync(TXX053));
-  const out = writeTxx(readTxx(bytes));
-  assert.ok(Buffer.from(out).equals(Buffer.from(bytes)));
+  const t = readTxx(bytes);
+  const out = writeTxx(t);
+  // version 3 is version 2 with an i32 roughfrom (0) after each fall's mist height
+  assert.equal(out.length, bytes.length + 4 * t.falls.length);
+  assert.deepEqual(readTxx(out).falls, t.falls);
+  assert.ok(Buffer.from(writeTxx(readTxx(out))).equals(Buffer.from(out)));
 });
 
 test("0.53 sandbox: fog_test.txx writes the entries of the pod Traxx 1.7.1 wrote, the .WFL and .WTR among them", { skip: no053 }, async () => {
@@ -827,7 +825,9 @@ test("0.53 sandbox: fog_test.txx writes the entries of the pod Traxx 1.7.1 wrote
     const name = e.name.replace(/\.SI2$/, ".SIT");
     const mine = out.entries.find((x) => x.name === name);
     if (!mine || e.name.endsWith(".TXV")) continue;
-    if (!Buffer.from(mine.data).equals(Buffer.from(readPodEntry(bytes, e)))) differ.push(e.name);
+    // Traxx 1.7.3 writes only edge-rule .WTR files (the same fill here): minor 1, header flags bit 0
+    const theirs = name.endsWith(".WTR") ? asEdgeRuleWtr(readPodEntry(bytes, e)) : readPodEntry(bytes, e);
+    if (!Buffer.from(mine.data).equals(Buffer.from(theirs))) differ.push(e.name);
     compared++;
   }
   assert.deepEqual(differ, []);
@@ -848,8 +848,18 @@ test("0.53 sandbox: fog_test.pod opens with its falls, its lakes match their sto
   assert.equal(doc.track.lakes.length, 2);
   assert.ok(!doc.warnings.some((w) => w.includes("lakes")), doc.warnings.join("; "));
   const out = buildTrackPod(doc);
+  assert.equal(doc.track.lakeRule, LAKE_RULE_TILE, "a Traxx 1.7.1 file is shown under the tile rule");
   for (const name of ["WORLD\\FOGTEST.WFL", "WORLD\\FOGTEST.WTR"]) {
-    const theirs = readPodEntry(bytes, archive.entries.find((e) => e.name === name)!);
+    const raw = readPodEntry(bytes, archive.entries.find((e) => e.name === name)!);
+    const theirs = name.endsWith(".WTR") ? asEdgeRuleWtr(raw) : raw;
     assert.ok(Buffer.from(out.entries.find((e) => e.name === name)!.data).equals(Buffer.from(theirs)), name);
   }
 });
+
+/** A Traxx 1.7 / 1.7.1 (tile rule) .WTR as Traxx 1.7.3 writes the same lakes: minor 1, header flags bit 0. */
+function asEdgeRuleWtr(b: Uint8Array): Uint8Array {
+  const out = b.slice();
+  out[6] = 1; out[7] = 0;
+  out[20] |= 1;
+  return out;
+}

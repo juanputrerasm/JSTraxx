@@ -17,8 +17,9 @@ export class GroundBoxLayer {
     this.mesh.frustumCulled = false;
   }
 
-  rebuild(boxes: readonly TxxGroundBox[], tiles: TileSet | null): void {
-    const g = groundBoxGeometry(boxes, tiles);
+  /** `cells`: the world's N (256, or a track format version 6 worldCells). */
+  rebuild(boxes: readonly TxxGroundBox[], tiles: TileSet | null, cells = 256): void {
+    const g = groundBoxGeometry(boxes, tiles, cells);
     this.geometry = g;
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(g.positions, 3));

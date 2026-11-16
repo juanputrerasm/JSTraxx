@@ -13,6 +13,7 @@
     - always an MTM2 track, with the stock palette, fog map and pictures; no stadium, no
       backdrop, no text, music or fog table;
     - every .TEX line is a texture slot ("ART\<name>"), duplicates included;
+    - the LVL's sun, ambient, boss light and 255 line are read (Traxx 1.7.2's ReadLVLLighting);
     - RAW, RA0, RA1, CL0, CLR, TEX, TTY and LTE must all be there (the RAW may be missing when
       the .TXV beside it names a heights PNG, Traxx 1.7); the RAW's size gives the terrain mode.
 
@@ -34,7 +35,7 @@ import { swapExt } from "../traxx/pod-items.ts";
 import { atoi, traxxLines } from "../traxx/lines.ts";
 import { resetTrack } from "./new-track.ts";
 import { emptyCarry, MTM2_ONLY, type TrackDocument } from "./document.ts";
-import { applyTerrainHeightsImage, deriveBoxHeights, readGroundBoxes, resolveTerrainFromTxv } from "./load-pod.ts";
+import { applyTerrainHeightsImage, deriveBoxHeights, readGroundBoxes, readLvlLighting, resolveTerrainFromTxv } from "./load-pod.ts";
 import { loadRaw, parseTerrainHeightsKey } from "../traxx/terrain16.ts";
 import { loadTrackAssets, type AssetSource } from "./load-txx.ts";
 import { findAsset } from "./names.ts";
@@ -96,7 +97,7 @@ export async function cloneFromSit(folder: TrackedFolder, sitPath: string, asset
   const lvlName = (lines[0] ?? "").toUpperCase();
   const base = lvlName.split(".")[0].slice(0, POD1_TRACK_STEM_MAX);
   if (!base) throw new CloneError(ERR.badSit);
-  const prefix = pickCloneStem(base, (stem) => ["WORLD\\%.SIT", "WORLD\\%.SI2", "LEVELS\\%.LVL"].some((shape) => folder.has(shape.replace("%", stem))));
+  const prefix = pickCloneStem(base, (stem) => ["WORLD\\%.SIT", "WORLD\\%.SI2", "WORLD\\%.SI3", "LEVELS\\%.LVL"].some((shape) => folder.has(shape.replace("%", stem))));
   if (!prefix) {
     throw new CloneError(`Can't find an unused name for the clone - everything from "${base}2" to "${base}999" is already in use. A track file name can be at most 20 characters, because LEVELS\\<name>.LVL has to fit the 31 a pod directory entry holds, so the number has to come out of the name itself. Rename or remove some of the existing copies.`);
   }
@@ -165,6 +166,8 @@ export async function cloneFromSit(folder: TrackedFolder, sitPath: string, asset
   if (!lte) throw new CloneError(ERR.noLte);
   track.lte = new Uint8Array(CELLS * 7);
   track.lte.set(lte.subarray(0, CELLS * 7));
+  // The sun, ambient, boss light and the 255 line (ReadLVLLighting, shared with the pod reader).
+  readLvlLighting(doc, lvl);
   if (lvl.waterHeight !== null) track.waterLevel4 = lvl.waterHeight;
 
   // The situation file, through the shared reader.

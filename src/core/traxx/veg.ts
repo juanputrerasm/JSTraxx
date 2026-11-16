@@ -16,7 +16,7 @@
 
   Floats: every field the C++ holds as a float is kept here as a float32 value (Math.fround).
 */
-import { parseMtm2Veg, writeMtm2Veg } from "../../vendor/openphotex/mtm/veg.js";
+import { checkMtm2VegBounds, parseMtm2Veg, writeMtm2Veg } from "../../vendor/openphotex/mtm/veg.js";
 import type { Veg, VegSpecies as OpVegSpecies } from "../../vendor/openphotex/mtm/veg.js";
 import { cAtof, cAtoi, f32 } from "./cformat.ts";
 
@@ -25,10 +25,12 @@ export const VEG_MAX_SPECIES = 60;
 export const VEG_ENGINE_MAX_SPECIES = 64;
 export const VEG_MAX_GROUND_SPECIES = 16;
 export const VEG_MAX_TREES = 30000;
-export const VEG_MAX_CLUMPS = 131072;
+/** VEG_MAX_CLUMPS: the engine's grass cap, 2 097 152 since Traxx 1.8.0 (a2b55ca, handover 0.7; was 131 072). */
+export const VEG_MAX_CLUMPS = 2097152;
 export const VEG_MAX_CLUMPS_PER_TILE = 1024;
 export const VEG_ENGINE_MAX_TREES = 32768;
-export const VEG_ENGINE_MAX_CLUMPS = 131072;
+/** The reader's cap (TrackPODVegetation.cpp VEG_ENGINE_MAX_CLUMPS): 2 097 152 since Traxx 1.8.0, was 131 072. */
+export const VEG_ENGINE_MAX_CLUMPS = 2097152;
 export const VEG_MAX_COLOURS = 16;
 export const VEG_MAX_ENTRIES = 8;
 export const VEG_MODELNAME = 64;
@@ -56,8 +58,15 @@ export const VEG_DEFAULT_PERTILE = 300;
 export const VEG_DEFAULT_CORRIDOR = 40;
 export const VEG_DEFAULT_OBJMARGIN = 8;
 
+/** The .VEG header's tile counts, 256 whatever the world (OpenPhotex checkMtm2VegBounds). */
 const VEG_TILES = 256;
 const VEG_TILE_SUBUNITS = 8192;
+/*
+  Track format version 6 (track-format-v6.md 9.2): the layout does not change, but a tree's x and
+  z run 0 to W * 256 (exclusive) 1/256 ft, W = 32 N ft, and grass tiles 0 to N - 1. `cells` is N
+  (256 for every track Traxx knows); with 256 these bounds are Traxx's.
+*/
+const vegTreeLimit = (cells: number) => cells * VEG_TILE_SUBUNITS;
 const VEG_HEADER_SIZE = 32;
 
 /** TRAXX_TOOL_VERSION, Traxx/TrackPOD.h. */
@@ -394,23 +403,23 @@ export function vegToday(now = new Date()): string {
   would make a file the engine only partly accepts (Traxx fails the build then). A foreign file
   comes back byte for byte.
 */
-export function buildVeg(v: Vegetation, stem: string, date = vegToday()): Uint8Array | null {
+export function buildVeg(v: Vegetation, stem: string, date = vegToday(), cells = VEG_TILES): Uint8Array | null {
   if (v.readonly && v.foreign && v.foreign.length > 0) return v.foreign.slice();
   const nspecies = v.species.length;
   if (nspecies > VEG_ENGINE_MAX_SPECIES) return null;
   for (const t of v.trees) {
     if (t.species >= nspecies || v.species[t.species]!.kind !== VEG_KIND_PLACED) return null;
-    if (t.x < 0 || t.x >= VEG_TILES * VEG_TILE_SUBUNITS || t.z < 0 || t.z >= VEG_TILES * VEG_TILE_SUBUNITS) return null;
+    if (t.x < 0 || t.x >= vegTreeLimit(cells) || t.z < 0 || t.z >= vegTreeLimit(cells)) return null;
   }
   const tiles: { tx: number; tz: number; first: number; count: number }[] = [];
   const cl = v.clumps;
   for (let i = 0; i < cl.length; i++) {
     const c = cl[i]!;
     if (c.species >= nspecies || v.species[c.species]!.kind !== VEG_KIND_GROUND) return null;
-    if (c.tx >= VEG_TILES || c.tz >= VEG_TILES) return null;
+    if (c.tx >= cells || c.tz >= cells) return null;
     const p = i > 0 ? cl[i - 1]! : null;
     if (!p || c.tx !== p.tx || c.tz !== p.tz) {
-      if (p && c.tz * VEG_TILES + c.tx <= p.tz * VEG_TILES + p.tx) return null;
+      if (p && c.tz * cells + c.tx <= p.tz * cells + p.tx) return null;
       tiles.push({ tx: c.tx, tz: c.tz, first: i, count: 0 });
     }
     const run = tiles[tiles.length - 1]!;
@@ -443,7 +452,7 @@ export function buildVeg(v: Vegetation, stem: string, date = vegToday()): Uint8A
   });
   return writeMtm2Veg({
     species, trees, clumps, rule: vegRuleText(v, stem), info: vegInfoText(nt, nc, date),
-  });
+  }, { cells });
 }
 
 /*
@@ -599,7 +608,7 @@ function keepForeign(v: Vegetation, bytes: Uint8Array): Vegetation {
   for the stale verdict). With a RULE chunk: the rules, species, trees and clumps. Without:
   kept verbatim as read-only. False when the file is unusable (v is then left as it was).
 */
-export function vegParseImage(v: Vegetation, bytes: Uint8Array): boolean {
+export function vegParseImage(v: Vegetation, bytes: Uint8Array, cells = VEG_TILES): boolean {
   if (bytes.length < VEG_HEADER_SIZE || String.fromCharCode(bytes[0]!, bytes[1]!, bytes[2]!, bytes[3]!) !== "MVEG") return false;
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (dv.getUint16(4, true) > 1) { keepForeign(v, bytes); return true; }
@@ -628,15 +637,15 @@ export function vegParseImage(v: Vegetation, bytes: Uint8Array): boolean {
     // The engine's own skip rules (format section 5.2).
     if (sp >= ns || v.species[sp]!.kind !== VEG_KIND_PLACED) continue;
     if (t.scale[i]! < 256) continue;
-    if (x < 0 || x >= VEG_TILES * VEG_TILE_SUBUNITS || z < 0 || z >= VEG_TILES * VEG_TILE_SUBUNITS) continue;
+    if (x < 0 || x >= vegTreeLimit(cells) || z < 0 || z >= vegTreeLimit(cells)) continue;
     v.trees.push({ x, y: t.position[3 * i + 1]!, z, species: sp, heading: t.heading[i]!, scale: t.scale[i]!, tier: t.tier[i]! });
   }
   const c = parsed.clumps;
   const ccount = Math.min(c.count, VEG_ENGINE_MAX_CLUMPS);
   let havePrev = false, prevKey = 0, prevEnd = 0;
   for (const tile of c.tiles) {
-    if (tile.tx >= VEG_TILES || tile.tz >= VEG_TILES) continue;
-    const key = tile.tz * VEG_TILES + tile.tx;
+    if (tile.tx >= cells || tile.tz >= cells) continue;
+    const key = tile.tz * cells + tile.tx;
     // The format's four tile skip rules (section 5.3).
     if (tile.count > VEG_MAX_CLUMPS_PER_TILE) continue;
     if (tile.first > ccount || tile.count > ccount - tile.first) continue;
@@ -679,20 +688,20 @@ function hasChunk(bytes: Uint8Array, id: string): boolean {
   The V15 .TXX block (TrackPODBinary.cpp): masks first, then the image, so the stale verdict
   compares the masks just set. `block` is txx.ts's TxxVegetation.
 */
-export function vegetationFromTxx(block: { masks: (VegMaskFile | null)[]; image: Uint8Array | null } | null): Vegetation {
+export function vegetationFromTxx(block: { masks: (VegMaskFile | null)[]; image: Uint8Array | null } | null, cells = VEG_TILES): Vegetation {
   const v = emptyVegetation();
   if (!block) return v;
   for (let l = 0; l < VEG_NLAYERS; l++) {
     const m = block.masks[l];
     v.masks[l] = m && m.data.length > 0 ? { ext: m.ext, data: m.data } : null;
   }
-  if (block.image && block.image.length > 0) vegParseImage(v, block.image);
+  if (block.image && block.image.length > 0) vegParseImage(v, block.image, cells);
   return v;
 }
 
 /** The V15 block a save writes: the masks and the BuildVEG image (null when it fails). */
-export function vegetationToTxx(v: Vegetation, stem: string, date = vegToday()): { masks: (VegMaskFile | null)[]; image: Uint8Array | null } {
-  return { masks: v.masks.map((m) => (m ? { ext: m.ext, data: m.data } : null)), image: vegIsEmpty(v) ? null : buildVeg(v, stem, date) };
+export function vegetationToTxx(v: Vegetation, stem: string, date = vegToday(), cells = VEG_TILES): { masks: (VegMaskFile | null)[]; image: Uint8Array | null } {
+  return { masks: v.masks.map((m) => (m ? { ext: m.ext, data: m.data } : null)), image: vegIsEmpty(v) ? null : buildVeg(v, stem, date, cells) };
 }
 
 /** The pod loader's mask names for a layer, in the order it tries them (TrackPODFile.cpp). */
@@ -705,10 +714,10 @@ export function vegPodMaskNames(prefix: string, layer: number): string[] {
   The pod loader (TrackPODFile.cpp): WORLD\<stem>.VEG, then the masks RULE names, then the stale
   verdict. `entry` returns an entry's bytes or null.
 */
-export async function vegetationFromPod(prefix: string, entry: (name: string) => Promise<Uint8Array | null>): Promise<Vegetation> {
+export async function vegetationFromPod(prefix: string, entry: (name: string) => Promise<Uint8Array | null>, cells = VEG_TILES): Promise<Vegetation> {
   const v = emptyVegetation();
   const image = await entry(`WORLD\\${prefix}.VEG`.slice(0, 63).toUpperCase());
-  if (image && image.length > 0) vegParseImage(v, image);
+  if (image && image.length > 0) vegParseImage(v, image, cells);
   for (let l = 0; l < VEG_NLAYERS; l++) {
     if (!v.rulenamesmask[l]) continue;
     const names = vegPodMaskNames(prefix, l);
@@ -738,6 +747,18 @@ export function vegTxvFormatVersion(v: Vegetation, current: number): number {
 }
 
 /** Deep copy (CopyFrom). */
+/**
+  Track format version 6 (9.2): refuse a .VEG whose placements fall outside an N-cell world,
+  with OpenPhotex's message (checkMtm2VegBounds); null when it fits or cannot be parsed (the
+  reader then keeps it as Traxx does).
+*/
+export function vegBoundsProblem(bytes: Uint8Array, cells: number): string | null {
+  let parsed: Veg;
+  try { parsed = parseMtm2Veg(bytes); } catch { return null; }
+  try { checkMtm2VegBounds(parsed, cells); } catch (e) { return (e as Error).message; }
+  return null;
+}
+
 export function vegCopy(v: Vegetation): Vegetation {
   return structuredClone(v);
 }

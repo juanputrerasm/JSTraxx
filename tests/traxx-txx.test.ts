@@ -240,6 +240,8 @@ test("what SaveBinary changes: unused sounds go, extended courses close up, a we
 });
 
 test("a file that is not a .TXX, or ends early, is refused", () => {
+  // Traxx knows V1..V19 and JSTraxx adds V99; any other generation (V20 is Traxx's next) is refused.
+  for (const h of ["TRAXXV21", "TRAXXV98", "TRAXXV0"]) assert.throws(() => readTxx(new TextEncoder().encode(`${h}\0\0rest`)), /not a Traxx working file/);
   assert.throws(() => readTxx(new TextEncoder().encode("TRAXXV99\0\0rest")), TxxError);
   assert.throws(() => readTxx(new TextEncoder().encode("NOTTRAXX\0\0")), TxxError);
   const bytes = fixture(2, [ROCK]);

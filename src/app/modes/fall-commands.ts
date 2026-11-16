@@ -17,6 +17,9 @@
   crest's own notch derived, the crest fitted (FallFit: orient, snap onto the lake's lip, orient
   again) and the Waterfall window opened. The undo record is written only when its OK commits,
   from the copy of the falls taken before the command (recordFields falls and lakes).
+
+  Track format version 6 (spec 9.3): picks, wraps and tiles use the track's N world (W = 32 N ft,
+  points mod 16 W), and a spring's height the range a version 6 track's .WFL can hold.
 */
 import type { ModeContext } from "./context.ts";
 import type { MenuItem } from "../../ui/shell/commands.ts";
@@ -28,11 +31,14 @@ import { waterfallDialog } from "../../ui/dialogs/waterfall-dialog.ts";
 import { fallReadouts, fallSoundStemProblem, fallTextureStem } from "../../core/edit/fall-properties.ts";
 import { soundBudget } from "../../core/edit/object-properties.ts";
 import { buildLakeGround } from "../../core/traxx/surface.ts";
-import { trackLakes } from "../../core/traxx/lakes.ts";
+import { trackLakes, trackLakeRule } from "../../core/traxx/lakes.ts";
 import {
-  cloneFall, fallAdd, fallDefaults, fallEffectiveHeight, fallGroundFor, fallLoopingObjects, fallNameInPod, fallNearestToMenu, fallOrient,
-  fallPickSource, fallSpringHeight, snapToLip, FALL_COORD_MAX, FALL_MAX_FALLS, FALL_MAX_POINTS, type FallLakes, type TraxxFall,
+  cloneFall, fallAdd, fallCoordMax, fallDefaults, fallEffectiveHeight, fallGroundFor, fallHeightBounds, fallLoopingObjects, fallMistLandings, fallNameInPod, fallNearestToMenu,
+  fallOrient, fallPickSource, fallSpringHeight, snapToLip, FALL_MAX_FALLS, FALL_MAX_POINTS, type FallLakes, type FallWorld, type TraxxFall,
 } from "../../core/traxx/falls.ts";
+import { TRAXX_BOX_FOG } from "../../core/traxx/sit.ts";
+import { fallWorldOf } from "../../core/traxx/v6.ts";
+import { cellsOf, worldFtOf } from "../../core/traxx/world.ts";
 import type { TxxTrack } from "../../core/traxx/txx.ts";
 
 /** FALL_CAPTURE_MIN_FT: a new point closer than this to the last one is ignored. */
@@ -48,19 +54,25 @@ export function fallCommands(ctx: ModeContext) {
   /** The fall the right-click was near (fallmenufall) and the point it was made at. */
   let menuFall = -1;
 
-  const lakesOf = (t: TxxTrack): FallLakes => ({ lakes: t.lakes, tmap: t.lakes.length ? trackLakes(t).tmap : null });
+  /** The track's world (version 6: N and the step and base; FALL_WORLD_CLASSIC otherwise). */
+  const worldOf = (t: TxxTrack): FallWorld => fallWorldOf(t, editor.doc?.carry.situationIsSi3 ?? false);
+  // The lakes as the falls read them, under the track's lake rule (Traxx 1.7.3: the notch codes follow it).
+  const lakesOf = (t: TxxTrack, world: FallWorld = worldOf(t)): FallLakes => ({
+    lakes: t.lakes, tmap: t.lakes.length ? trackLakes(t).tmap : null, world, rule: trackLakeRule(t),
+  });
   const preview = (state: { highlight?: number; capture?: [number, number][] | null }, shape = false) => view.fallChanged(shape, state);
 
   /*
-    FallPickFeet: the terrain point under the pointer in world feet (0..8192, wrapped), exact to
-    the pick: whole ipos and the 1/256 fraction, an ipos half a foot.
+    FallPickFeet: the terrain point under the pointer in world feet (0..8192, wrapped; 0..W on a
+    version 6 world), exact to the pick: whole ipos and the 1/256 fraction, an ipos half a foot.
   */
   const pickFeet = (p: ViewPoint): [number, number] | null => {
     const hit = view.pick(p.clientX, p.clientY);
     if (!hit) return null;
+    const W = worldFtOf(cellsOf(editor.doc?.track));
     let x = (hit.ipos[0] * 256 + hit.fraction[0]) / 512, z = (hit.ipos[1] * 256 + hit.fraction[1]) / 512;
-    x -= 8192.0 * Math.floor(x / 8192.0);
-    z -= 8192.0 * Math.floor(z / 8192.0);
+    x -= W * Math.floor(x / W);
+    z -= W * Math.floor(z / W);
     return [x, z];
   };
 
@@ -89,13 +101,14 @@ export function fallCommands(ctx: ModeContext) {
     if (!capture) return;
     const at = pickFeet(p);
     if (!at || capture.pts.length >= FALL_MAX_POINTS) return;
-    const px = Math.floor(at[0] * 16.0 + 0.5) & FALL_COORD_MAX, pz = Math.floor(at[1] * 16.0 + 0.5) & FALL_COORD_MAX;
+    const cells = cellsOf(track()), cmax = fallCoordMax(cells), W = worldFtOf(cells);
+    const px = Math.floor(at[0] * 16.0 + 0.5) & cmax, pz = Math.floor(at[1] * 16.0 + 0.5) & cmax;
     // Not on top of the last point (the library refuses a crest with two points closer than 2 ft).
     const last = capture.pts[capture.pts.length - 1];
     if (last) {
       let dx = (px - last[0]) / 16.0, dz = (pz - last[1]) / 16.0;
-      dx -= 8192.0 * Math.floor((dx + 4096.0) / 8192.0);
-      dz -= 8192.0 * Math.floor((dz + 4096.0) / 8192.0);
+      dx -= W * Math.floor((dx + W / 2) / W);
+      dz -= W * Math.floor((dz + W / 2) / W);
       if (Math.sqrt(dx * dx + dz * dz) < FALL_CAPTURE_MIN_FT) return;
     }
     capture.pts.push([px, pz]);
@@ -122,14 +135,15 @@ export function fallCommands(ctx: ModeContext) {
     them. Says so on the status line when points moved.
   */
   const fit = (t: TxxTrack, idx: number): number => {
-    const ground = () => fallGroundFor(t, null);
-    fallOrient(t.falls, idx, lakesOf(t), ground());
+    const world = worldOf(t);
+    const ground = () => fallGroundFor(t, null, world);
+    fallOrient(t.falls, idx, lakesOf(t, world), ground());
     let moved = 0;
     const w = t.falls[idx];
     if (w && w.source !== 0) {
-      moved = snapToLip(t.falls, idx, lakesOf(t), 48.0, buildLakeGround(t));
+      moved = snapToLip(t.falls, idx, lakesOf(t, world), 48.0, buildLakeGround(t));
       if (moved > 0) {
-        fallOrient(t.falls, idx, lakesOf(t), ground());
+        fallOrient(t.falls, idx, lakesOf(t, world), ground());
         app.status(`Moved crest point(s) onto Lake ${w.source}'s lip (the water leaves the lake over its edge)`);
       }
     }
@@ -157,16 +171,25 @@ export function fallCommands(ctx: ModeContext) {
       fall: () => t.falls[idx]!,
       effectiveHeight: () => fallEffectiveHeight(t.falls, idx, t.lakes),
       lakes: () => t.lakes,
+      heightBounds: () => fallHeightBounds(view.fallShapes.world),
       changed: (shape) => preview({}, shape),
       fit: () => { fit(t, idx); },
       readouts: () => {
         view.rebuildFalls(); // FallShapesEnsure
         const cache = view.fallShapes;
         const shape = cache.shapes[idx];
+        // The world the cache just judged the falls in (FallShapesEnsure above).
+        const world = cache.world;
+        const lakes = lakesOf(t, world);
+        const ground = fallGroundFor(t, null, world);
         return fallReadouts({
-          falls: t.falls, index: idx, lakes: lakesOf(t), names: fallNameInPod(t.sounds, doc.textures),
-          lip: buildLakeGround(t), ground: fallGroundFor(t, null),
+          falls: t.falls, index: idx, lakes, names: fallNameInPod(t.sounds, doc.textures, doc.modelTextures),
+          lip: buildLakeGround(t), ground,
+          // Traxx 1.8.0: the 64 fog slots shared by the fog boxes and the falls' mist (MistLandings).
+          fogBoxes: t.boxes.filter((b) => b.type === TRAXX_BOX_FOG).length,
+          mistLandings: fallMistLandings(t.falls, t.lakes, cache.errors, cache.shapes, fallGroundFor(t, lakes.tmap ?? null, world)),
           vertices: shape?.vertices ?? 0, shapeWarn: shape?.warn ?? 0, trackVerts: cache.trackVerts, loopingObjects: fallLoopingObjects(t.boxes),
+          uncounted: shape?.nobudget ?? false, fallErrors: cache.errors,
         });
       },
       browseSound: async () => {
@@ -246,16 +269,17 @@ export function fallCommands(ctx: ModeContext) {
     const w = fallDefaults();
     w.npoints = pts.length;
     pts.forEach((p, k) => { w.pt[k] = [p[0], p[1]]; });
-    let { source, height } = fallPickSource(lakesOf(t), pts, pts.length);
+    const world = worldOf(t);
+    let { source, height } = fallPickSource(lakesOf(t, world), pts, pts.length);
     // No lake: a spring, sitting on the ground at the first point.
-    if (source === 0) height = fallSpringHeight(fallGroundFor(t, null), pts[0]![0] / 16.0, pts[0]![1] / 16.0);
+    if (source === 0) height = fallSpringHeight(fallGroundFor(t, null, world), pts[0]![0] / 16.0, pts[0]![1] / 16.0, fallHeightBounds(world));
     w.source = source;
     w.height = height;
     const idx = fallAdd(t.falls, w);
     if (idx < 0) { await alertDialog("Traxx", FULL); return; }
     // The pick saw the lakes before this crest existed: pick again with its own notch derived, and keep the new pick.
     if (source !== 0) {
-      const again = fallPickSource(lakesOf(t), pts, pts.length);
+      const again = fallPickSource(lakesOf(t, world), pts, pts.length);
       if (again.source !== 0 && again.source !== source) { w.source = again.source; w.height = again.height; }
     }
     fit(t, idx);
@@ -305,7 +329,7 @@ export function fallCommands(ctx: ModeContext) {
     const at = doc ? pickFeet(p) : null;
     if (!doc || !at) return [];
     const items: MenuItem[] = ["-", "ID_TERRAIN_DRAWFALL"];
-    menuFall = fallNearestToMenu(doc.track.falls, at[0], at[1]);
+    menuFall = fallNearestToMenu(doc.track.falls, at[0], at[1], cellsOf(doc.track));
     if (menuFall >= 0) items.push("ID_TERRAIN_EDITFALL", "ID_TERRAIN_REDRAWFALL", "ID_TERRAIN_DELETEFALL");
     return items;
   };

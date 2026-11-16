@@ -6,12 +6,13 @@
 import type { TrackDocument } from "./document.ts";
 import { findModelTexture } from "./load-pod.ts";
 import { findAsset } from "./names.ts";
+import { ANIFRAMEPODNAMEMAX, frameNameTooLongForPod } from "../traxx/keyframe.ts";
 import { pod1StemBudget } from "../traxx/pod-items.ts";
 import { POD1_TRACK_STEM_MAX } from "../traxx/terrain.ts";
+import { objectLimit } from "../traxx/v6.ts";
 
 const MAX_LINES = 32;
 const MAX_GROUND_BOXES = 2048;
-const MAX_BOXES = 4096;
 
 export function checkIntegrity(doc: TrackDocument): string[] {
   const t = doc.track;
@@ -48,7 +49,7 @@ export function checkIntegrity(doc: TrackDocument): string[] {
 
   if (doc.groundBoxOverflow > 0) add(`${doc.groundBoxOverflow} ground boxes were dropped when this track was opened - it contains more than the ${MAX_GROUND_BOXES} this version supports.`);
   if (doc.objectsShort > 0) add(`The situation file this track came from promised ${doc.objectsShort} more object${doc.objectsShort === 1 ? "" : "s"} than it held. Traxx kept the ones that were there; writing the track corrects the count.`);
-  if (doc.objectsDropped > 0) add(`${doc.objectsDropped} object${doc.objectsDropped === 1 ? " was" : "s were"} dropped when this track was opened - it holds more than the ${MAX_BOXES} this version supports.`);
+  if (doc.objectsDropped > 0) add(`${doc.objectsDropped} object${doc.objectsDropped === 1 ? " was" : "s were"} dropped when this track was opened - it holds more than the ${objectLimit(t, doc.carry.situationIsSi3)} this version supports.`);
 
   if (!t.music) add("Music MOD/WAV/MP3/OGG not specified."); // TXNOMUSIC, 1.7 (e4b4cd5)
   if (!t.logoBmp && !t.uiHd[0]) add("Thumbnail/browse bitmap not specified.");
@@ -64,7 +65,11 @@ export function checkIntegrity(doc: TrackDocument): string[] {
   for (const name of t.models) {
     const m = doc.models.find((x) => x.name.toUpperCase() === name.toUpperCase());
     if (!m) continue;
-    for (const frame of m.frameNames) if (findAsset(t.models.map((n) => ({ name: n })), frame) < 0) add(`Missing BIN animation ${frame}`);
+    for (const frame of m.frameNames) {
+      // Traxx 1.8.0 (eaaace7): the engine opens "models\<name>" whole and a pod entry holds 31 characters.
+      if (frameNameTooLongForPod(frame)) add(`BIN animation ${frame}: name too long for a pod entry (${ANIFRAMEPODNAMEMAX} max)`);
+      else if (findAsset(t.models.map((n) => ({ name: n })), frame) < 0) add(`Missing BIN animation ${frame}`);
+    }
     for (const tex of m.textureNames) {
       const up = tex.toUpperCase();
       if (up && findModelTexture(doc.modelTextures, up) < 0) add(`Missing model texture ${up} (${m.name})`);

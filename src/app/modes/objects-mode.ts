@@ -15,16 +15,19 @@ import type { ModeContext } from "./context.ts";
 import { CONTEXT_MENUS } from "../../ui/shell/commands.ts";
 import { recordFields, type Recording } from "../../core/edit/record.ts";
 import { applyModel, deleteObjects, dragObjects, dragRotate, insertObject, modelBaseZ, moveObjects, OBJECT_TYPE_NAMES, pasteObject, raiseObjects, rotateObjects, setTypeOfObjects, sizeObjects, tiltObjects, typeToIndex, budgetCap, unusedModels } from "../../core/edit/objects.ts";
+import { objectLimit } from "../../core/traxx/v6.ts";
 import { insideRect, nearestOnScreen, OBJECT_LIMIT } from "../../core/view/screen-pick.ts";
 import { objectMatrix } from "../../core/view/model-geometry.ts";
 import { alertDialog, confirmDialog } from "../../ui/shell/dialog.ts";
 import { ALTITUDE_SCALE } from "../../core/view/camera.ts";
 import { OBJ_COL } from "../../core/settings.ts";
 import { TRAXX_BOX_FOG, TRAXX_BOX_LIGHT, type TraxxBox, type TraxxLight } from "../../core/traxx/sit.ts";
+import { lightGuideContext } from "../../core/traxx/light-props.ts";
 import { applyObjectFields, objectFields, previewObject } from "../../core/edit/object-properties.ts";
 import { groupPropertiesDialog, objectPropertiesDialog } from "../../ui/dialogs/object-dialogs.ts";
 import { applyGroup, applyLook, groupStart } from "../../core/edit/group-properties.ts";
-import { lightPoolLines } from "../../core/view/light-pool.ts";
+import { LIGHTCORE_COLOUR, lightPoolDrawing } from "../../core/view/light-pool.ts";
+import { cellsOf } from "../../core/traxx/world.ts";
 import { copyForClipboard } from "../../core/traxx/box-ground.ts";
 
 /** A ground point picked in the view: whole ipos / steps and the 1/256 left over. */
@@ -54,6 +57,8 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
   let menuPoint: Spot | null = null;
 
   const track = () => editor.doc!.track;
+  /** 4096, or 16,384 on a version 6 track (spec 14). */
+  const objectMax = () => objectLimit(editor.doc!.track, editor.doc!.carry.situationIsSi3);
   const exists = (i: number) => i >= 0 && i < (editor.doc?.track.boxes.length ?? 0);
   const selected = () => sel.collect(exists);
   const boxes = () => selected().map((i) => track().boxes[i]);
@@ -99,9 +104,10 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
   const insert = () => {
     const spot = menuPoint ?? ground(editor.lastPoint);
     if (!spot) return;
-    if (track().boxes.length >= 4096) { void alertDialog("Insert", "Max. 4096 Objects!"); return; }
+    const max = objectMax();
+    if (track().boxes.length >= max) { void alertDialog("Insert", `Max. ${max} Objects!`); return; }
     let index: number | null = null;
-    edit("Insert Object", () => { index = insertObject(track(), spot.at, spot.fraction); });
+    edit("Insert Object", () => { index = insertObject(track(), spot.at, spot.fraction, max); });
     sel.clear();
     sel.select(index ?? -1);
     editor.selectionChanged();
@@ -119,7 +125,7 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
     const spot = menuPoint ?? ground(p);
     if (!copyBox || !spot) return;
     let result: ReturnType<typeof pasteObject> = { index: null, refusal: null };
-    edit("Paste Object", () => { result = pasteObject(track(), copyBox, spot.at, spot.fraction); });
+    edit("Paste Object", () => { result = pasteObject(track(), copyBox, spot.at, spot.fraction, objectMax()); });
     sel.clear();
     sel.select(result.index ?? -1);
     if (result.refusal) void alertDialog("Paste Object", result.refusal);
@@ -203,7 +209,8 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
       sitUnits: app.settings.show_sit_units,
       restingHeight: resting,
       preview: (f) => { previewObject(box, t, f); refresh(); },
-      previewLight: (light, isLight) => { lightPreview = { box, light, isLight }; editor.selectionChanged(); },
+      previewLight: (light, isLight) => { lightPreview = { box, light, isLight }; view.setLightPreview(lightPreview); editor.selectionChanged(); },
+      lightContext: lightGuideContext(t),
       previewFog: (fog, isFog) => setFogPreview({ box, fog, isFog }),
       fogBox: () => box,
       pickWav,
@@ -218,6 +225,7 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
       },
     });
     lightPreview = null;
+    view.setLightPreview(null);
     setFogPreview(null);
     if (!result || !editor.canEdit) {
       Object.assign(box, before);
@@ -415,10 +423,24 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
         const isLight = preview ? preview.isLight : anchor.type === TRAXX_BOX_LIGHT;
         if (isLight) {
           g.save();
-          g.strokeStyle = "#00ffff";
-          for (const [a, b] of lightPoolLines(anchor, preview?.light ?? anchor.light, doc.track)) {
-            const p = project(a![0], a![1], a![2]), q = project(b![0], b![1], b![2]);
-            if (p && q) { g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); g.stroke(); }
+          // Traxx 1.8.0: the engine's ring (dim without a pool weather), the light guide and its words.
+          const pool = lightPoolDrawing(anchor, preview?.light ?? anchor.light, doc.track, { boxes: doc.track.groundBoxes, cells: cellsOf(doc.track) },
+            lightGuideContext(doc.track), { show: app.settings.show_light_core, weather: app.settings.preview_weather });
+          const stroke = (list: [number, number, number][][], colour: string) => {
+            g.strokeStyle = colour;
+            for (const [a, b] of list) {
+              const p = project(a![0], a![1], a![2]), q = project(b![0], b![1], b![2]);
+              if (p && q) { g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); g.stroke(); }
+            }
+          };
+          stroke(pool.lines, pool.ringColour);
+          stroke(pool.guide, LIGHTCORE_COLOUR);
+          const at = pool.labels.length ? project(pool.labelAt[0], pool.labelAt[1], pool.labelAt[2]) : null;
+          if (at) {
+            g.font = "12px system-ui, sans-serif";
+            g.textAlign = "left";
+            g.textBaseline = "alphabetic";
+            pool.labels.forEach((l, i) => { g.fillStyle = l.colour; g.fillText(l.text, at.x + 8, at.y + 16 + i * 14); });
           }
           // OverlayLightDirection: the cone's aim, yellow.
           const arrow = lightArrow(preview?.light ?? anchor.light);

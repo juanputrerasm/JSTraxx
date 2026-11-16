@@ -210,12 +210,30 @@ test("every MTM2 track clones from a TrackEd folder as Traxx clones it", { skip 
       assert.deepEqual(b.groundBoxes, a.groundBoxes);
       assert.equal(b.boxes.length, a.boxes.length);
       assert.deepEqual(b.course, a.course);
+      // Traxx 1.7.2 (7d36314): the LVL's sun, ambient, boss light and 255 line, as the pod reader has them.
+      assert.deepEqual(b.sun, a.sun);
+      assert.equal(clone.carry.levelValue, pod.carry.levelValue);
       assert.ok(b.textures.length >= a.textures.length - a.animations.length * 8);
       assert.equal(clone.missingTextures.length, 0, `${file}: ${clone.missingTextures.slice(0, 3)}`);
       checked++;
     }
   }
   assert.ok(checked >= 1);
+});
+
+test("Clone reads the LVL's sun, ambient, boss light and 255 line (ReadLVLLighting, Traxx 1.7.2)", async () => {
+  const { cloneFromSit } = await import("../src/core/doc/clone.ts");
+  const { buildTrackPod } = await import("../src/core/traxx/pod-writer.ts");
+  const doc = newTrackDocument();
+  doc.track.versionFlags |= 1;
+  doc.track.sun = { vector: [19585, -59396, 19585], shadowIntensity: 40960, position: [1, -2, 3], intensity: 4567 };
+  const out = buildTrackPod(doc, { date: new Date(2026, 10, 14) });
+  const files = new Map(out.entries.map((e) => [e.name.toUpperCase(), e.data]));
+  const folder = { read: async (p: string) => files.get(p.toUpperCase()) ?? null, has: (p: string) => files.has(p.toUpperCase()) };
+  const sit = [...files.keys()].find((n) => /^WORLD\\.*\.SIT$/.test(n))!;
+  const clone = await cloneFromSit(folder, sit, { art: async () => null, model: async () => null });
+  assert.deepEqual(clone.track.sun, doc.track.sun);
+  assert.equal(clone.carry.levelValue, 255);
 });
 
 test("an imported track keeps its own palette when its .TXX reopens", async () => {

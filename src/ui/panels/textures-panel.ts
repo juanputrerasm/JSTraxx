@@ -13,6 +13,7 @@
 
   Toolbar: Load, Cut, Copy, Paste, Paste Composite, Animate, Purge and the three zoom buttons.
 */
+import { cellsOf } from "../../core/traxx/world.ts";
 import { el } from "../../shared/dom.ts";
 import type { AppState } from "../../app/state.ts";
 import type { Editor } from "../../app/editor.ts";
@@ -373,7 +374,7 @@ export function texturesPanel(ctx: TexturesPanelContext): void {
     void copy();
     const t = d.track, index = sel.anchor;
     const recs = [
-      recordGrid(t.clr, { minX: 0, minY: 0, maxX: 255, maxY: 255 }, "Cut Texture", (r) => ({ clr: r })),
+      recordGrid(t.clr, { minX: 0, minY: 0, maxX: cellsOf(t) - 1, maxY: cellsOf(t) - 1 }, "Cut Texture", (r) => ({ clr: r })),
       recordFields(t, ["groundBoxes", "animations", "textures"], "Cut Texture", { groundBoxes: true, textures: true }),
       recordFields(d, ["textures"], "Cut Texture", { textures: true }),
     ];
@@ -401,7 +402,7 @@ export function texturesPanel(ctx: TexturesPanelContext): void {
 
   /*
     OnEditPaste. Traxx takes a 64 or 256 square bitmap and writes it as .RAW and .ACT. JSTraxx
-    takes any square picture of an HD size (32 to 1024, a power of two) and writes it to the ART
+    takes any square picture of an HD size (32 to 2048, a power of two) and writes it to the ART
     folder as a PNG, alpha kept; the 8-bit tile is built in memory, as for a loaded PNG, and Write
     POD adds the .RAW fallback unless it is omitted.
   */

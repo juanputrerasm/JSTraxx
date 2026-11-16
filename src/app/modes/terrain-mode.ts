@@ -35,9 +35,11 @@ import { ALTITUDE_SCALE } from "../../core/view/camera.ts";
 import { devicePx } from "../../render/overlay.ts";
 import { lakeCommands, lakeErrors, lakeRefusal } from "./lake-commands.ts";
 import { adjustHeights16, fineVertexAtPoint } from "../../core/traxx/surface.ts";
+import { cellsOf } from "../../core/traxx/world.ts";
+import { trackWaterRange } from "../../core/traxx/v6.ts";
 import { syncFromRaw, TERRAINMODE_FINE, type Terrain16 } from "../../core/traxx/terrain16.ts";
 import { buildLakeGround } from "../../core/traxx/surface.ts";
-import { lakeHoldsUpTo, lakeMinHeight, lakeNearestLegalHeight, recomputeLakes, LAKE_MAX_HEIGHT, LAKE_NO_BASIN } from "../../core/traxx/lakes.ts";
+import { lakeHoldsUpTo, lakeMinHeight, lakeNearestLegalHeight, recomputeLakes, lakeMaxHeightFor, lakeMinHeightFor, LAKE_NO_BASIN } from "../../core/traxx/lakes.ts";
 import { trackNotches } from "../../core/traxx/falls.ts";
 import { fallCommands } from "./fall-commands.ts";
 import type { Recording } from "../../core/edit/record.ts";
@@ -83,6 +85,9 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
   follow();
 
   const heights = () => editor.doc!.track.heights;
+  /** N, the track's cells a side (track format version 6, spec section 8.1: 256 or 512). */
+  const cells = () => cellsOf(editor.doc?.track);
+  const all = () => ({ minX: 0, minY: 0, maxX: cells() - 1, maxY: cells() - 1 });
 
   /*
     The vertex under the pointer: the nearest grid point to the terrain hit. On a Full Map the
@@ -93,7 +98,7 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
     if (!hit) return null;
     if (!onFine()) return { vertex: hit.vertex, fine: null };
     // TerrainPickFine: whole ipos plus the 1/256 fraction, all FineVertexAtPoint needs.
-    const fv = fineVertexAtPoint(hit.ipos[0] * 256 + hit.fraction[0], hit.ipos[1] * 256 + hit.fraction[1]);
+    const fv = fineVertexAtPoint(hit.ipos[0] * 256 + hit.fraction[0], hit.ipos[1] * 256 + hit.fraction[1], cells());
     const fx = fv & 0xffff, fy = (fv >> 16) & 0xffff;
     return { vertex: [fx >> 2, fy >> 2], fine: [fx, fy] };
   };
@@ -118,12 +123,13 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
     the 32 ft mirror under it (TraxxUndo's gridfine, but only the window); else the cells.
   */
   const recordStamp = (t: Terrain16, w: number, h: number, c: [number, number], label: string): Recording[] => {
-    if (!t.fine) return recordTerrain(brushRect(w, h, c[0], c[1]), label);
+    const n = cellsOf(t);
+    if (!t.fine) return recordTerrain(brushRect(w, h, c[0], c[1], n), label);
     const win = stampWindow(t, w, h, c[0], c[1]);
     const touch = { heights: win.touch };
     const k = win.coarse;
-    const recs = [recordWindow(t.fine, 1024, win.x0, win.y0, win.w, win.h, label, touch), recordWindow(t.heights, 256, k.x0, k.y0, k.w, k.h, label, touch)];
-    if (t.rawShadow) recs.push(recordWindow(t.rawShadow, 256, k.x0, k.y0, k.w, k.h, label, touch));
+    const recs = [recordWindow(t.fine, 4 * n, win.x0, win.y0, win.w, win.h, label, touch), recordWindow(t.heights, n, k.x0, k.y0, k.w, k.h, label, touch)];
+    if (t.rawShadow) recs.push(recordWindow(t.rawShadow, n, k.x0, k.y0, k.w, k.h, label, touch));
     return recs;
   };
 
@@ -204,7 +210,7 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
     const t = doc.track;
     const before = lakeErrors(t);
     const recs: Recording[] = [
-      ...recordTerrain({ minX: 0, minY: 0, maxX: 255, maxY: 255 }, "Adjust Heights"),
+      ...recordTerrain(all(), "Adjust Heights"),
       recordFields(t, ["boxes", "trucks", "course", "extendedCourses", "waterLevel4", "lakes", "fine"], "Adjust Heights", { objects: true, course: true, trucks: true, water: true }),
     ];
     const placed: Placed[] = [];
@@ -215,15 +221,20 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
     }
     // 16-bit tracks: the same factor and lift (taken from the 8-bit mirror) on h16 or the Full Map
     // grid, inc * 256 (AdjustHeights16 / AdjustHeightsFine), so fractions survive.
+    // The water keeps to Traxx's 0..510 ft, or a version 6 document's range (no 510 ft cap, spec section 10 item 7).
+    const waterRange = trackWaterRange(t, doc.carry.situationIsSi3);
     const res = adjustHeights(h, r, placed, r.moveWater ? t.waterLevel4 : null,
-      t.fine || t.h16 ? (scale, inc, f) => adjustHeights16(t, scale, inc * 256, f) : undefined, t);
+      t.fine || t.h16 ? (scale, inc, f) => adjustHeights16(t, scale, inc * 256, f) : undefined, t, waterRange);
     if (res.water4 !== null) t.waterLevel4 = res.water4;
     // The lakes are refitted whatever "move water" says: lifted 4N or scaled floor(H * f), then
     // moved to the nearest height the basin legally holds.
     if (t.lakes.length) {
+      // Format version 6: on a 32-bit ground the lake may sit anywhere in the terrain's range (spec 9.1).
+      const range = buildLakeGround(t);
+      const lo = lakeMinHeightFor(range), hi = lakeMaxHeightFor(range);
       for (const lake of t.lakes) {
         const lh = r.scale ? Math.floor(lake.height * res.factor + 1e-9) : lake.height + 4 * res.inc;
-        lake.height = Math.max(0, Math.min(LAKE_MAX_HEIGHT, lh));
+        lake.height = Math.max(lo, Math.min(hi, lh));
       }
       // With the falls' notches (Traxx 1.7.1); the ceiling is what the lake holds (HoldsUpTo).
       const g = buildLakeGround(t);
@@ -243,7 +254,8 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
 
   const copyBitmap = async () => {
     if (!editor.doc) return;
-    try { await copyImage(heightsToRgba(heights()), 256, 256); app.status("The terrain is on the clipboard as a 256 x 256 greyscale picture."); }
+    const n = cells();
+    try { await copyImage(heightsToRgba(heights()), n, n); app.status(`The terrain is on the clipboard as a ${n} x ${n} greyscale picture.`); }
     catch (err) { await alertDialog("Copy Terrain as Bitmap", `The browser would not put the picture on the clipboard: ${err instanceof Error ? err.message : err}`); }
   };
   const pasteBitmap = async () => {
@@ -252,13 +264,14 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
     if (onFine()) { app.status("On a 16-bit Full Map track, use Import Heightmap instead"); return; }
     let img;
     try { img = await pasteImage(); } catch { img = null; }
-    const data = img ? rgbaToHeights(img.rgba, img.width, img.height) : null;
-    if (!data) { await alertDialog("Paste Terrain Bitmap", "Sorry, the bitmap must be 256 x 256 pixels. Copy a greyscale picture of that size first."); return; }
+    const n = cells();
+    const data = img ? rgbaToHeights(img.rgba, img.width, img.height, n) : null;
+    if (!data) { await alertDialog("Paste Terrain Bitmap", `Sorry, the bitmap must be ${n} x ${n} pixels. Copy a greyscale picture of that size first.`); return; }
     const t = editor.doc!.track;
     if (t.terrainMode === TERRAINMODE_FINE) return;
     syncFromRaw(t);
     const before = lakeErrors(t);
-    const recs = recordTerrain({ minX: 0, minY: 0, maxX: 255, maxY: 255 }, "Paste Terrain Bitmap");
+    const recs = recordTerrain(all(), "Paste Terrain Bitmap");
     // 16-bit tracks: each byte b is the height b << 8 in h16, then the mirror follows.
     pasteBitmapHeights(t, data);
     commitGuarded("Paste Terrain Bitmap", "Paste Terrain Bitmap", recs, before);
@@ -271,7 +284,7 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
   registry.bind("ID_TERRAIN_RAISELOWER", adjust, { enabled: editable });
   registry.bind("ID_TERRAIN_COPYBITMAP", copyBitmap, { enabled: () => Boolean(editor.doc) });
   registry.bind("ID_TERRAIN_PASTEBITMAP", pasteBitmap, { enabled: () => editable() && editor.doc?.track.terrainMode !== TERRAINMODE_FINE });
-  const lakes = lakeCommands(ctx, () => vertex && [vertex[0] & 255, vertex[1] & 255]);
+  const lakes = lakeCommands(ctx, () => vertex && [vertex[0] & (cells() - 1), vertex[1] & (cells() - 1)]);
   const falls = fallCommands(ctx);
 
   const setEdit = (change: (e: typeof app.settings.edit) => void) => app.updateSettings((s) => change(s.edit));

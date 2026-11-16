@@ -16,7 +16,7 @@ export interface TruckContact {
  * truck's `extForce` / `extMoment`; the faster truck is moved out of the slower one. Returns what
  * met (for a host's sounds and effects).
  */
-export declare function collideTrucks(a: TruckBody, b: TruckBody, dt: number, rules?: Mtm2Rules): TruckContact;
+export declare function collideTrucks(a: TruckBody, b: TruckBody, dt: number, rules?: Mtm2Rules, worldFt?: number): TruckContact;
 /**
  * The velocity a wheel contact's force is made from, in A's axes. MTM2: half the relative
  * velocity. MTM1: axis by axis, the larger in magnitude of the two points' velocities (B's on a

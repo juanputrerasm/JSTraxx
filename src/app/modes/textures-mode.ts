@@ -11,6 +11,7 @@
   the Texture menu, enabled as Traxx enables it (OnContextMenu).
 */
 import type { ModeHandler, ViewPoint } from "../editor.ts";
+import { cellsOf, sideOf } from "../../core/traxx/world.ts";
 import type { ModeContext } from "./context.ts";
 import { CONTEXT_MENUS } from "../../ui/shell/commands.ts";
 import { recordFields, recordGrid } from "../../core/edit/record.ts";
@@ -33,6 +34,8 @@ export function texturesMode(ctx: ModeContext): ModeHandler {
   let paintedArea: Area | null = null;
 
   const clr = () => editor.doc!.track.clr;
+  /** The last cell of a row: N - 1 (track format version 6, spec section 8.1). */
+  const last = () => cellsOf(editor.doc?.track) - 1;
   const locate = (p: ViewPoint): [number, number] | null => view.pick(p.clientX, p.clientY)?.cell ?? null;
   const paintMode = () => app.settings.edit.paint;
 
@@ -41,8 +44,8 @@ export function texturesMode(ctx: ModeContext): ModeHandler {
     const w = app.settings.edit.texturew, h = app.settings.edit.textureh;
     let x0 = c[0] - (w >> 1), y0 = c[1] - (h >> 1);
     let x1 = x0 + w - 1, y1 = y0 + h - 1;
-    if (x0 < 0) { x1 -= x0; x0 = 0; } else if (x1 > 255) { x0 -= x1 - 255; x1 = 255; }
-    if (y0 < 0) { y1 -= y0; y0 = 0; } else if (y1 > 255) { y0 -= y1 - 255; y1 = 255; }
+    if (x0 < 0) { x1 -= x0; x0 = 0; } else if (x1 > last()) { x0 -= x1 - last(); x1 = last(); }
+    if (y0 < 0) { y1 -= y0; y0 = 0; } else if (y1 > last()) { y0 -= y1 - last(); y1 = last(); }
     return { x0, y0, x1, y1 };
   };
   const rect = (a: Area) => ({ minX: a.x0, minY: a.y0, maxX: a.x1, maxY: a.y1 });
@@ -50,7 +53,7 @@ export function texturesMode(ctx: ModeContext): ModeHandler {
     if (!editor.doc) return;
     // A turned area can land outside its rectangle; record both shapes.
     const w = a.x1 - a.x0 + 1, h = a.y1 - a.y0 + 1;
-    const span = { minX: a.x0, minY: a.y0, maxX: Math.min(255, a.x0 + Math.max(w, h) - 1), maxY: Math.min(255, a.y0 + Math.max(w, h) - 1) };
+    const span = { minX: a.x0, minY: a.y0, maxX: Math.min(last(), a.x0 + Math.max(w, h) - 1), maxY: Math.min(last(), a.y0 + Math.max(w, h) - 1) };
     const rec = recordGrid(clr(), span, label, (r) => ({ clr: r }));
     const written = write();
     if (written && written !== a) area = written;
@@ -71,13 +74,13 @@ export function texturesMode(ctx: ModeContext): ModeHandler {
   bind("ID_TEXTURE_AREAMIRROR", () => area && edit("Mirror Area", area, () => mirrorArea(clr(), area!)), hasArea);
   bind("ID_TEXTURE_AREACOPY", () => { if (area) { editor.clipboard.texture = { kind: "area", from: { x: area.x0, y: area.y0 }, rect: { ...area } } satisfies TextureClip; app.emit("commands", undefined); } }, hasArea);
   bind("ID_TEXTURE_AREAPASTE", () => paste(), () => hasArea() && Boolean(editor.clipboard.texture));
-  bind("ID_TEXTURE_SELECT", () => { if (cell && editor.doc) editor.selectTexture(clr()[cell[0] + (cell[1] << 8)] & 0x0fff); }, () => cell !== null);
+  bind("ID_TEXTURE_SELECT", () => { if (cell && editor.doc) editor.selectTexture(clr()[cell[0] + cell[1] * (last() + 1)] & 0x0fff); }, () => cell !== null);
   bind("ID_TEXTURE_FLOOD", async () => {
     const tex = editor.selectedTexture;
     if (!area || tex < 0) return;
     if (area.x0 !== area.x1 || area.y0 !== area.y1) { await alertDialog("Replace", "Must have single square selected!"); return; }
     const a = area;
-    edit("Replace Texture", { x0: 0, y0: 0, x1: 255, y1: 255 }, () => floodTexture(clr(), a.x0, a.y0, tex));
+    edit("Replace Texture", { x0: 0, y0: 0, x1: last(), y1: last() }, () => floodTexture(clr(), a.x0, a.y0, tex));
   }, () => hasArea() && editor.selectedTexture >= 0);
   registry.bind("ID_TEXTURE_PURGE", async () => {
     const doc = editor.doc;
@@ -87,7 +90,7 @@ export function texturesMode(ctx: ModeContext): ModeHandler {
     if (!(await confirmDialog("Purge Textures", `There are ${unused.length} unused textures.\nGo ahead and remove them?`, "Yes"))) return;
     const t = doc.track;
     const recs = [
-      recordGrid(t.clr, { minX: 0, minY: 0, maxX: 255, maxY: 255 }, "Purge Textures", (r) => ({ clr: r })),
+      recordGrid(t.clr, { minX: 0, minY: 0, maxX: last(), maxY: last() }, "Purge Textures", (r) => ({ clr: r })),
       recordFields(t, ["groundBoxes", "animations", "textures"], "Purge Textures", { groundBoxes: true, textures: true }),
       recordFields(doc, ["textures"], "Purge Textures", { textures: true }),
     ];
@@ -103,7 +106,7 @@ export function texturesMode(ctx: ModeContext): ModeHandler {
   editor.actions.applyTransition = ((t: TransitionSettings) => {
     if (!editor.canEdit) return;
     const many = area && !paintMode() && (area.x1 > area.x0 || area.y1 > area.y0);
-    const a: Area = many ? { ...area! } : { x0: 0, y0: 0, x1: 255, y1: 255 };
+    const a: Area = many ? { ...area! } : { x0: 0, y0: 0, x1: last(), y1: last() };
     edit("Texture Transitions", a, () => transitionTextures(clr(), editor.doc!.track.heights, a, t));
   }) as never;
 
@@ -132,7 +135,7 @@ export function texturesMode(ctx: ModeContext): ModeHandler {
         area = brushAt(cell);
         if (editor.selectedTexture < 0) return;
         // One undo step for the whole stroke.
-        painting = recordGrid(clr(), { minX: 0, minY: 0, maxX: 255, maxY: 255 }, "Paint Texture", () => ({}));
+        painting = recordGrid(clr(), { minX: 0, minY: 0, maxX: last(), maxY: last() }, "Paint Texture", () => ({}));
         paintedArea = { ...area };
         applyTexture(clr(), area, editor.selectedTexture);
         view.refresh({ clr: rect(area) });
@@ -202,12 +205,13 @@ export function texturesMode(ctx: ModeContext): ModeHandler {
   four corners at the heights of their vertices.
 */
 export function outlineCells(g: CanvasRenderingContext2D, project: (x: number, y: number, z: number) => { x: number; y: number } | null, heights: Uint8Array, a: Area): void {
-  const xb = Math.min(255, a.x1 + 1), yb = Math.min(255, a.y1 + 1);
+  const n = sideOf(heights.length);
+  const xb = Math.min(n - 1, a.x1 + 1), yb = Math.min(n - 1, a.y1 + 1);
   const corners = [
-    project(a.x0 * 64, a.y0 * 64, ALTITUDE_SCALE * heights[a.x0 + (a.y0 << 8)]),
-    project((a.x1 + 1) * 64, a.y0 * 64, ALTITUDE_SCALE * heights[xb + (a.y0 << 8)]),
-    project((a.x1 + 1) * 64, (a.y1 + 1) * 64, ALTITUDE_SCALE * heights[xb + (yb << 8)]),
-    project(a.x0 * 64, (a.y1 + 1) * 64, ALTITUDE_SCALE * heights[a.x0 + (yb << 8)]),
+    project(a.x0 * 64, a.y0 * 64, ALTITUDE_SCALE * heights[a.x0 + a.y0 * n]!),
+    project((a.x1 + 1) * 64, a.y0 * 64, ALTITUDE_SCALE * heights[xb + a.y0 * n]!),
+    project((a.x1 + 1) * 64, (a.y1 + 1) * 64, ALTITUDE_SCALE * heights[xb + yb * n]!),
+    project(a.x0 * 64, (a.y1 + 1) * 64, ALTITUDE_SCALE * heights[a.x0 + yb * n]!),
   ];
   g.strokeStyle = "#ffff00";
   g.lineWidth = devicePx(g, 3);

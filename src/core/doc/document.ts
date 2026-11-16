@@ -61,6 +61,11 @@ export interface PodCarryOver {
   txvText: string | null;
   /** The track came with a .SI2 situation file. Informational: export decides again. */
   situationIsSi2: boolean;
+  /**
+    The track came with a .SI3 situation file (track format version 6). Write POD keeps such a
+    track a .SI3: a .SIT or .SI2 is a different track (spec section 5.1), never a down-conversion.
+  */
+  situationIsSi3: boolean;
   /** FOG\<stem>.FOG, 4096 bytes (fogfog). */
   fogFog: Uint8Array | null;
   /** The LVL's line 21 (lvlval). */
@@ -68,6 +73,9 @@ export interface PodCarryOver {
   /** The detail and mask maps were read out of the pod. */
   detailFromPod: boolean;
   maskFromPod: boolean;
+  /** Traxx 1.7.2: the water detail normal and water mask were read out of the pod. */
+  waterDetailFromPod: boolean;
+  waterMaskFromPod: boolean;
 }
 
 export type DocumentSource =
@@ -104,17 +112,17 @@ export interface TrackDocument {
 
 export function emptyCarry(): PodCarryOver {
   return {
-    cylinderCount: 0, cylinderRaw: "", txvText: null, situationIsSi2: false, fogFog: null, levelValue: 255,
-    detailFromPod: false, maskFromPod: false,
+    cylinderCount: 0, cylinderRaw: "", txvText: null, situationIsSi2: false, situationIsSi3: false, fogFog: null, levelValue: 255,
+    detailFromPod: false, maskFromPod: false, waterDetailFromPod: false, waterMaskFromPod: false,
   };
 }
 
 /** Every transferable buffer in a document, for postMessage. Shared buffers are listed once. */
 export function documentBuffers(doc: TrackDocument): ArrayBuffer[] {
   const seen = new Set<ArrayBuffer>();
-  const add = (a: Uint8Array | Uint16Array | null | undefined) => { if (a && a.buffer instanceof ArrayBuffer) seen.add(a.buffer); };
+  const add = (a: Uint8Array | Uint16Array | Int32Array | null | undefined) => { if (a && a.buffer instanceof ArrayBuffer) seen.add(a.buffer); };
   const t = doc.track;
-  [t.logoBmp, t.mapBmp, t.music, t.text, t.infoBmp, t.infoText, t.detailMap, t.maskMap, t.palette, t.heights, t.clr, t.lte, t.fogMap,
+  [t.logoBmp, t.mapBmp, t.music, t.text, t.infoBmp, t.infoText, t.detailMap, t.maskMap, t.waterDetailMap, t.waterMaskMap, t.palette, t.heights, t.clr, t.lte, t.fogMap,
     t.h16, t.fine, t.rawShadow, t.vegetation?.image].forEach(add);
   t.vegetation?.masks.forEach((m) => add(m?.data));
   t.uiHd.forEach((h) => add(h?.data));

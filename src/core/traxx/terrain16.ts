@@ -11,6 +11,8 @@
   Plain data on the track record (TxxTrack): terrainMode, h16, fine, rawShadow, heights (raw).
 */
 
+import { asU16, cellsOf, cellShiftOf, newHeightGrid, type HeightGrid } from "./world.ts";
+
 export const TERRAINMODE_CLASSIC8 = 0;
 export const TERRAINMODE_CLASSIC16 = 1;
 export const TERRAINMODE_SPLINE = 2;
@@ -26,20 +28,25 @@ export const RAWLEN_FINE = TERRAIN_FINE * TERRAIN_FINE * 2;
 /** The part of a track record the terrain modes touch. */
 export interface Terrain16 {
   terrainMode: number;
-  /** CLASSIC16 and SPLINE: 65536 heights, x + 256 z. */
-  h16: Uint16Array | null;
-  /** FINE: 1048576 heights, x + 1024 z. */
-  fine: Uint16Array | null;
+  /** Format version 6: cells a side, 256 (absent) or 512 (world.ts). Every grid below is N x N or 4N x 4N. */
+  worldCells?: number;
+  /** CLASSIC16 and SPLINE: N x N heights, x + N z (Int32Array on a version 6 track, world.ts). */
+  h16: HeightGrid | null;
+  /** FINE: 4N x 4N heights, x + 4N z. */
+  fine: HeightGrid | null;
   /** What the mirror last wrote into `heights`; null on a classic track. */
   rawShadow: Uint8Array | null;
   /** The 8-bit heights (raw): the data on a classic track, the mirror otherwise. */
   heights: Uint8Array;
 }
 
-/** MirrorOf: a 16-bit height rounded to the nearest 8-bit step, capped at 255. */
+/**
+  MirrorOf: a 16-bit height rounded to the nearest 8-bit step, capped at 255. A version 6 height
+  below 0 ft (spec section 7.3) mirrors as 0.
+*/
 export function mirrorOf(v: number): number {
   const m = (v + 128) >> 8;
-  return m > 255 ? 255 : m;
+  return m > 255 ? 255 : m < 0 ? 0 : m;
 }
 
 /**
@@ -49,12 +56,13 @@ export function mirrorOf(v: number): number {
 export function refreshRaw(t: Terrain16): void {
   if (t.terrainMode === TERRAINMODE_CLASSIC8) return;
   const raw = t.heights;
+  const n = cellsOf(t), sh = cellShiftOf(n);
   if (t.fine) {
-    for (let z = 0; z < 256; z++) {
-      for (let x = 0; x < 256; x++) raw[x + (z << 8)] = mirrorOf(t.fine[((4 * z) << 10) + 4 * x]);
+    for (let z = 0; z < n; z++) {
+      for (let x = 0; x < n; x++) raw[x + (z << sh)] = mirrorOf(t.fine[((4 * z) << (sh + 2)) + 4 * x]!);
     }
   } else if (t.h16) {
-    for (let i = 0; i < 256 * 256; i++) raw[i] = mirrorOf(t.h16[i]);
+    for (let i = 0; i < n * n; i++) raw[i] = mirrorOf(t.h16[i]!);
   } else return;
   if (t.rawShadow) t.rawShadow.set(raw);
 }
@@ -74,7 +82,8 @@ export function syncFromRaw(t: Terrain16): boolean {
   }
   if (!t.h16 || !t.rawShadow) return false;
   let changed = false;
-  for (let i = 0; i < 256 * 256; i++) {
+  const cells = cellsOf(t) * cellsOf(t);
+  for (let i = 0; i < cells; i++) {
     if (raw[i] !== t.rawShadow[i]) {
       t.h16[i] = (raw[i] << 8) & 0xffff;
       t.rawShadow[i] = raw[i];
@@ -91,12 +100,18 @@ export function rawFileLength(t: Pick<Terrain16, "terrainMode" | "fine">): numbe
   return RAWLEN_16BIT;
 }
 
-/** SaveRaw: the height file's bytes, after SyncFromRaw; u16 little-endian outside classic. */
+/**
+  SaveRaw: the height file's bytes, after SyncFromRaw; u16 little-endian outside classic. This is
+  CP4's file (0..65535 v): a version 6 32-bit grid is clamped into it, so a version 6 writer
+  stores its heights with step and base instead (spec section 7.1).
+*/
 export function saveRaw(t: Terrain16): Uint8Array {
   syncFromRaw(t);
-  if (t.terrainMode === TERRAINMODE_CLASSIC8) return t.heights.slice(0, RAWLEN_8BIT);
-  const src = t.fine ?? t.h16;
-  if (!src) return t.heights.slice(0, RAWLEN_8BIT);
+  const cells = cellsOf(t) * cellsOf(t);
+  if (t.terrainMode === TERRAINMODE_CLASSIC8) return t.heights.slice(0, cells);
+  const grid = t.fine ?? t.h16;
+  if (!grid) return t.heights.slice(0, cells);
+  const src = asU16(grid);
   const out = new Uint8Array(src.length * 2);
   for (let i = 0; i < src.length; i++) { out[2 * i] = src[i] & 255; out[2 * i + 1] = src[i] >> 8; }
   return out;
@@ -202,11 +217,12 @@ export function setModeOnLoad(t: Terrain16, mode: number): boolean {
   if (mode === t.terrainMode) return true;
   if (mode !== TERRAINMODE_SPLINE || t.fine) return false;
   syncFromRaw(t);
+  const n = cellsOf(t);
   if (!t.h16) {
-    t.h16 = new Uint16Array(256 * 256);
-    for (let i = 0; i < 256 * 256; i++) t.h16[i] = t.heights[i] << 8;
+    t.h16 = newHeightGrid(n * n, false);
+    for (let i = 0; i < n * n; i++) t.h16[i] = t.heights[i]! << 8;
   }
-  t.rawShadow ??= t.heights.slice(0, RAWLEN_8BIT);
+  t.rawShadow ??= t.heights.slice(0, n * n);
   t.terrainMode = mode;
   refreshRaw(t);
   return true;

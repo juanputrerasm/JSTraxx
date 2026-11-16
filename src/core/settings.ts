@@ -80,6 +80,26 @@ export interface TraxxSettings {
   show_veg_mask: boolean;
   show_veg_aids: boolean;
   show_lake_walls: boolean;
+  /** View > Show Sun (Traxx 1.7.2, CTraxxReg show_sun): the sun marker in the 3D view, on by default. */
+  show_sun: boolean;
+  /**
+    Traxx 1.8.0 (CTraxxReg, "Flags" bits and "Preview Weather"): View > Visual Helpers > Show Sky,
+    Show Light Glows, Show Detail Maps (on), Show Water Mask and Draw All Fog Volumes (off); View >
+    Light Guide > Show Core and Extent (off); View > Preview Weather, the engine weather 0..8
+    (0 Clear, the default).
+  */
+  show_sky: boolean;
+  show_light_glows: boolean;
+  show_detail_maps: boolean;
+  show_water_mask: boolean;
+  draw_all_fog: boolean;
+  show_light_core: boolean;
+  preview_weather: number;
+  /**
+    View > Field of View (Traxx 1.7.3, registry "OpenGL FOV"): degrees across the window's longer
+    side, 50, 60, 70, 80 or 90; 0 is Legacy. Default 70.
+  */
+  opengl_fov: number;
   hd_no_legacy_siblings: boolean;
   texture_filter: string;
   /** The patterns file the Patterns window works on (TXP_file), by name in jstraxx/patterns. */
@@ -144,6 +164,15 @@ export function defaultSettings(): TraxxSettings {
     show_veg_mask: false,
     show_veg_aids: false,
     show_lake_walls: false,
+    show_sun: true,
+    show_sky: true,
+    show_light_glows: true,
+    show_detail_maps: true,
+    show_water_mask: false,
+    draw_all_fog: false,
+    show_light_core: false,
+    preview_weather: 0,
+    opengl_fov: 70,
     hd_no_legacy_siblings: false,
     texture_filter: "*",
     txp_file: "Patterns.txp",
@@ -187,6 +216,9 @@ const clamp = (v: unknown, lo: number, hi: number, fallback: number) =>
   take the default, and numbers are held to the ranges Traxx's controls allow, so a damaged
   file can never put the editor in a state Traxx could not reach.
 */
+/** View > Field of View's choices; 0 is Legacy. */
+export const FOV_CHOICES: readonly number[] = [50, 60, 70, 80, 90, 0];
+
 export function mergeSettings(stored: unknown): TraxxSettings {
   const d = defaultSettings();
   if (!stored || typeof stored !== "object") return d;
@@ -206,6 +238,10 @@ export function mergeSettings(stored: unknown): TraxxSettings {
   out.polysize = Math.round(clamp(s.polysize, GRID_MIN, GRID_MAX, d.polysize) / GRID_STEP) * GRID_STEP;
   out.water_opacity = Math.round(clamp(s.water_opacity, 0, 100, d.water_opacity));
   out.wire_width = Math.round(clamp(s.wire_width, 1, 4, d.wire_width));
+  // CTraxxReg::Load: anything but 0 (Legacy), 50, 60, 70, 80 or 90 is 70.
+  if (!FOV_CHOICES.includes(out.opengl_fov)) out.opengl_fov = d.opengl_fov;
+  // CTraxxReg::Load: a Preview Weather outside 0..8 is 0 (Clear).
+  if (!Number.isInteger(out.preview_weather) || out.preview_weather < 0 || out.preview_weather > 8) out.preview_weather = 0;
   out.mode = Math.round(clamp(s.mode, 0, 4, d.mode)) as EditMode;
   const e = s.edit ?? {};
   out.edit = {

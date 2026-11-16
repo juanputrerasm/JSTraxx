@@ -11,6 +11,7 @@
   vertex (CTrackPOD::FindArenaAnchor, ArenaZPos), with the objects' Z stretch.
 */
 import * as THREE from "three";
+import { sideOf } from "../core/traxx/world.ts";
 import type { ModelLibrary } from "./models.ts";
 import { OBJECT_ZSTRETCH } from "../core/view/model-geometry.ts";
 import { ALTITUDE_SCALE } from "../core/view/camera.ts";
@@ -47,8 +48,10 @@ export class BackdropLayer {
     const raw = meshes.geometry.raw;
     let minz = Infinity, ax = 0, ay = 0;
     for (let i = 0; i < raw.length; i += 3) if (raw[i + 2] < minz) { minz = raw[i + 2]; ax = raw[i] >> 12; ay = raw[i + 1] >> 12; }
-    const gi = (arena.x + ax) & 255, gj = (arena.y + ay) & 255;
-    const z = ALTITUDE_SCALE * heights[gi + (gj << 8)];
+    // The heights are N x N (N = 256, or a version 6 world's worldCells, spec section 8.1).
+    const n = sideOf(heights.length);
+    const gi = (arena.x + ax) & (n - 1), gj = (arena.y + ay) & (n - 1);
+    const z = ALTITUDE_SCALE * heights[gi + gj * n];
     for (const part of meshes.parts) {
       const mesh = new THREE.Mesh(part.geometry, part.material);
       mesh.position.set(arena.x * 64, arena.y * 64, z);

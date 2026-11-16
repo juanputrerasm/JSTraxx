@@ -37,10 +37,15 @@ export const TRAXX_BOX_CHECKPOINT = 6;
 export const TRAXX_BOX_LIGHT = 12;
 /** BOXTYPE_FOG (Traxx 1.7, Include/TrackPODBox.h): a fog volume, its properties in the .SIT 'F' block. */
 export const TRAXX_BOX_FOG = 14;
-/** MAXNPODFOGS: the tools' cap on fog objects (the engine holds 64, draws the nearest 16). */
-export const TRAXX_MAX_FOGS = 50;
+/** MAXNPODFOGS: the tools' cap on fog objects = the engine's 64 fog slots, shared with waterfall mist (Traxx 1.8.0, 35b087b; was 50). */
+export const TRAXX_MAX_FOGS = 64;
 /** MAXNPODBOXES: ramps, boxes and top-crush cars share one array of this size. */
 export const TRAXX_MAX_BOXES = 4096;
+/**
+  Track format version 6's placed objects (openmtm2.github.io/proposals/track-format-v6.md 14):
+  16,384, four times MAXNPODBOXES. JSTraxx's own; a track that is not version 6 keeps Traxx's 4096.
+*/
+export const V6_MAX_BOXES = 16384;
 export const TRAXX_EXT_COURSES = 4;
 /** POD1_TRACK_STEM_MAX: the longest stem Traxx takes from the .LVL name. */
 export const TRAXX_TRACK_STEM_MAX = 20;
@@ -65,6 +70,12 @@ export interface TraxxLight {
   coneBaseRadius: number;
   bright: number;
   aimOffset: number;
+  /**
+    allwx (Traxx 1.8.0, a114974): the engine's 13th 'L' field, 0 / 1. 1 = this light's glow and
+    cone draw in every weather (stadium lights); the ground pool keeps the weather rule and glow
+    mode 0 still draws nothing. LIGHTDEF_ALLWX 0, which an absent field means.
+  */
+  allWx: number;
 }
 
 const LIGHT_KEYS = ["radius", "heightOffset", "r", "g", "b", "glowMode", "glowRadius", "coneLength",
@@ -74,7 +85,7 @@ const LIGHT_KEYS = ["radius", "heightOffset", "r", "g", "b", "glowMode", "glowRa
 export function traxxLightDefaults(): TraxxLight {
   return {
     radius: 64, heightOffset: 8, r: 1, g: 1, b: 1, glowMode: 0, glowRadius: 6,
-    coneLength: 125, coneRimRadius: 10, coneBaseRadius: 3.5, bright: 1, aimOffset: 0,
+    coneLength: 125, coneRimRadius: 10, coneBaseRadius: 3.5, bright: 1, aimOffset: 0, allWx: 0,
   };
 }
 
@@ -252,7 +263,7 @@ export interface TraxxSit {
   backdropName: string;
   /** The backdrop block's other models, after the first (none for an arena). */
   extraBackdrops: string[];
-  /** Records past the 4096-object array (sit_objects_dropped). */
+  /** Records past the 4096-object array (sit_objects_dropped), or past a .SI3's 16,384. */
   objectsDropped: number;
   /** What the parser found that does not add up, such as a section declaring more records than it holds. */
   warnings: string[];
@@ -268,14 +279,18 @@ export function traxxSitDefaults(): TraxxSit {
   };
 }
 
-/** Pod1SitToIpos: a SIT coordinate into an ipos step and its 1/256 fraction, wrapped into the world. */
-export function traxxSitToIpos(sit: number): [number, number] {
+/**
+  Pod1SitToIpos: a SIT coordinate into an ipos step and its 1/256 fraction, wrapped into the world.
+  `world` is the world's side in ipos: 16384 (256 cells), or 64 N for a track format version 6
+  world of N cells (spec section 8.4: a negative position is wrapped by +W).
+*/
+export function traxxSitToIpos(sit: number, world = 16384): [number, number] {
   const scaled = 2 * sit;
   const whole = Math.floor(scaled);
   let i = whole | 0;
   let fraction = cTrunc((scaled - whole) * 256 + 0.5);
   if (fraction > 255) { fraction = 0; i++; }
-  if (i < 0) i += 16384;
+  if (i < 0) i += world;
   return [i, fraction];
 }
 
@@ -314,16 +329,25 @@ export interface ReadTraxxSitOptions {
    * (ParseSITFile's trailing-block loop). Without it every Fog gets the engine's defaults.
    */
   text?: Uint8Array | string;
+  /**
+   * The world's cells a side: 256 (absent), or a .SI3 track's worldCells (track format version 6,
+   * spec section 8.4). Negative positions are wrapped by the world's side; parse the SIT with
+   * OpenPhotex's parseMtmSit(bytes, title, { worldFt: 32 * cells }) to match.
+   */
+  worldCells?: number;
+  /** The objects kept, the rest counted in objectsDropped: TRAXX_MAX_BOXES (absent), or V6_MAX_BOXES for a .SI3. */
+  maxBoxes?: number;
 }
 
 /** Read a .SIT into Traxx's model. */
 export function readTraxxSit(bytes: Uint8Array | string, title = "", options: ReadTraxxSitOptions = {}): TraxxSit {
-  return traxxSitFromParsed(parseMtmSit(bytes, title), { text: bytes, ...options });
+  return traxxSitFromParsed(parseMtmSit(bytes, title, { worldFt: 32 * (options.worldCells ?? 256) }), { text: bytes, ...options });
 }
 
 /** OpenPhotex's reading of a SIT, as Traxx keeps it. */
 export function traxxSitFromParsed(parsed: MtmSit, options: ReadTraxxSitOptions = {}): TraxxSit {
   const hasEntry = options.hasEntry ?? (() => true);
+  const world = 64 * (options.worldCells ?? 256);
   const sit = traxxSitDefaults();
   sit.warnings = [...parsed.warnings];
 
@@ -352,7 +376,7 @@ export function traxxSitFromParsed(parsed: MtmSit, options: ReadTraxxSitOptions 
     const truck = sit.trucks[slot];
     const [x, height, y] = source.positionFt ?? [0, 0, 0];
     truck.name = fit(source.name, TRUCKNAMELEN - 1);
-    truck.ipos = [traxxSitToIpos(x)[0], traxxSitToIpos(y)[0], cTrunc(cTrunc(height) / 2)];
+    truck.ipos = [traxxSitToIpos(x, world)[0], traxxSitToIpos(y, world)[0], cTrunc(cTrunc(height) / 2)];
     truck.theta = f32(source.theta);
     truck.phi = f32(source.phi);
     truck.psi = f32(source.psi);
@@ -364,7 +388,7 @@ export function traxxSitFromParsed(parsed: MtmSit, options: ReadTraxxSitOptions 
   const fog = options.text !== undefined ? sitFogLines(options.text) : null;
   parsed.boxes.forEach((source, i) => {
     if (source.type === TRAXX_BOX_CRUSH) return;
-    const box = boxFrom(source);
+    const box = boxFrom(source, world);
     const lines = fog && i >= fog.ramps ? fog.boxes[i - fog.ramps] ?? [] : [];
     applyFogBlocks(box, lines);
     sit.boxes.push(box);
@@ -373,9 +397,9 @@ export function traxxSitFromParsed(parsed: MtmSit, options: ReadTraxxSitOptions 
     const box = traxxBoxDefaults();
     const [cfx, cfz, cfy] = car.positionFt.map(f32);
     const [c2x, c2z, c2y] = car.position2Ft.map(f32);
-    [box.ipos[0], box.fraction[0]] = traxxSitToIpos(cfx);
+    [box.ipos[0], box.fraction[0]] = traxxSitToIpos(cfx, world);
     [box.ipos[2], box.fraction[2]] = traxxSignedSplit(f32(cfz / 2));
-    [box.ipos[1], box.fraction[1]] = traxxSitToIpos(cfy);
+    [box.ipos[1], box.fraction[1]] = traxxSitToIpos(cfy, world);
     box.crush = [f32(c2x - cfx), f32(c2y - cfy), f32(c2z - cfz)];
     box.theta = f32(car.theta); box.phi = f32(car.phi); box.psi = f32(car.psi);
     box.modelName = modelName(car.modelName);
@@ -386,9 +410,10 @@ export function traxxSitFromParsed(parsed: MtmSit, options: ReadTraxxSitOptions 
     box.type = TRAXX_BOX_CRUSH;
     sit.boxes.push(box);
   });
-  if (sit.boxes.length > TRAXX_MAX_BOXES) {
-    sit.objectsDropped = sit.boxes.length - TRAXX_MAX_BOXES;
-    sit.boxes.length = TRAXX_MAX_BOXES;
+  const maxBoxes = options.maxBoxes ?? TRAXX_MAX_BOXES;
+  if (sit.boxes.length > maxBoxes) {
+    sit.objectsDropped = sit.boxes.length - maxBoxes;
+    sit.boxes.length = maxBoxes;
   }
 
   if (parsed.cylinders) {
@@ -396,10 +421,10 @@ export function traxxSitFromParsed(parsed: MtmSit, options: ReadTraxxSitOptions 
     sit.cylinderRaw = parsed.cylinders.lines.map((line) => `${line}\r\n`).join("");
   }
 
-  sit.course = parsed.primaryCourse?.segments.map(segmentFrom) ?? [];
+  sit.course = parsed.primaryCourse?.segments.map((seg) => segmentFrom(seg, world)) ?? [];
   parsed.extendedCourses.forEach((course: SitCourse, i) => {
     const slot = course.slot ?? i;
-    if (slot < TRAXX_EXT_COURSES && course.segments.length) sit.extendedCourses[slot] = course.segments.map(segmentFrom);
+    if (slot < TRAXX_EXT_COURSES && course.segments.length) sit.extendedCourses[slot] = course.segments.map((seg) => segmentFrom(seg, world));
   });
 
   if (parsed.arena && hasEntry(parsed.arena.modelName)) {
@@ -416,12 +441,12 @@ export function traxxSitFromParsed(parsed: MtmSit, options: ReadTraxxSitOptions 
   return sit;
 }
 
-function boxFrom(source: SitBox): TraxxBox {
+function boxFrom(source: SitBox, world = 16384): TraxxBox {
   const box = traxxBoxDefaults();
   const [x, height, y] = source.positionFt ?? [0, 0, 0];
-  [box.ipos[0], box.fraction[0]] = traxxSitToIpos(x);
+  [box.ipos[0], box.fraction[0]] = traxxSitToIpos(x, world);
   [box.ipos[2], box.fraction[2]] = traxxSignedSplit(f32(f32(height) / 2));
-  [box.ipos[1], box.fraction[1]] = traxxSitToIpos(y);
+  [box.ipos[1], box.fraction[1]] = traxxSitToIpos(y, world);
   box.theta = f32(source.theta); box.phi = f32(source.phi); box.psi = f32(source.psi);
   box.modelName = modelName(source.modelName);
   if (!box.modelName && source.sizeFt) [box.length, box.width, box.height] = source.sizeFt.map(cTrunc);
@@ -441,6 +466,9 @@ function boxFrom(source: SitBox): TraxxBox {
       const key = LIGHT_KEYS[i];
       box.light[key] = key === "glowMode" ? cTrunc(value) : f32(value);
     });
+    // ParseSITFile / CloneFromSIT (Traxx 1.8.0): the thirteenth field, atoi(...) != 0; absent = LIGHTDEF_ALLWX.
+    const allWx = source.lightFields?.[LIGHT_KEYS.length];
+    if (allWx !== undefined) box.light.allWx = cTrunc(allWx) !== 0 ? 1 : 0;
   }
   return box;
 }
@@ -563,9 +591,9 @@ function insertFogBlocks(bytes: Uint8Array, boxes: readonly TraxxBox[]): Uint8Ar
   return result;
 }
 
-function segmentFrom(source: SitCourseSegment): TraxxCourseSegment {
+function segmentFrom(source: SitCourseSegment, world = 16384): TraxxCourseSegment {
   const point = ([x, height, y]: [number, number, number]): [number, number, number] =>
-    [traxxSitToIpos(x)[0], traxxSitToIpos(y)[0], cTrunc(cTrunc(height) / 2)];
+    [traxxSitToIpos(x, world)[0], traxxSitToIpos(y, world)[0], cTrunc(cTrunc(height) / 2)];
   return {
     cstart: point(source.startFt), cend: point(source.endFt),
     speedLimit: cTrunc(source.speedLimit), trackWidth: cTrunc(source.trackWidth),
@@ -635,7 +663,10 @@ export function traxxSitToMtm2(sit: TraxxSit, options: WriteTraxxSitOptions = {}
       position: position(b), orient: triple(b.theta, b.phi, b.psi), ...shape(b), ...motion(b),
       type: b.type, flags: b.flags, priority: b.priority, hitSound: b.soundImpact, loopSound: b.soundCont,
       light: b.type === TRAXX_BOX_LIGHT
-        ? LIGHT_KEYS.map((key) => (key === "glowMode" ? String(cTrunc(b.light[key])) : float(b.light[key])))
+        // WriteSITFile (Traxx 1.8.0): always the 13-field line, "%d" for allwx ? 1 : 0, so OpenPhotex
+        // writes the engine's 78-character SIT_LIGHT_HEADER.
+        ? [...LIGHT_KEYS.map((key) => (key === "glowMode" ? String(cTrunc(b.light[key])) : float(b.light[key]))),
+          b.light.allWx ? "1" : "0"]
         : undefined,
     })),
     cylinders: { count: sit.cylinderCount, lines: sit.cylinderRaw ? sit.cylinderRaw.replace(/\r\n$/, "").split("\r\n") : [] },

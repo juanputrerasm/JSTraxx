@@ -9,7 +9,8 @@
 import type { TxxTrack } from "../traxx/txx.ts";
 import { traxxTruckDefaults } from "../traxx/sit.ts";
 import { applyMtm2Palette, emptyPalette } from "../traxx/palette.ts";
-import { CELLS, flatLte } from "../traxx/terrain.ts";
+import { FLAT_LTE, flatLte } from "../traxx/terrain.ts";
+import { WORLD_CELLS_CLASSIC } from "../traxx/world.ts";
 import { TERRAINMODE_CLASSIC8 } from "../traxx/terrain16.ts";
 import { emptyCarry, MTM2_ONLY, type TrackDocument } from "./document.ts";
 
@@ -22,7 +23,7 @@ export const TRACKTYPE_RUMBLE = 4;
 const TRUCK_NAMES = ["powerbig.trk", "bigfoot.trk", "grave.trk", "boogey.trk", "wildfoot.trk", "bearfoot.trk", "snakebit.trk", "rampage.trk", "overkill.trk"];
 
 /** The track record of CTrackPOD after its constructor and Reset. */
-export function resetTrack(): TxxTrack {
+export function resetTrack(cells: number = WORLD_CELLS_CLASSIC): TxxTrack {
   return {
     version: 0,
     comment: "",
@@ -38,6 +39,7 @@ export function resetTrack(): TxxTrack {
     weatherMask: 65535,
     logoBmp: null, mapBmp: null, music: null, text: null, infoBmp: null, infoText: null,
     detailExt: "", detailMap: null, maskExt: "", maskMap: null,
+    waterDetailExt: "", waterDetailMap: null, waterMaskExt: "", waterMaskMap: null,
     uiHd: [null, null, null],
     paletteName: "",
     palette: emptyPalette(),
@@ -46,9 +48,9 @@ export function resetTrack(): TxxTrack {
     boxes: [],
     course: [],
     extendedCourses: [null, null, null, null],
-    heights: new Uint8Array(CELLS).fill(100),
-    clr: new Uint16Array(CELLS),
-    lte: flatLte(),
+    heights: new Uint8Array(cells * cells).fill(100),
+    clr: new Uint16Array(cells * cells),
+    lte: flatLte(FLAT_LTE, cells),
     trucks: TRUCK_NAMES.map((name) => ({ ...traxxTruckDefaults(), name })),
     backdropName: "",
     extraBackdrops: [],
@@ -63,6 +65,9 @@ export function resetTrack(): TxxTrack {
     h16: null,
     fine: null,
     rawShadow: null,
+    worldCells: cells,
+    heightStep: null,
+    heightBase: null,
     pngHeights: false,
     vegetation: null,
     lakes: [],
@@ -70,8 +75,12 @@ export function resetTrack(): TxxTrack {
   };
 }
 
-export function newTrackDocument(): TrackDocument {
-  const track = resetTrack();
+/**
+  A new track. `cells` is the world size (track format version 6, spec section 6): 256, as every
+  Traxx track, or 512, a world 16,384 ft a side that Write POD saves as a .SI3 track.
+*/
+export function newTrackDocument(cells: number = WORLD_CELLS_CLASSIC): TrackDocument {
+  const track = resetTrack(cells === 512 ? 512 : WORLD_CELLS_CLASSIC);
   track.versionFlags = MTM2_ONLY;
   const p = applyMtm2Palette({ palette: track.palette, fogMap: track.fogMap, logoBmp: null, mapBmp: null, logoHd: false, mapHd: false });
   track.palette = p.palette;

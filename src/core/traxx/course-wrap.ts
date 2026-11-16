@@ -8,11 +8,15 @@
 /** TRAXX_COURSE_WRAP. */
 export const TRAXX_COURSE_WRAP = 16384;
 
-/** CourseWrapDelta: d folded mod 16384 into [-8192, 8192) (C's % truncates, as JavaScript's does). */
-export function courseWrapDelta(d: number): number {
-  d %= TRAXX_COURSE_WRAP;
-  if (d >= TRAXX_COURSE_WRAP >> 1) d -= TRAXX_COURSE_WRAP;
-  else if (d < -(TRAXX_COURSE_WRAP >> 1)) d += TRAXX_COURSE_WRAP;
+/**
+  CourseWrapDelta: d folded mod the world (16384 units) into [-8192, 8192) (C's % truncates, as
+  JavaScript's does). `wrap` is the world's side in units: 64 N for a track format version 6
+  world of N cells (spec section 8.1, the nearest copy at W / 2).
+*/
+export function courseWrapDelta(d: number, wrap = TRAXX_COURSE_WRAP): number {
+  d %= wrap;
+  if (d >= wrap >> 1) d -= wrap;
+  else if (d < -(wrap >> 1)) d += wrap;
   return d;
 }
 
@@ -22,9 +26,9 @@ export function courseWrapDelta(d: number): number {
   A's nearest torus copy); if B' != B it crossed the seam, and piece 1 is the same leg anchored
   at B (A' -> B) so the end entering from the other edge shows.
 */
-export function courseJoinPieces(ax: number, ay: number, bx: number, by: number): [number, number, number, number][] {
-  const dx = courseWrapDelta(bx - ax);
-  const dy = courseWrapDelta(by - ay);
+export function courseJoinPieces(ax: number, ay: number, bx: number, by: number, wrap = TRAXX_COURSE_WRAP): [number, number, number, number][] {
+  const dx = courseWrapDelta(bx - ax, wrap);
+  const dy = courseWrapDelta(by - ay, wrap);
   const pieces: [number, number, number, number][] = [[ax, ay, ax + dx, ay + dy]];
   if (ax + dx === bx && ay + dy === by) return pieces;
   pieces.push([bx - dx, by - dy, bx, by]);

@@ -27,6 +27,12 @@ export class DocumentService extends Emitter<DocEvents> {
   /** The .TXX this track saves to in tracks/, or null until it has been saved. */
   savePath: string | null = null;
   modified = false;
+  /**
+    CTraxxDoc::m_sunDefaultsAcked (Traxx 1.7.2): Yes was answered to Write POD's "still Traxx's
+    defaults" question for this document. Reset whenever another document (or none) is set, as
+    Traxx resets it on File > New and in DeleteContents.
+  */
+  sunDefaultsAcked = false;
   private worker: WorkerClient;
   private app: AppState;
 
@@ -46,6 +52,7 @@ export class DocumentService extends Emitter<DocEvents> {
     this.doc = doc;
     this.savePath = savePath;
     this.modified = false;
+    this.sunDefaultsAcked = false;
     this.emit("opened", doc);
     this.emitTitle();
     this.app.emit("commands", undefined);
@@ -69,9 +76,12 @@ export class DocumentService extends Emitter<DocEvents> {
     this.emit("title", this.title);
   }
 
-  /** File > New; `mode` is File > New's terrain grid (OnNewDocument with m_newTerrainMode). */
-  async newTrack(mode = TERRAINMODE_CLASSIC8): Promise<void> {
-    const doc = await this.worker.call<TrackDocument>("doc.new");
+  /**
+    File > New; `mode` is File > New's terrain grid (OnNewDocument with m_newTerrainMode), `cells`
+    the world size (256, or 512 for a track format version 6 world, File > New > World Size).
+  */
+  async newTrack(mode = TERRAINMODE_CLASSIC8, cells = 256): Promise<void> {
+    const doc = await this.worker.call<TrackDocument>("doc.new", cells === 256 ? undefined : { cells });
     if (mode !== TERRAINMODE_CLASSIC8) setMode(doc.track, mode);
     this.set(doc, null);
   }
@@ -115,7 +125,7 @@ export class DocumentService extends Emitter<DocEvents> {
   async autosave(specialFile: boolean): Promise<string | null> {
     if (!this.doc || this.doc.viewOnly || !this.modified || !this.savePath) return null;
     const name = specialFile ? "TraxxAuto.txx" : this.savePath.split("/").pop()!;
-    const { path } = await this.worker.call<{ path: string; size: number }>("doc.saveTxx", { track: this.doc.track, fileName: name });
+    const { path } = await this.worker.call<{ path: string; size: number }>("doc.saveTxx", { track: this.doc.track, fileName: name, fromSi3: this.doc.carry.situationIsSi3 });
     return path;
   }
 
@@ -124,7 +134,7 @@ export class DocumentService extends Emitter<DocEvents> {
     if (this.doc.viewOnly) throw new Error("A POD opened with View POD is read-only. Import it as a track to edit it.");
     const name = fileName ?? this.savePath?.split("/").pop();
     if (!name) throw new Error("Choose a name first.");
-    const { path } = await this.worker.call<{ path: string; size: number }>("doc.saveTxx", { track: this.doc.track, fileName: name });
+    const { path } = await this.worker.call<{ path: string; size: number }>("doc.saveTxx", { track: this.doc.track, fileName: name, fromSi3: this.doc.carry.situationIsSi3 });
     this.savePath = path;
     this.modified = false;
     this.emit("saved", path);
@@ -138,7 +148,7 @@ export class DocumentService extends Emitter<DocEvents> {
   /** The current track as .TXX bytes. */
   txxBytes(): Promise<Uint8Array> {
     if (!this.doc) throw new Error("No track is open.");
-    return this.worker.call<Uint8Array>("doc.txxBytes", { track: this.doc.track });
+    return this.worker.call<Uint8Array>("doc.txxBytes", { track: this.doc.track, fromSi3: this.doc.carry.situationIsSi3 });
   }
 
   listTracks(): Promise<TrackListItem[]> {

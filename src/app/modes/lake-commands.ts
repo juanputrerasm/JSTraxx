@@ -8,9 +8,14 @@
   the Lake window's "Holds up to" is HoldsUpTo, a lake's deletion turns its falls into springs at
   its height (LakeDeleted, with Traxx's message), and the undo records the falls with the lakes.
 
+  Traxx 1.7.3: the lakes run their rule (the track's lakeRule, EDGE unless a viewed pod's .WTR was
+  built with the tile rule); a new lake's spill is measured under it; the Lake window's Problems box
+  says where a leak gets out and where the ground is exactly at the water's height.
+
   Also the lake guard every terrain edit passes (LakesRefuseTerrainEdit): an edit that gives a
   lake an error it did not have is put back, with Traxx's message.
 */
+import { cellsOf } from "../../core/traxx/world.ts";
 import type { ModeContext } from "./context.ts";
 import type { MenuItem } from "../../ui/shell/commands.ts";
 import type { TxxTrack, TxxLake } from "../../core/traxx/txx.ts";
@@ -20,8 +25,8 @@ import { lakeDialog } from "../../ui/dialogs/lake-dialog.ts";
 import { cG } from "../../core/traxx/veg.ts";
 import { buildLakeGround } from "../../core/traxx/surface.ts";
 import {
-  distinctHeights, trackLakes, lakeAt, lakeErrorText, lakeFitHeight, lakeHoldsUpTo, lakeMinHeight, lakeSpill, seedIndex,
-  LAKE_MAX_LAKES, LAKE_MAX_SEEDS, LAKE_NO_BASIN, LAKEERR_TOO_MANY, LAKEFLAG_REFLECTIVE, type LakesState,
+  distinctHeights, trackLakes, lakeAt, lakeMaxHeightFor, lakeMinHeightFor, lakeErrorText, lakeFitHeight, lakeHoldsUpTo, lakeMinHeight, lakeSpill, seedIndex,
+  LAKE_MAX_LAKES, LAKE_MAX_SEEDS, LAKE_NO_BASIN, LAKEERR_LAST, LAKEFLAG_REFLECTIVE, type LakesState,
 } from "../../core/traxx/lakes.ts";
 import { fallsLakeDeleted, fallsOnLake, trackNotches } from "../../core/traxx/falls.ts";
 
@@ -67,6 +72,8 @@ export function lakeCommands(ctx: ModeContext, tile: () => [number, number] | nu
       minHeight: () => lakeMinHeight(buildLakeGround(t), t.waterLevel4, lake, trackNotches(t), idx),
       distinctHeights: () => distinctHeights(t.lakes, t.waterLevel4),
       capacity: () => lakeHoldsUpTo(buildLakeGround(t), t.lakes, lakesNow(t), t.waterLevel4, idx),
+      heightRange: () => { const g = buildLakeGround(t); return [lakeMinHeightFor(g), lakeMaxHeightFor(g)]; },
+      cells: () => cellsOf(t),
     });
     if (!ok) {
       if (creating) t.lakes.splice(idx, 1);
@@ -94,10 +101,12 @@ export function lakeCommands(ctx: ModeContext, tile: () => [number, number] | nu
     const [x, z] = at;
     const g = buildLakeGround(t);
     const tmap = lakesNow(t).tmap;
-    const s = lakeSpill(g, tmap, t.waterLevel4, x, z, -1);
+    // (under the track's lake rule: the notch input carries it)
+    const rule = trackNotches(t);
+    const s = lakeSpill(g, tmap, t.waterLevel4, x, z, -1, rule);
     // (a new lake owns no notch yet: FitHeight without one, as Traxx's lake index is past the list)
     if (s === LAKE_NO_BASIN) {
-      if (t.waterLevel4 > 0 && lakeSpill(g, tmap, 0, x, z, -1) !== LAKE_NO_BASIN) await alertDialog("Traxx", "This square drains into the main water.");
+      if (t.waterLevel4 !== 0 && lakeSpill(g, tmap, 0, x, z, -1, rule) !== LAKE_NO_BASIN) await alertDialog("Traxx", "This square drains into the main water.");
       else await alertDialog("Traxx", "No basin here - the ground falls away.");
       return;
     }
@@ -140,7 +149,7 @@ export function lakeCommands(ctx: ModeContext, tile: () => [number, number] | nu
     const idx = here(), at = tile();
     if (idx < 0 || !at || !editable()) return;
     const lake = track().lakes[idx]!;
-    const si = seedIndex(track().lakes, idx, at[0], at[1]);
+    const si = seedIndex(track().lakes, idx, at[0], at[1], cellsOf(track()));
     if (si < 0 || lake.seeds.length <= 1) return;
     const rec = recordFields(track(), ["lakes"], "Remove Seed", { water: true });
     lake.seeds.splice(si, 1);
@@ -161,7 +170,7 @@ export function lakeCommands(ctx: ModeContext, tile: () => [number, number] | nu
       lake.seeds.pop();
       changed();
       let text = "That square cannot join this lake:";
-      for (let bit = 1; bit <= LAKEERR_TOO_MANY; bit <<= 1) if (gained & bit) text += `\n${lakeErrorText(bit)}`;
+      for (let bit = 1; bit <= LAKEERR_LAST; bit <<= 1) if (gained & bit) text += `\n${lakeErrorText(bit)}`;
       await alertDialog("Traxx", text);
       return;
     }
@@ -186,7 +195,7 @@ export function lakeCommands(ctx: ModeContext, tile: () => [number, number] | nu
     const idx = lakeAt(lakesNow(t), t.lakes, at[0], at[1]);
     if (idx >= 0) {
       const items: MenuItem[] = ["-", "ID_TERRAIN_EDITLAKE", "ID_TERRAIN_DELETELAKE"];
-      if (seedIndex(t.lakes, idx, at[0], at[1]) >= 0 && t.lakes[idx]!.seeds.length > 1) items.push("ID_TERRAIN_REMOVESEED");
+      if (seedIndex(t.lakes, idx, at[0], at[1], cellsOf(t)) >= 0 && t.lakes[idx]!.seeds.length > 1) items.push("ID_TERRAIN_REMOVESEED");
       return items;
     }
     const items: MenuItem[] = ["-", "ID_TERRAIN_CREATELAKE"];

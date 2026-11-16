@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { MsvcRand, generateTerrain } from "../src/core/edit/terrain-gen.ts";
-import { buildLighting, buildLte, sunPosition } from "../src/core/edit/lighting.ts";
+import { buildLighting, engineY0, trackLighting } from "../src/core/edit/lighting.ts";
 import { optimalPalette } from "../src/core/edit/optimal-palette.ts";
 import { newTrackDocument } from "../src/core/doc/new-track.ts";
 
@@ -20,18 +20,30 @@ test("generated terrain is repeatable and stays in range", () => {
   assert.ok(f.some((v) => v !== f[0]));
 });
 
-test("flat ground at noon is lit evenly; a lit slope faces the sun", () => {
-  const raw = new Uint8Array(65536).fill(100);
-  const lte = buildLte(raw, 100, 200, 0);
-  assert.equal(lte[0], 200);
-  assert.equal(lte[7 * 500], 200);
-  assert.equal(buildLte(raw, 120, 120, 2)[7 * 9], 120);
-  assert.deepEqual([sunPosition([0, -64000, 0]), sunPosition([0, -46333, -46333]), sunPosition([46333, -46333, 0])], [0, 1, 4]);
+test("BuildLighting writes the LVL values verbatim and bakes the engine formula (Traxx 1.7.2)", () => {
   const doc = newTrackDocument();
-  buildLighting(doc.track, { minLight: 100, maxLight: 200, sun: 2, altBias: 0, shadow: 50 }, () => null);
-  assert.deepEqual(doc.track.sun!.vector, [-46333, -46333, 0]);
-  assert.equal(doc.track.sun!.shadowIntensity, 2 * 200 * 50);
-  assert.equal(doc.track.lte!.length, 65536 * 7);
+  assert.deepEqual(trackLighting(doc.track), { sun: [-46333, -46333, 0], ambient: 32768 });
+  const before = { ...doc.track.sun! };
+  // An arbitrary sun is kept exactly: no snapping to a preset, no normalising, no range check.
+  buildLighting(doc.track, [19585, -59396, 19585], 40960);
+  assert.deepEqual(doc.track.sun!.vector, [19585, -59396, 19585]);
+  assert.equal(doc.track.sun!.shadowIntensity, 40960);
+  // The boss light is left as it was.
+  assert.deepEqual(doc.track.sun!.position, before.position);
+  assert.equal(doc.track.sun!.intensity, before.intensity);
+  const lte = doc.track.lte!;
+  assert.equal(lte.length, 65536 * 7);
+  // Flat ground (raw 100 everywhere): every ground byte the same, the other six 0.
+  assert.ok(Array.from({ length: 65536 }, (_, c) => lte[c * 7]).every((v) => v === lte[0]));
+  assert.ok(lte.every((v, i) => i % 7 === 0 || v === 0));
+  // The E preset on flat ground with ambient 32768 is 218 (lighttest test_flat_e_preset); no 8..255 clamp.
+  buildLighting(doc.track, [-46333, -46333, 0], 32768);
+  assert.equal(doc.track.lte![0], 218);
+  buildLighting(doc.track, [0, 46333, 0], 0);
+  assert.equal(doc.track.lte![0], 0);
+  // Classic 8-bit heights reach the engine as 128 * raw.
+  doc.track.heights[5 * 256 + 3] = 10;
+  assert.equal(engineY0(doc.track)[5 * 256 + 3], 1280);
 });
 
 test("the optimal palette keeps the system and standard colours", () => {

@@ -15,6 +15,7 @@ import { traxxLightDefaults, type TraxxFog, type TraxxLight } from "../../core/t
 import type { FogBox } from "../../core/edit/fog-properties.ts";
 import { fogPropertiesDialog } from "./fog-dialog.ts";
 import { LIGHT_RADIUS_MAX } from "../../core/view/light-pool.ts";
+import { ENGINELIGHT_RADIUS_MIN, lightPropertiesWarning, lightRadiusNeedsRaise, type LightGuideContext } from "../../core/traxx/light-props.ts";
 import { GP_HEIGHT, GP_MASS, GP_NAMES, GP_ANGLE, GP_PITCH, GP_TILT, GP_SIZEH, GP_SIZEL, GP_SIZEW, parses, type GroupFields, type GroupResult } from "../../core/edit/group-properties.ts";
 
 const TYPEIDX_LIGHT = 12;
@@ -40,21 +41,33 @@ export async function stockSoundsDialog(continuous: boolean, current: string): P
   return r === "ok" && select.value ? select.value.toUpperCase() : null;
 }
 
-/** IDD_LIGHT_PROPERTIES; `preview` shows the pool as the fields change. Resolves with the light, or null. */
-export async function lightPropertiesDialog(light: TraxxLight, preview: (l: TraxxLight) => void): Promise<TraxxLight | null> {
+/**
+  IDD_LIGHT_PROPERTIES; `preview` shows the pool, glow and cone as the fields change (Traxx 1.8.0:
+  every field the view draws, the glow radius, cone radii, colour and allWx included). `ctx` is
+  GetLightGuideContext's, for the warning line. Resolves with the light, or null.
+*/
+export async function lightPropertiesDialog(light: TraxxLight, preview: (l: TraxxLight) => void, ctx: LightGuideContext): Promise<TraxxLight | null> {
   const clampBright = (v: number) => Math.min(LIGHT_BRIGHT_MAX, Math.max(LIGHT_BRIGHT_MIN, v));
-  const radius = num(light.radius), bright = num(clampBright(light.bright)), height = num(light.heightOffset), aim = num(light.aimOffset);
+  // OnInitDialog (Traxx 1.8.0): a file radius under 1 (which the engine cannot draw) becomes 1, and the warning line says so.
+  const radiusFixed = lightRadiusNeedsRaise(light);
+  const radius = num(radiusFixed ? ENGINELIGHT_RADIUS_MIN : light.radius), bright = num(clampBright(light.bright)), height = num(light.heightOffset), aim = num(light.aimOffset);
   const glowRadius = num(light.glowRadius), coneLen = num(light.coneLength), coneRim = num(light.coneRimRadius), coneBase = num(light.coneBaseRadius);
   const toHex = (v: number) => Math.max(0, Math.min(255, Math.trunc(v * 255 + 0.5))).toString(16).padStart(2, "0");
   const colour = el("input", { type: "color", value: `#${toHex(light.r)}${toHex(light.g)}${toHex(light.b)}` }) as HTMLInputElement;
   const mode = stop(el("select", {}, ...["0 - none (still lights)", "1 - glow sprite", "2 - glow sprite + cone"].map((t, i) => el("option", { value: i }, t)))) as HTMLSelectElement;
   mode.value = String(light.glowMode >= 0 && light.glowMode <= 2 ? light.glowMode : 0);
+  // IDC_LIGHTALLWX (Traxx 1.8.0, a114974): enabled only while there is a glow; the value is kept and saved while greyed.
+  const allWx = el("input", { type: "checkbox", checked: light.allWx !== 0 }) as HTMLInputElement;
+  const allWxRow = el("label", { class: "opt-row" }, allWx, "Glow and cone in all weathers (stadium lights)");
+  // IDC_LIGHTWARN: the one warning line.
+  const warn = el("p", { class: "hint" }, "Radius = wide.  Height = free.");
   const coneBox = el("fieldset", { class: "opt-group" }, el("legend", {}, "Cone"),
     row("Length (ft)", coneLen), row("Radius at far end (ft)", coneRim), row("Radius at source (ft)", coneBase));
   const enable = () => {
     const m = Number(mode.value);
     coneBox.disabled = m !== 2;
     glowRadius.disabled = m === 0;
+    allWx.disabled = m === 0;
   };
   // ReadDlgFloat: an empty or half-typed field keeps the last value; clamped for the preview.
   const read = (i: HTMLInputElement, fallback: number, lo: number, hi: number) => {
@@ -62,26 +75,50 @@ export async function lightPropertiesDialog(light: TraxxLight, preview: (l: Trax
     if (!t || !Number.isFinite(Number(t))) return fallback;
     return Math.min(hi, Math.max(lo, Number(t)));
   };
-  const previewNow = () => preview({
+  /* UpdateWarning (Traxx 1.8.0). */
+  const updateWarning = () => {
+    const t = radius.value.trim();
+    const rad = t === "" ? (radiusFixed ? ENGINELIGHT_RADIUS_MIN : light.radius) : Number.parseFloat(t) || 0;
+    const m = Number(mode.value);
+    warn.textContent = lightPropertiesWarning(rad, {
+      glowMode: m,
+      coneLength: read(coneLen, light.coneLength, 0, LIGHT_RADIUS_MAX),
+      coneRimRadius: read(coneRim, light.coneRimRadius, 0, LIGHT_RADIUS_MAX),
+      coneBaseRadius: read(coneBase, light.coneBaseRadius, 0, LIGHT_RADIUS_MAX),
+    }, ctx, radiusFixed);
+  };
+  const fromHex = (c: string): [number, number, number] => [parseInt(c.slice(1, 3), 16) / 255, parseInt(c.slice(3, 5), 16) / 255, parseInt(c.slice(5, 7), 16) / 255];
+  const previewNow = () => { updateWarning(); const [cr, cg, cb] = fromHex(colour.value); preview({
     ...light,
+    r: cr, g: cg, b: cb,
+    allWx: allWx.checked ? 1 : 0,
+    glowRadius: read(glowRadius, light.glowRadius, 0, LIGHT_RADIUS_MAX),
+    coneRimRadius: read(coneRim, light.coneRimRadius, 0, LIGHT_RADIUS_MAX),
+    coneBaseRadius: read(coneBase, light.coneBaseRadius, 0, LIGHT_RADIUS_MAX),
     radius: read(radius, light.radius, 0, LIGHT_RADIUS_MAX),
     bright: read(bright, light.bright, LIGHT_BRIGHT_MIN, LIGHT_BRIGHT_MAX),
     heightOffset: read(height, light.heightOffset, -LIGHT_RADIUS_MAX, LIGHT_RADIUS_MAX),
     coneLength: read(coneLen, light.coneLength, 0, LIGHT_RADIUS_MAX),
     aimOffset: read(aim, light.aimOffset, -LIGHT_RADIUS_MAX, LIGHT_RADIUS_MAX),
     glowMode: Number(mode.value),
-  });
-  for (const i of [radius, bright, height, coneLen, aim]) i.addEventListener("input", previewNow);
+  }); };
+  for (const i of [radius, bright, height, coneLen, aim, glowRadius, coneRim, coneBase]) i.addEventListener("input", previewNow);
+  colour.addEventListener("input", previewNow);
+  allWx.addEventListener("change", previewNow);
   mode.addEventListener("change", () => { enable(); previewNow(); });
   const defaults = el("button", { type: "button", onclick: () => {
     const d = traxxLightDefaults();
     radius.value = String(d.radius); height.value = String(d.heightOffset); glowRadius.value = String(d.glowRadius);
     coneLen.value = String(d.coneLength); coneRim.value = String(d.coneRimRadius); coneBase.value = String(d.coneBaseRadius);
     bright.value = String(d.bright); aim.value = String(d.aimOffset); mode.value = String(d.glowMode); colour.value = "#ffffff";
+    allWx.checked = d.allWx !== 0;
     enable();
     previewNow();
   } }, "Defaults");
   enable();
+  updateWarning();
+  // ...and a radius just raised from under 1 is shown at once (the view still holds the file's).
+  if (radiusFixed) previewNow();
   let out: TraxxLight | null = null;
   const r = await openDialog({
     title: "Light Properties",
@@ -98,20 +135,24 @@ export async function lightPropertiesDialog(light: TraxxLight, preview: (l: Trax
         row("Visible source", mode),
         row("Glow radius (ft)", glowRadius),
         el("p", { class: "hint" }, "Mode 0 is not off - it hides the bulb, not the pool."),
-        el("p", { class: "hint" }, "Radius = wide.  Height = free.")),
+        warn),
       coneBox,
+      allWxRow,
       defaults,
     ],
     buttons: [{ label: "OK", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }],
     beforeClose: async (v) => {
       if (v !== "ok") return true;
       const n = (i: HTMLInputElement) => Number(i.value);
-      if (!Number.isFinite(n(radius)) || n(radius) < 0 || n(radius) > LIGHT_RADIUS_MAX) { await alertDialog("Light Properties", `Please enter a number between 0 and ${LIGHT_RADIUS_MAX}.`); return false; }
+      // DDV 1..4095 (Traxx 1.8.0): a radius under 1 gets no pool in the game (older games divide by zero).
+      if (!Number.isFinite(n(radius)) || n(radius) < ENGINELIGHT_RADIUS_MIN || n(radius) > LIGHT_RADIUS_MAX) { await alertDialog("Light Properties", `Please enter a number between ${ENGINELIGHT_RADIUS_MIN} and ${LIGHT_RADIUS_MAX}.`); return false; }
       if (!Number.isFinite(n(bright)) || n(bright) < LIGHT_BRIGHT_MIN || n(bright) > LIGHT_BRIGHT_MAX) { await alertDialog("Light Properties", `Please enter a number between ${LIGHT_BRIGHT_MIN} and ${LIGHT_BRIGHT_MAX}.`); return false; }
       const pos = (i: HTMLInputElement) => Math.max(0, Number(i.value) || 0);
       const c = colour.value;
       out = {
-        radius: pos(radius), heightOffset: Number(height.value) || 0, glowMode: Number(mode.value), glowRadius: pos(glowRadius),
+        // The engine's thirteenth 'L' field: 0 / 1, saved even while greyed out at glow mode 0.
+        allWx: allWx.checked ? 1 : 0,
+        radius: n(radius), heightOffset: Number(height.value) || 0, glowMode: Number(mode.value), glowRadius: pos(glowRadius),
         coneLength: pos(coneLen), coneRimRadius: pos(coneRim), coneBaseRadius: pos(coneBase), bright: n(bright), aimOffset: Number(aim.value) || 0,
         r: parseInt(c.slice(1, 3), 16) / 255, g: parseInt(c.slice(3, 5), 16) / 255, b: parseInt(c.slice(5, 7), 16) / 255,
       };
@@ -134,6 +175,8 @@ export interface ObjectDialogOptions {
   preview: (f: ObjectFields) => void;
   /** The light pool's preview while Light Properties is open or after it closed. */
   previewLight: (l: TraxxLight, isLight: boolean) => void;
+  /** GetLightGuideContext (Traxx 1.8.0): what Light Properties' warning line reads. */
+  lightContext: LightGuideContext;
   /** The fog volume's preview (RefreshFogPreview): the working copy, and whether the Type is Fog. */
   previewFog: (fog: TraxxFog, isFog: boolean) => void;
   /** The box as the fields have it now (its Size and height are applied live), for Fog Properties. */
@@ -189,7 +232,7 @@ export async function objectPropertiesDialog(o: ObjectDialogOptions): Promise<Ob
   ];
   const soundSel = [...soundButtons(true, soundCont), ...soundButtons(false, soundImpact)];
   const lightButton = el("button", { type: "button", onclick: async () => {
-    const l = await lightPropertiesDialog(f.light, (p) => o.previewLight(p, true));
+    const l = await lightPropertiesDialog(f.light, (p) => o.previewLight(p, true), o.lightContext);
     if (l) f.light = l;
     o.previewLight(f.light, Number(type.value) === TYPEIDX_LIGHT);
   } }, "Light...");

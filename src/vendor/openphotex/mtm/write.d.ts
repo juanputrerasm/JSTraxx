@@ -90,7 +90,8 @@ export interface Mtm2SitBox extends Mtm2SitRamp {
     loopSound?: string;
     /**
      * The `L` block's twelve fields (rad, hgt, r, g, b, glow, glowRad, coneLen, coneRim, coneBase,
-     * bright, aimOff), written after the sounds when given. Community Patch 3 reads it on type 12.
+     * bright, aimOff), or thirteen with allWx (Community Patch 4 beta 0.53 hotfix 4, Traxx 1.8; the header then names
+     * it), written after the sounds when given. Community Patch 3 reads it on type 12.
      */
     light?: readonly SitValue[];
     /** Community Patch 4's `F` block (type 14 fog volumes), written after the sounds and any light block. */
@@ -264,8 +265,8 @@ export declare function writeTty(entries: readonly {
 }[]): Uint8Array;
 /** A count-prefixed side file with no records (.TTY, .PUP, .ANI, .TDF, .DEF, .NAV). */
 export declare function writeEmptyList(): Uint8Array;
-export declare function emptyGroundBoxGrids(gridSize?: number): Record<"RA0" | "RA1" | "RA2" | "RA3" | "RA4" | "RA5" | "CL0" | "CL1" | "CL2", Uint8Array>;
-export declare function buildMtm2Lte(raw: Uint8Array, sun: readonly [number, number, number]): Uint8Array;
+export declare function emptyGroundBoxGrids(gridSize?: number, depth?: 8 | 16): Record<"RA0" | "RA1" | "RA2" | "RA3" | "RA4" | "RA5" | "CL0" | "CL1" | "CL2", Uint8Array>;
+export declare function buildMtm2Lte(raw: ArrayLike<number>, sun: readonly [number, number, number], cells?: number): Uint8Array;
 /** The MTM2 2.1 truck manifest's fields, in the shape parseMtmTrkLines reads back. */
 export interface Mtm2Trk {
     truckName: string;

@@ -1,8 +1,6 @@
 /*
-  The Special menu's smaller dialogs and Statistics:
+  The Special menu's smaller dialogs and Statistics (Lighting is lighting-dialog.ts):
 
-    Lighting      IDD_LIGHTING (Traxx/LightingDlg.cpp): Dark, Bright, altitude bias and shadow
-                  sliders in percent, and the sun position
     Weather Mask  IDD_WEATHERMASK (WeatherMaskDlg.cpp): the nine weathers a race may get
     Track Palette IDD_TRACKPALETTE (TrackPaletteDlg.cpp): the 16 x 16 palette, a click shows an
                   entry; New builds the optimised palette, Open and Save take .PAL or .ACT
@@ -14,38 +12,6 @@ import { CommandRegistry } from "../shell/commands.ts";
 import { Toolbar } from "../shell/toolbar.ts";
 import { alertDialog, openDialog } from "../shell/dialog.ts";
 import { readActFile, readPalFile, writeActFile, writePalFile } from "../../core/traxx/palette-file.ts";
-import type { LightingSettings } from "../../core/edit/lighting.ts";
-
-/** OnEditLighting's dialog. `start` holds Traxx's stored values (lights 0..255, percentages). */
-export async function lightingDialog(start: LightingSettings): Promise<LightingSettings | null> {
-  // The sliders run 0..100 from the bottom; a light is shown as a percentage of 255.
-  const slider = (value: number) => el("input", { type: "range", min: 0, max: 100, value, class: "lit-slider", "aria-orientation": "vertical" }) as HTMLInputElement;
-  const dark = slider(Math.trunc((100 * start.minLight + 127) / 255));
-  const bright = slider(Math.trunc((100 * start.maxLight + 127) / 255));
-  const bias = slider(start.altBias), shadow = slider(start.shadow);
-  const label = (text: string, s: HTMLInputElement) => { const l = el("span", { class: "lit-label" }); const set = () => { l.textContent = `${text}\n${s.value}%`; }; set(); s.addEventListener("input", set); return l; };
-  // Dark never above Bright: moving one pushes the other (OnVScroll).
-  dark.addEventListener("input", () => { if (Number(bright.value) < Number(dark.value)) { bright.value = dark.value; bright.dispatchEvent(new Event("input")); } });
-  bright.addEventListener("input", () => { if (Number(dark.value) > Number(bright.value)) { dark.value = bright.value; dark.dispatchEvent(new Event("input")); } });
-  const suns = ["Noon", "N", "E", "S", "W"].map((n, i) => el("input", { type: "radio", name: "lit-sun", value: i, checked: start.sun === i, title: n, "aria-label": n }) as HTMLInputElement);
-  const column = (l: HTMLElement, s: HTMLInputElement) => el("div", { class: "lit-col" }, l, s);
-  const r = await openDialog({
-    title: "Lighting",
-    body: el("div", { class: "lit" },
-      column(label("Dark", dark), dark), column(label("Bright", bright), bright), column(label("Alt. bias", bias), bias), column(label("Shadow", shadow), shadow),
-      el("fieldset", { class: "opt-group lit-sun" }, el("legend", {}, "Sun Pos."),
-        el("div", { class: "lit-compass" }, el("span", {}), suns[1]!, el("span", {}), suns[4]!, suns[0]!, suns[2]!, el("span", {}), suns[3]!, el("span", {})))),
-    buttons: [{ label: "OK", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }],
-  });
-  if (r !== "ok") return null;
-  return {
-    minLight: Math.trunc((255 * Number(dark.value)) / 100),
-    maxLight: Math.trunc((255 * Number(bright.value)) / 100),
-    altBias: Number(bias.value),
-    shadow: Number(shadow.value),
-    sun: Math.max(0, suns.findIndex((s) => s.checked)),
-  };
-}
 
 const WEATHERS = ["Clear", "Cloudy", "Foggy", "Dense Fog", "Rain", "Snow", "Dusk", "Night", "Pitch Black"];
 
@@ -131,17 +97,31 @@ export async function trackPaletteDialog(app: AppState, registry: CommandRegistr
   return r === "ok" ? pe : null;
 }
 
-export interface TrackStats { textures: number; models: number; modelTextures: number; segments: number; groundBoxes: number; objects: number; ramps: number; moving: number; lights: number; sounds: number; /** IDC_NFOGS (Traxx 1.7): the Fog objects. */ fogs?: number }
+export interface TrackStats {
+  textures: number; models: number; modelTextures: number; segments: number; groundBoxes: number; objects: number; ramps: number; moving: number; lights: number; sounds: number;
+  /** IDC_NFOGS (Traxx 1.7): the Fog objects. */ fogs?: number;
+  /** The document's object limit (v6.ts objectLimit): 4096, or 16,384 on a version 6 track. */ objectsMax?: number;
+  /**
+    Traxx 1.8.0 (35b087b) "Fog slots (game max 64, shared)": the waterfall mist volumes (one per
+    landing), the total, and how many the game drops (EngineFogSlotOverflow).
+  */
+  mist?: number; fogSlots?: number; fogDropped?: number;
+}
 
 /** IDD_STATS. */
 export async function statsDialog(s: TrackStats): Promise<void> {
+  // Traxx 1.8.0: "max 249" by Course segments; the fog rows in their own group.
   const rows: [string, number, string][] = [
     ["Textures", s.textures, "max 1024"], ["Models", s.models, "max 4096"], ["Model Textures", s.modelTextures, "max 4096"],
-    ["Course segments", s.segments, ""], ["Ground Boxes", s.groundBoxes, "max 2048"], ["Scenery Objects", s.objects, "max 4096"],
-    ["Ramps", s.ramps, "(100)"], ["Moving", s.moving, "(100)"], ["Lights", s.lights, "(100)"], ...(s.fogs !== undefined ? [["Fog", s.fogs, "(50)"] as [string, number, string]] : []), ["Sounds", s.sounds, "(512)"],
+    ["Course segments", s.segments, "max 249"], ["Ground Boxes", s.groundBoxes, "max 2048"], ["Scenery Objects", s.objects, `max ${s.objectsMax ?? 4096}`],
+    ["Ramps", s.ramps, "(100)"], ["Moving", s.moving, "(100)"], ["Lights", s.lights, "(100)"],
   ];
+  const table = (r: [string, number, string][]) => el("table", { class: "stats" }, ...r.map(([n, v, max]) => el("tr", {}, el("th", {}, n), el("td", {}, String(v)), el("td", { class: "hint" }, max))));
+  const fogs = s.fogs ?? 0, mist = s.mist ?? 0, dropped = s.fogDropped ?? 0;
+  const fogGroup = el("fieldset", { class: "stats-group" }, el("legend", {}, "Fog slots (game max 64, shared)"),
+    table([["Fog boxes", fogs, "(max 64)"], ["Waterfall mist", mist, "(1 per landing)"], ["Total", s.fogSlots ?? fogs + mist, dropped > 0 ? `/ 64 - ${dropped} dropped` : "/ 64"]]));
   await openDialog({
     title: "Track Statistics",
-    body: el("table", { class: "stats" }, ...rows.map(([n, v, max]) => el("tr", {}, el("th", {}, n), el("td", {}, String(v)), el("td", { class: "hint" }, max)))),
+    body: el("div", {}, table(rows), fogGroup, table([["Sounds", s.sounds, "(512)"]])),
   });
 }

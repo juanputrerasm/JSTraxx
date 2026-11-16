@@ -13,6 +13,7 @@ import type { DocumentService } from "./document-service.ts";
 import type { WorkerClient } from "../shared/worker-client.ts";
 import type { CommandRegistry } from "../ui/shell/commands.ts";
 import { openDialog } from "../ui/shell/dialog.ts";
+import { trackWaterRange } from "../core/traxx/v6.ts";
 import { componentsDialog } from "../ui/dialogs/components-dialog.ts";
 import { applyComponents, componentsOf } from "../core/doc/components.ts";
 import { recordFields } from "../core/edit/record.ts";
@@ -23,7 +24,7 @@ import type { ModelItem, ModelLoad } from "../worker/model-handlers.ts";
 const BACKDROP_PATTERNS = ["*DROP*.BIN", "*DRP*.BIN", "*FIXD*.BIN", "ARENA*.BIN"];
 
 const TRACK_FIELDS = ["comment", "trackName", "prefix", "trackType", "waterLevel4", "ambientSound", "logoBmp", "mapBmp", "infoBmp", "uiHd",
-  "detailExt", "detailMap", "maskExt", "maskMap", "music", "infoText", "backdropName", "extraBackdrops", "arena", "palette", "fogMap"] as const;
+  "detailExt", "detailMap", "maskExt", "maskMap", "waterDetailExt", "waterDetailMap", "waterMaskExt", "waterMaskMap", "music", "infoText", "backdropName", "extraBackdrops", "arena", "palette", "fogMap"] as const;
 
 export function bindComponents(registry: CommandRegistry, app: AppState, editor: Editor, docs: DocumentService, worker: WorkerClient): void {
   const chooseBackdrop = async (): Promise<{ load: ModelLoad; isArena: boolean } | null> => {
@@ -70,6 +71,9 @@ export function bindComponents(registry: CommandRegistry, app: AppState, editor:
       prefix: t.prefix,
       detailFromPod: doc.carry.detailFromPod,
       maskFromPod: doc.carry.maskFromPod,
+      waterDetailFromPod: doc.carry.waterDetailFromPod,
+      waterMaskFromPod: doc.carry.waterMaskFromPod,
+      waterRange: trackWaterRange(t, doc.carry.situationIsSi3),
       chooseBackdrop,
     });
     if (!result || doc.viewOnly || editor.doc !== doc) return;

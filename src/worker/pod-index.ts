@@ -43,7 +43,10 @@ export async function mountPod(name: string, source: PodSource): Promise<Mount> 
   };
 }
 
-/* Track scripts, including the Community Patch 3 .SI2 spelling (same content as .SIT). */
+/*
+  Track scripts, including the Community Patch 3 .SI2 spelling (same content as .SIT) and track
+  format version 6's .SI3 (spec 5.1): each is its own track, even beside a .SIT or .SI2 of the same stem.
+*/
 export function findSitEntries(archive: PodArchive): PodEntry[] {
-  return archive.entries.filter((e) => e.title.endsWith(".SIT") || e.title.endsWith(".SI2"));
+  return archive.entries.filter((e) => e.title.endsWith(".SIT") || e.title.endsWith(".SI2") || e.title.endsWith(".SI3"));
 }

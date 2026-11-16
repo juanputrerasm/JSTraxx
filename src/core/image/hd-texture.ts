@@ -2,7 +2,10 @@
   Port of Traxx HDTexture.cpp: the size policy for HD art and the conversion of a true-colour
   image to the legacy 8-bit tile (RAW + ACT) the rest of Traxx works with.
 
-  - HDTexValidateDimNamed: square, power of two, 32 to 1024.
+  - HDTexValidateDimNamed: square, power of two, 32 to 2048 (Traxx 1.7.2 follows the engine's
+    raise from 1024; the legacy 8-bit .RAW side, POD1_RAW_MAX_SIDE, stays 1024).
+  - HDTexDetailMapVerdict / HDTexDetailCostLine / HDTexGetInfoMem: the detail normal (_DTL,
+    _WDTL) size checks shared by Track Components and Write POD.
   - HDTexLegacySize: 256 when the source is at least 256, else 64.
   - Terrain art gets a border ring of size/32 (at least 1): the image is box-filtered into
     the interior and the ring clamps out from its edge. Model, sky and backdrop art is a
@@ -11,7 +14,7 @@
 */
 
 export const HDTEX_MIN_DIM = 32;
-export const HDTEX_MAX_DIM = 1024;
+export const HDTEX_MAX_DIM = 2048;
 export const HDTEX_COMPOSITE_MAX = 8192;
 export const HDTEX_LEGACY_MAX = 256;
 export const HDTEX_MAX_STEM = 23;
@@ -22,9 +25,111 @@ export type HdTexClass = "terrain" | "model";
 export function hdDimensionRefusal(title: string | null, w: number, h: number): string | null {
   const who = title ? `"${title}"` : "The texture";
   if (w !== h) return `${who} is ${w}x${h} - it must be SQUARE.\n\nTraxx will not resample it for you: crop or pad it in your paint program so you decide what gets lost.`;
-  if (!(w > 0 && (w & (w - 1)) === 0)) return `${who} is ${w}x${h} - the size must be a power of two (32, 64, 128, 256, 512 or 1024).`;
+  if (!(w > 0 && (w & (w - 1)) === 0)) return `${who} is ${w}x${h} - the size must be a power of two (${hdSizeList()}).`;
   if (w < HDTEX_MIN_DIM || w > HDTEX_MAX_DIM) return `${who} is ${w}x${h} - the supported range is ${HDTEX_MIN_DIM} to ${HDTEX_MAX_DIM}.`;
   return null;
+}
+
+/** The power-of-two sizes from HDTEX_MIN_DIM to HDTEX_MAX_DIM, "32, 64, ... or 2048" (built from the limits). */
+export function hdSizeList(): string {
+  const sizes: number[] = [];
+  for (let d = HDTEX_MIN_DIM; d <= HDTEX_MAX_DIM; d *= 2) sizes.push(d);
+  return sizes.length > 1 ? `${sizes.slice(0, -1).join(", ")} or ${sizes[sizes.length - 1]}` : String(sizes[0]);
+}
+
+/*
+  DETAIL NORMAL MAPS (_DTL terrain, _WDTL water). Looser than a texture: the engine takes 32..2048
+  and loads a non-square or non-power-of-two map with a warning. Over HDTEX_MAX_DIM it refuses the
+  map and silently uses its generated one, so the verdict is shared by Track Components and the
+  Write POD check.
+*/
+export const HDTEX_DTL_OK = 0;
+/** w or h over HDTEX_MAX_DIM: the engine ignores the map. */
+export const HDTEX_DTL_TOOBIG = 1;
+/** Not square or not a power of two: loads, with a warning. */
+export const HDTEX_DTL_ODD = 2;
+/** Below HDTEX_MIN_DIM. */
+export const HDTEX_DTL_TINY = 3;
+/** Plenty for a tiling detail normal. */
+export const HDTEX_DTL_RECOMMENDED = 256;
+
+/** HDTexDetailMapVerdict: TOOBIG first, so a 3000x100 map is reported as what stops it working. */
+export function hdDetailMapVerdict(w: number, h: number): number {
+  if (w > HDTEX_MAX_DIM || h > HDTEX_MAX_DIM) return HDTEX_DTL_TOOBIG;
+  if (w < HDTEX_MIN_DIM || h < HDTEX_MIN_DIM) return HDTEX_DTL_TINY;
+  if (w !== h || !(w > 0 && (w & (w - 1)) === 0)) return HDTEX_DTL_ODD;
+  return HDTEX_DTL_OK;
+}
+
+/** HDTexDetailCostLine: the HD arena (w * h * 4 bytes) and video memory with mips (a third more). */
+export function hdDetailCostLine(w: number, h: number): string {
+  const arena = (w * h * 4) / 1048576;
+  return `A ${w}x${h} detail map takes about ${arena.toFixed(1)} MB of the engine's HD texture budget (hdTextureBudgetMB) and about ${((arena * 4) / 3).toFixed(1)} MB of video memory with mips.`;
+}
+
+/**
+  HDTexGetInfoMem: the size of a PNG or TGA held in memory, told by its bytes (a PNG signature,
+  else a TGA header), or the reason it cannot be read. `nameHint` names it in the message.
+*/
+export function hdGetInfoMem(bytes: Uint8Array, nameHint = ""): { width: number; height: number } | { err: string } {
+  if (bytes.length < 26) return { err: `Cannot read the image - only ${bytes.length} bytes.` };
+  const png = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+  if (png) {
+    const d = hdDimensions("PNG", bytes);
+    if (d && d.width > 0 && d.height > 0) return d;
+    return { err: `"${nameHint || "the image"}" has a damaged PNG header.` };
+  }
+  // A TGA: no colour map or a valid one, a type stb reads, a sane size.
+  const type = bytes[2]!;
+  if ([1, 2, 3, 9, 10, 11].includes(type)) {
+    const d = hdDimensions("TGA", bytes);
+    if (d && d.width > 0 && d.height > 0) return d;
+  }
+  return { err: `"${nameHint || "the image"}" is not a PNG or TGA image.` };
+}
+
+/**
+  HDTexResampleDetailMem's pixels: a detail map reduced (or stretched) to size x size. Each texel
+  is the exact area-weighted mean of the source rectangle it covers, two separable passes in
+  double, rounded at the end. No renormalising: R, G are the normal's xy and B the ambient
+  occlusion, so a plain mean of RGB is what a mip level of the same map would hold. A non-square
+  source comes out square (the engine maps the whole image onto one repeat anyway). `rgb` is
+  tightly packed 24-bit; the result too.
+*/
+export function resampleDetailRgb(rgb: Uint8Array, sw: number, sh: number, size: number): Uint8Array {
+  const dst = new Uint8Array(size * size * 3);
+  const hrow = new Float64Array(size * 3), vacc = new Float64Array(size * 3);
+  const fx = sw / size, fy = sh / size;
+  for (let y = 0; y < size; y++) {
+    const y0 = y * fy, y1 = (y + 1) * fy;
+    let vtot = 0;
+    vacc.fill(0);
+    for (let r = Math.trunc(y0); r < sh && r < y1; r++) {
+      const wy = (r + 1 < y1 ? r + 1 : y1) - (r > y0 ? r : y0);
+      if (wy <= 0) continue;
+      const row = r * sw * 3;
+      for (let x = 0; x < size; x++) {
+        const x0 = x * fx, x1 = (x + 1) * fx;
+        for (let c = 0; c < 3; c++) {
+          let acc = 0, tot = 0;
+          for (let i = Math.trunc(x0); i < sw && i < x1; i++) {
+            const w = (i + 1 < x1 ? i + 1 : x1) - (i > x0 ? i : x0);
+            if (w <= 0) continue;
+            acc += w * rgb[row + i * 3 + c]!;
+            tot += w;
+          }
+          hrow[x * 3 + c] = tot > 0 ? acc / tot : 0;
+        }
+      }
+      for (let i = 0; i < size * 3; i++) vacc[i]! += wy * hrow[i]!;
+      vtot += wy;
+    }
+    for (let i = 0; i < size * 3; i++) {
+      const acc = vtot > 0 ? vacc[i]! / vtot : 0;
+      dst[y * size * 3 + i] = acc + 0.5 > 255 ? 255 : Math.trunc(acc + 0.5);
+    }
+  }
+  return dst;
 }
 
 export function legacySize(srcSize: number): number {

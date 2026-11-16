@@ -9,8 +9,10 @@ import type { CommandRegistry } from "../ui/shell/commands.ts";
 import type { TrackView } from "../render/track-view.ts";
 import { recordFields, recordGrid } from "../core/edit/record.ts";
 import { terrainGenDialog } from "../ui/dialogs/terrain-gen-dialog.ts";
-import { lightingDialog, statsDialog, trackPaletteDialog, weatherMaskDialog } from "../ui/dialogs/special-dialogs.ts";
-import { buildLighting, sunPosition } from "../core/edit/lighting.ts";
+import { statsDialog, trackPaletteDialog, weatherMaskDialog } from "../ui/dialogs/special-dialogs.ts";
+import { lightingDialog } from "../ui/dialogs/lighting-dialog.ts";
+import { buildLighting, engineY0, trackLighting } from "../core/edit/lighting.ts";
+import { engineBakeGround } from "../core/edit/engine-light.ts";
 import { optimalPalette } from "../core/edit/optimal-palette.ts";
 import { traxxFogMap, withSysColors } from "../core/traxx/palette.ts";
 import { MTM2_ONLY } from "../core/doc/document.ts";
@@ -18,15 +20,36 @@ import { TRAXX_BOX_FOG, TRAXX_BOX_LIGHT, TRAXX_BOX_RAMP } from "../core/traxx/si
 import { terrainGenTarget } from "../core/edit/terrain-gen16.ts";
 import { refreshRaw, TERRAINMODE_CLASSIC8 } from "../core/traxx/terrain16.ts";
 import { heightsChanged } from "../core/traxx/surface.ts";
+import { cellsOf } from "../core/traxx/world.ts";
 import { lakeErrors, lakeRefusal } from "./modes/lake-commands.ts";
 import { alertDialog } from "../ui/shell/dialog.ts";
+import { engineFogSlotOverflow } from "../core/traxx/preflight.ts";
+import { trackMistLandings } from "../core/doc/preflight-gather.ts";
+import { objectLimit } from "../core/traxx/v6.ts";
+
+/*
+  View > Statistics' fog slots (Traxx 1.8.0, 35b087b OnViewStats): the fog boxes first, then one mist
+  volume per waterfall landing, counted as Write POD counts them (trackMistLandings,
+  engineFogSlotOverflow).
+*/
+function fogSlotStats(doc: NonNullable<Editor["doc"]>, nfogs: number): { mist: number; fogSlots: number; fogDropped: number } {
+  const r = engineFogSlotOverflow(nfogs, trackMistLandings(doc) ?? [], 0);
+  return { mist: r.totalMist, fogSlots: nfogs + r.totalMist, fogDropped: r.dropped };
+}
 
 export function bindSpecial(app: AppState, registry: CommandRegistry, editor: Editor, view: TrackView): void {
   const can = () => editor.canEdit;
 
+  /*
+    Random Terrain is Traxx's generator, made for the 256-cell world (its rand() draws and fractal
+    grid are 256 or 1024 wide). A 512-cell track (track format version 6) has it greyed out, and
+    refused here, rather than filled at the wrong size.
+  */
+  const genFits = () => cellsOf(editor.doc?.track) === 256;
   registry.bind("ID_EDIT_GENTERRAIN", async () => {
     const doc = editor.doc;
     if (!doc) return;
+    if (!genFits()) { await alertDialog("Generate Terrain", "Random Terrain makes 256 x 256 cell terrain only; this track has a 512-cell world."); return; }
     const seed = app.settings.randseed;
     const a = app.settings.autoterrain;
     const t = doc.track;
@@ -43,7 +66,7 @@ export function bindSpecial(app: AppState, registry: CommandRegistry, editor: Ed
       : t.terrainMode === TERRAINMODE_CLASSIC8 && !target.precise ? "raw" : null;
     if (!gen) return;
     const before = lakeErrors(t);
-    const rec = recordFields(t, ["heights", "h16", "fine", "rawShadow"], "Random Terrain", { heights: { minX: 0, minY: 0, maxX: 255, maxY: 255 } });
+    const rec = recordFields(t, ["heights", "h16", "fine", "rawShadow"], "Random Terrain", { heights: { minX: 0, minY: 0, maxX: cellsOf(t) - 1, maxY: cellsOf(t) - 1 } });
     if (gen === "fine") t.fine!.set(out.v!);
     else if (gen === "h16") t.h16!.set(out.v!);
     else t.heights.set(out.heights);
@@ -51,20 +74,27 @@ export function bindSpecial(app: AppState, registry: CommandRegistry, editor: Ed
     const refusal = lakeRefusal(t, before, "Generate Terrain");
     const change = editor.commit(rec);
     if (refusal && change) { editor.undo(); await alertDialog("Generate Terrain", refusal); }
-  }, { enabled: can });
+  }, { enabled: () => can() && genFits() });
 
+  /*
+    OnEditLighting (Traxx 1.7.2): the track's LVL sun and ambient in, exactly; on OK they are
+    written verbatim and the .LTE rebaked from the engine's heights (BuildLighting). The dialog's
+    terrain preview bakes from the same heights, read once here (they cannot change while it is
+    open).
+  */
   registry.bind("ID_EDIT_LIGHTING", async () => {
     const doc = editor.doc;
     if (!doc) return;
-    const l = app.settings.lighting;
-    const out = await lightingDialog({
-      minLight: l.bottom, maxLight: l.top, altBias: l.left & 0xffff, shadow: (l.left >>> 16) & 0xffff,
-      sun: doc.track.sun ? sunPosition(doc.track.sun.vector) : l.right & 0xff,
+    const t = doc.track;
+    const y0 = engineY0(t);
+    const cells = cellsOf(t);
+    const out = await lightingDialog(trackLighting(t), {
+      app, cells,
+      bake: (sun, ambient, ground) => { engineBakeGround(y0, sun, ambient, ground, cells); },
     });
     if (!out || editor.doc !== doc || !editor.canEdit) return;
-    app.updateSettings((st) => { st.lighting = { bottom: out.minLight, top: out.maxLight, left: out.altBias | (out.shadow << 16), right: out.sun }; });
-    const rec = recordFields(doc.track, ["lte", "sun"], "Lighting", {});
-    buildLighting(doc.track, out, (name) => view.modelGeometry(name)?.raw ?? null);
+    const rec = recordFields(t, ["lte", "sun"], "Lighting", {});
+    buildLighting(t, out.sun, out.ambient);
     editor.commit(rec);
   }, { enabled: can });
 
@@ -101,11 +131,13 @@ export function bindSpecial(app: AppState, registry: CommandRegistry, editor: Ed
       segments: t.course.length,
       groundBoxes: t.groundBoxes.length,
       objects: t.boxes.length,
+      objectsMax: objectLimit(t, doc.carry.situationIsSi3),
       ramps: t.boxes.filter((b) => b.type === TRAXX_BOX_RAMP).length,
       moving: t.boxes.filter((b) => b.type === 10 || b.type === 13).length,
       lights: t.boxes.filter((b) => b.type === TRAXX_BOX_LIGHT).length,
       fogs: t.boxes.filter((b) => b.type === TRAXX_BOX_FOG).length,
       sounds: t.sounds.length,
+      ...fogSlotStats(doc, t.boxes.filter((b) => b.type === TRAXX_BOX_FOG).length),
     });
   }, { enabled: () => Boolean(editor.doc) });
 }

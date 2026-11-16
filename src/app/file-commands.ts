@@ -12,6 +12,7 @@ import { askSaveChanges, listMessage, openTrack, pickFiles, saveAs, selectSit, s
 import type { AppState } from "./state.ts";
 import { TERRAINMODE_CLASSIC16 } from "../core/traxx/terrain16.ts";
 import { LAKES_MISMATCH } from "../core/traxx/lakes.ts";
+import { objectLimit } from "../core/traxx/v6.ts";
 
 export function bindFileCommands(registry: CommandRegistry, docs: DocumentService, app: AppState): { openRecent: (path: string) => Promise<void> } {
   const hasDoc = () => docs.doc !== null;
@@ -52,7 +53,7 @@ export function bindFileCommands(registry: CommandRegistry, docs: DocumentServic
       if (doc.objectsShort > 0) {
         parts.push(`The track's situation file (.SIT / .SI2) says it holds ${doc.objectsShort} more object${doc.objectsShort === 1 ? "" : "s"} than it actually does - the file was written wrong, by whatever made it. JSTraxx has kept every object that is really there. The game reads that file strictly in order and trusts the count, so in game the sections after the objects - the courses, and with them the AI routes - are likely misread. Writing the track from JSTraxx writes the correct count.`);
       }
-      if (doc.objectsDropped > 0) parts.push(`${doc.objectsDropped} object${doc.objectsDropped === 1 ? "" : "s"} could not be kept: the track holds more than the 4096 this editor supports.`);
+      if (doc.objectsDropped > 0) parts.push(`${doc.objectsDropped} object${doc.objectsDropped === 1 ? "" : "s"} could not be kept: the track holds more than the ${objectLimit(doc.track, doc.carry.situationIsSi3)} this editor supports.`);
       await alertDialog("Situation file problem", parts.join("\n\n"));
     }
     if (doc.groundBoxOverflow > 0) {
@@ -82,6 +83,29 @@ export function bindFileCommands(registry: CommandRegistry, docs: DocumentServic
     await docs.newTrack(TERRAINMODE_CLASSIC16 + i);
     app.status("New track");
   })));
+
+  /*
+    File > New > World Size... (JSTraxx, track format version 6, spec sections 6 and 11): the world
+    is 256 cells a side (8,192 ft, every Traxx track) or 512 (16,384 ft). A 512-cell track is
+    written by Write POD as WORLD\<stem>.SI3 with formatVersion=6, and saved as JSTraxx's TRAXXV99 .TXX.
+  */
+  registry.bind("ID_FILE_NEW_WORLD", run(async () => {
+    const size = el("select", {},
+      el("option", { value: "256", selected: true }, "256 x 256 cells (8,192 ft), as every MTM2 track"),
+      el("option", { value: "512" }, "512 x 512 cells (16,384 ft), track format version 6 (.SI3)")) as HTMLSelectElement;
+    const grid = el("select", {},
+      ...["Classic 8-bit", "16-bit", "16-bit Spline", "16-bit Full Map"].map((label, i) => el("option", { value: i, selected: i === 0 }, label))) as HTMLSelectElement;
+    const note = el("p", { class: "modal-text" }, "A 512-cell world holds four times the area; a cell is still 32 ft. Use it only when the map does not fit in 7,936 ft at its true scale. Only a version 6 game build lists it. Its .TXX is JSTraxx's own TRAXXV99, which Traxx cannot open.");
+    const r = await openDialog({
+      title: "New Track",
+      body: el("div", { class: "opt-page" }, el("label", {}, "World size: ", size), el("label", {}, "Terrain grid: ", grid), note),
+      buttons: [{ label: "OK", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }],
+    });
+    if (r !== "ok" || !(await saveModified())) return;
+    const cells = Number(size.value) === 512 ? 512 : 256;
+    await docs.newTrack(Number(grid.value), cells);
+    app.status(cells === 512 ? "New track, 512-cell world (track format version 6)" : "New track");
+  }));
 
   registry.bind("ID_FILE_OPEN", run(async () => {
     if (!(await saveModified())) return;

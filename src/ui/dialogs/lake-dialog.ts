@@ -6,13 +6,19 @@
 
   Traxx 1.7.1 (LakeDlg Capacity): "Holds up to" and the clamp read HoldsUpTo, which for a lake
   with spillway notches is the highest height that does not leak, each candidate in its own view.
+
+  Traxx 1.7.3 (a28fe7d, 71a93b8): the Problems box says where a leaking lake's water gets out (the
+  tile, also a yellow post in the view) and where the ground sits exactly at the water's height
+  (up to 6 points in tile coordinates, quarters on the Spline / Full Map ground; orange posts).
 */
 import { el } from "../../shared/dom.ts";
 import { openDialog } from "../shell/dialog.ts";
 import { cG } from "../../core/traxx/veg.ts";
 import type { TxxLake } from "../../core/traxx/txx.ts";
 import type { LakeState } from "../../core/traxx/lakes.ts";
-import { lakeErrorText, LAKE_MAX_HEIGHT, LAKE_MAX_SEEDS, LAKE_NO_BASIN, LAKEERR_TOO_MANY, LAKEFLAG_REFLECTIVE } from "../../core/traxx/lakes.ts";
+import {
+  lakeErrorText, LAKE_MAX_HEIGHT, LAKE_MAX_SEEDS, LAKE_NO_BASIN, LAKEERR_CORNER_AT_H, LAKEERR_LAST, LAKEERR_LEAK, LAKEFLAG_REFLECTIVE,
+} from "../../core/traxx/lakes.ts";
 
 export interface LakeDialogHooks {
   /** Re-derive the lakes and redraw; returns the lake's derived state. */
@@ -23,12 +29,43 @@ export interface LakeDialogHooks {
   distinctHeights(): number;
   /** Capacity: what the lake holds up to (HoldsUpTo), LAKE_NO_BASIN for no basin. */
   capacity(): number;
+  /**
+    The heights the ground allows, water units: [0, LAKE_MAX_HEIGHT] when absent (Traxx). A
+    version 6 track's ground below 0 or above 512 ft widens it (track-format-v6.md 9.1).
+  */
+  heightRange?(): [number, number];
+  /** N, the cells a side of the track's world (a tile index is x + z * N); absent: 256. */
+  cells?(): number;
+}
+
+/**
+  The Problems box (CLakeDlg::Refresh): one line per error bit; under LEAK the escape tile, under
+  CORNER_AT_H the first 6 points at H (tile coordinates, %g of lattice / atstep) and how many more.
+*/
+export function lakeProblemsText(state: LakeState, cells = 256): string {
+  let text = "";
+  for (let bit = 1; bit <= LAKEERR_LAST; bit <<= 1) {
+    if (!(state.errors & bit)) continue;
+    text += `${lakeErrorText(bit)}\r\n`;
+    if (bit === LAKEERR_LEAK && state.escape >= 0) {
+      text += `  The water gets out at tile (${state.escape % cells}, ${Math.floor(state.escape / cells)}).\r\n`;
+    }
+    if (bit === LAKEERR_CORNER_AT_H && state.atcount > 0) {
+      const shown = Math.min(state.atcount, 6, state.atx.length), step = state.atstep > 0 ? state.atstep : 1;
+      let e = "  Ground exactly at the water's height at ";
+      for (let i = 0; i < shown; i++) e += `${i > 0 ? ", " : ""}(${cG(state.atx[i]! / step)},${cG(state.atz[i]! / step)})`;
+      if (state.atcount > shown) e += `, +${state.atcount - shown} more`;
+      text += `${e} - raise or lower them a quarter step.\r\n`;
+    }
+  }
+  return text;
 }
 
 /** Resolves true on OK; on Cancel the lake has been put back to `backup` by the caller. */
 export async function lakeDialog(index: number, lake: TxxLake, hooks: LakeDialogHooks): Promise<boolean> {
   let state = hooks.changed();
-  const height = el("input", { type: "number", step: "0.25", min: "0", max: String(LAKE_MAX_HEIGHT / 4), class: "spin" }) as HTMLInputElement;
+  const [hmin, hmax] = hooks.heightRange?.() ?? [0, LAKE_MAX_HEIGHT];
+  const height = el("input", { type: "number", step: "0.25", min: String(hmin / 4), max: String(hmax / 4), class: "spin" }) as HTMLInputElement;
   const feet = el("span", {});
   const max = el("div", {}), tiles = el("div", {}), seeds = el("div", {}), heights = el("div", {});
   const reflective = el("input", { type: "checkbox" }) as HTMLInputElement;
@@ -39,7 +76,7 @@ export async function lakeDialog(index: number, lake: TxxLake, hooks: LakeDialog
     if (cap !== LAKE_NO_BASIN && q > cap) q = cap;
     const lo = hooks.minHeight();
     if (q < lo) q = lo;
-    return Math.max(0, Math.min(LAKE_MAX_HEIGHT, q));
+    return Math.max(hmin, Math.min(hmax, q));
   };
   const refresh = (writeHeight: boolean) => {
     if (writeHeight) height.value = cG(lake.height / 4);
@@ -49,9 +86,7 @@ export async function lakeDialog(index: number, lake: TxxLake, hooks: LakeDialog
     tiles.textContent = `${state.tilecount} tiles of water`;
     seeds.textContent = `${lake.seeds.length} of ${LAKE_MAX_SEEDS} seeds`;
     reflective.checked = (lake.flags & LAKEFLAG_REFLECTIVE) !== 0;
-    let text = "";
-    for (let bit = 1; bit <= LAKEERR_TOO_MANY; bit <<= 1) if (state.errors & bit) text += `${lakeErrorText(bit)}\r\n`;
-    problems.value = text;
+    problems.value = lakeProblemsText(state, hooks.cells?.() ?? 256);
     const n = hooks.distinctHeights();
     heights.textContent = `This track has ${n} water heights${n > 2 ? " - the engine reflects 2; the rest borrow the closest" : ""}`;
   };

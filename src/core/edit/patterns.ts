@@ -8,6 +8,7 @@
     pastePattern    TexturePattern::Extract's copy: the smaller of the pattern and the area
 */
 import type { TrackDocument } from "../doc/document.ts";
+import { sideOf } from "../traxx/world.ts";
 import { findAsset } from "../doc/names.ts";
 import { trackIndices } from "../view/tiles.ts";
 import type { TxpPattern } from "../traxx/txp.ts";
@@ -22,7 +23,8 @@ export function buildPattern(doc: TrackDocument, name: string, rect: Area, displ
   if (w < 1 || h < 1 || (w < 2 && h < 2)) return null;
   const clr = doc.track.clr;
   const data: number[] = [];
-  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) data.push(clr[i + rect.x0 + ((j + rect.y0) << 8)]!);
+  const n = sideOf(clr.length); // N, 256 or 512 (track format version 6, spec section 8.2)
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) data.push(clr[i + rect.x0 + (j + rect.y0) * n]!);
 
   // First-use order, then compacted over the textures the track holds (a missing one keeps
   // its first-pass number, as Traxx's does).
@@ -116,10 +118,11 @@ export function pasteMapping(doc: TrackDocument, p: TxpPattern): number[] {
 /** Extract's copy into the area: the smaller of the two, from its top left. */
 export function pastePattern(clr: Uint16Array, p: TxpPattern, mapping: readonly number[], a: Area): void {
   const pw = Math.min(p.w, a.x1 - a.x0 + 1), ph = Math.min(p.h, a.y1 - a.y0 + 1);
+  const n = sideOf(clr.length);
   for (let j = 0; j < ph; j++) {
     for (let i = 0; i < pw; i++) {
       const word = p.cells[i + j * p.w]!;
-      clr[i + a.x0 + ((j + a.y0) << 8)] = ((mapping[word & 0x0fff] ?? 0) & 0x0fff) | (word & 0xf000);
+      clr[i + a.x0 + (j + a.y0) * n] = ((mapping[word & 0x0fff] ?? 0) & 0x0fff) | (word & 0xf000);
     }
   }
 }

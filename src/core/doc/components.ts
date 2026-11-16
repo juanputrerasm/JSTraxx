@@ -52,6 +52,9 @@ export interface Components {
   infoText: string;
   detail: { ext: string; map: Uint8Array | null };
   mask: { ext: string; map: Uint8Array | null };
+  /** Traxx 1.7.2: the water detail normal (_WDTL) and the water mask (_WMSK). */
+  waterDetail: { ext: string; map: Uint8Array | null };
+  waterMask: { ext: string; map: Uint8Array | null };
   music: Uint8Array | null;
   /**
     The backdrop models in drawing order: the track's backdrop, then the extra ones
@@ -84,6 +87,8 @@ export function componentsOf(doc: TrackDocument): Components {
     infoText: t.infoText ? latin1(t.infoText) : "",
     detail: { ext: t.detailExt, map: t.detailMap },
     mask: { ext: t.maskExt, map: t.maskMap },
+    waterDetail: { ext: t.waterDetailExt, map: t.waterDetailMap },
+    waterMask: { ext: t.waterMaskExt, map: t.waterMaskMap },
     music: t.music,
     backdrops: [t.backdropName, ...t.extraBackdrops].filter(Boolean),
     isArena: Boolean(t.arena),
@@ -121,6 +126,10 @@ export function applyComponents(doc: TrackDocument, c: Components): Touch {
   t.detailMap = c.detail.map;
   t.maskExt = c.mask.ext;
   t.maskMap = c.mask.map;
+  t.waterDetailExt = c.waterDetail.ext;
+  t.waterDetailMap = c.waterDetail.map;
+  t.waterMaskExt = c.waterMask.ext;
+  t.waterMaskMap = c.waterMask.map;
   t.music = c.music;
   // An empty box is no text at all; otherwise the bytes and a terminator, as Traxx allocates.
   if (!/[^\x00-\x20]/.test(c.infoText)) t.infoText = null;

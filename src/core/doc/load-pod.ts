@@ -14,24 +14,29 @@ import type { PodArchive, PodEntry } from "../../vendor/openphotex/pod/types.js"
 import { parseMtmSit, parseMtmLvl } from "../../vendor/openphotex/mtm/sit.js";
 import { parseAnimations } from "../../vendor/openphotex/tv/ani.js";
 import { parseBin } from "../../vendor/openphotex/model/bin.js";
-import { traxxSitFromParsed, TRAXX_BOX_CRUSH, type TraxxBox } from "../traxx/sit.ts";
+import { traxxSitFromParsed, TRAXX_BOX_CRUSH, TRAXX_MAX_BOXES, V6_MAX_BOXES, type TraxxBox } from "../traxx/sit.ts";
 import { boxHeightPairOf, surfaceTrack } from "../traxx/box-ground.ts";
 import type { TxxAnimation, TxxCourseSegment, TxxGroundBox, TxxSound } from "../traxx/txx.ts";
 import { isHdName, rawSide, resolveItemName, seekToItem, swapExt } from "../traxx/pod-items.ts";
 import { withSysColors } from "../traxx/palette.ts";
 import { CELLS, inferPrefixAuto, interpolateRawAtPoint, uiInfoName } from "../traxx/terrain.ts";
 import { atoi, traxxLines } from "../traxx/lines.ts";
-import { loadRaw, parseTerrainGridKey, parseTerrainHeightsKey, resolveTerrainMode, setModeOnLoad, refreshRaw, RAWLEN_8BIT, RAWLEN_16BIT, RAWLEN_FINE, TERRAINMODE_CLASSIC16, TERRAINMODE_CLASSIC8, TERRAINMODE_FINE, TERRAIN_FINE, type Terrain16 } from "../traxx/terrain16.ts";
-import { cText } from "../traxx/bytes.ts";
+import { loadRaw, parseTerrainGridKey, parseTerrainHeightsKey, resolveTerrainMode, setModeOnLoad, refreshRaw, RAWLEN_8BIT, RAWLEN_16BIT, RAWLEN_FINE, TERRAINMODE_CLASSIC16, TERRAINMODE_CLASSIC8, TERRAINMODE_FINE, TERRAINMODE_SPLINE, TERRAIN_FINE, type Terrain16 } from "../traxx/terrain16.ts";
+import { frameNameTooLongForPod, modelFrameNames } from "../traxx/keyframe.ts";
 import { decodePngSamples } from "../../vendor/openphotex/texture/png.js";
 import { resetTrack } from "./new-track.ts";
 import { vegetationFromPod } from "../traxx/veg.ts";
 import { buildLakeGround } from "../traxx/surface.ts";
-import { parseWtrLakes, recomputeLakes, LAKES_MISMATCH } from "../traxx/lakes.ts";
-import { parseWflFalls, trackNotches } from "../traxx/falls.ts";
+import { lakesSignature, parseWtrLakes, recomputeLakes, LAKES_MISMATCH } from "../traxx/lakes.ts";
+import { parseWflFalls, trackNotches, FALLS_WFL_REFUSED } from "../traxx/falls.ts";
 import { emptyCarry, type ModelAsset, type TextureAsset, type TrackDocument } from "./document.ts";
 import { afterFirstSlash, findAsset } from "./names.ts";
 import { notePodSurfaces } from "./surface-sidecar.ts";
+import { readTxvV6, type TxvV6 } from "../../vendor/openphotex/mtm/txv.js";
+import { decodeMtm2V6Heights, mtm2V6HeightsH128 } from "../../vendor/openphotex/mtm/heights.js";
+import { checkMtm2GridSize, mtm2GroundBoxDepth, mtm2GroundBoxHeightFt } from "../../vendor/openphotex/terrain/ground-boxes.js";
+import { cellsOf } from "../traxx/world.ts";
+import { vegBoundsProblem } from "../traxx/veg.ts";
 
 export const MAX_POD_TRACKS = 100;
 export const MAX_TEXTURES = 1024;
@@ -53,12 +58,15 @@ export interface LoadPodOptions {
   progress?: (fraction: number, label: string) => void;
 }
 
-/** PodIsSituationName: the text after the FIRST dot is .SIT or .SI2. */
-export function situationKind(name: string): "sit" | "si2" | null {
+/**
+  PodIsSituationName: the text after the FIRST dot is .SIT or .SI2, or (track format version 6,
+  spec 5.1) .SI3. A .SI3 is its own track, listed beside a .SIT or .SI2 of the same stem.
+*/
+export function situationKind(name: string): "sit" | "si2" | "si3" | null {
   const dot = name.indexOf(".");
   if (dot < 0) return null;
   const ext = name.slice(dot).toUpperCase();
-  return ext === ".SIT" ? "sit" : ext === ".SI2" ? "si2" : null;
+  return ext === ".SIT" ? "sit" : ext === ".SI2" ? "si2" : ext === ".SI3" ? "si3" : null;
 }
 
 export interface PodTrackList {
@@ -107,16 +115,36 @@ export async function loadPodTrack(source: PodSource, which: number, fileName: s
   const fetchPodOnly = async (name: string) => { const e = seek(name); return e ? source.read(e) : null; };
 
   // The situation file.
-  let index = 0, sitEntry: PodEntry | null = null, si2 = false;
+  let index = 0, sitEntry: PodEntry | null = null, si2 = false, si3 = false;
   for (const e of entries) {
     const kind = situationKind(e.name);
     if (!kind) continue;
-    if (index++ === which) { sitEntry = e; si2 = kind === "si2"; break; }
+    if (index++ === which) { sitEntry = e; si2 = kind === "si2"; si3 = kind === "si3"; break; }
   }
   if (!sitEntry) throw new Error(index === 0 ? "No tracks in this POD." : `This POD has no track ${which + 1}.`);
   progress(0, "Reading the situation file");
 
-  const track = resetTrack();
+  /*
+    Track format version 6 (spec 5.2, 6): a .SI3 track needs DATA\<stem>.TXV with formatVersion=6
+    and valid section 6 keys, or it is refused with the key named (readTxvV6). Its world size
+    sizes every grid below.
+  */
+  const sitFile = sitEntry.name.slice(sitEntry.name.lastIndexOf("\\") + 1);
+  const sitStem = sitFile.slice(0, sitFile.indexOf(".") >= 0 ? sitFile.indexOf(".") : undefined).toUpperCase();
+  let v6: TxvV6 | null = null;
+  let v6TxvText: string | null = null;
+  if (si3) {
+    const txvBytes = await fetchPodOnly(`DATA\\${sitStem}.TXV`);
+    try {
+      v6 = readTxvV6(txvBytes);
+    } catch (err) {
+      throw new Error(`${sitEntry.name} is a track format version 6 track and cannot be opened: ${(err as Error).message}`);
+    }
+    v6TxvText = txvBytes ? new TextDecoder("windows-1252").decode(txvBytes) : null;
+  }
+  const cells = v6?.worldCells ?? 256;
+
+  const track = resetTrack(cells);
   const doc: TrackDocument = {
     track, textures: [], modelTextures: [], models: [], carry: emptyCarry(), prefixAuto: true, viewOnly: true,
     source: { kind: "pod", fileName, trackIndex: which }, objectsShort: 0, objectsDropped: 0, groundBoxOverflow: 0,
@@ -124,12 +152,15 @@ export async function loadPodTrack(source: PodSource, which: number, fileName: s
   };
   track.comment = source.archive.comment.slice(0, 79);
   doc.carry.situationIsSi2 = si2;
+  doc.carry.situationIsSi3 = si3;
+  if (v6) doc.warnings.push(...v6.warnings);
 
   const sitBytes = await source.read(sitEntry);
-  const parsed = parseMtmSit(sitBytes, sitEntry.title);
+  // Negative x or z wrap by the world's side (spec 8.4): 8192 ft, or 32 N for a .SI3.
+  const parsed = parseMtmSit(sitBytes, sitEntry.title, { worldFt: 32 * cells });
   // A UI picture counts as present when its HD sibling is (LoadUIArtHD before SeekToItem).
   const present = (name: string) => Boolean(seek(name)) || (/\.BMP$/i.test(name) && Boolean(seek(swapExt(name, "PNG")) || seek(swapExt(name, "TGA"))));
-  const sit = traxxSitFromParsed(parsed, { hasEntry: present, text: sitBytes });
+  const sit = traxxSitFromParsed(parsed, { hasEntry: present, text: sitBytes, worldCells: cells, maxBoxes: si3 ? V6_MAX_BOXES : TRAXX_MAX_BOXES });
   track.prefix = sit.prefix;
   track.trackName = sit.trackName;
   track.localeName = sit.localeName;
@@ -169,19 +200,23 @@ export async function loadPodTrack(source: PodSource, which: number, fileName: s
   const lvlBytes = sit.prefix ? await fetchPodOnly(parsed.lvlName.toUpperCase()) : null;
   const resolve = (name: string) => resolveItemName(entries, name);
   const entryName = (name: string) => seek(name)?.name ?? null;
-  const raw = lvlBytes ? await readLevel(lvlBytes, doc, fetchPodOnly, fetch, progress, resolve, entryName) : { length: -1, ok: false };
+  const raw = lvlBytes ? await readLevel(lvlBytes, doc, fetchPodOnly, fetch, progress, resolve, entryName, v6) : { length: -1, ok: false };
 
-  // The .TXV record, if the pod has one.
+  // The .TXV record, if the pod has one (a .SI3 track's is its own DATA\<stem>.TXV, read above).
   const txv = entries.find((e) => /\.TXV$/i.test(e.name.slice(e.name.lastIndexOf("."))) && e.length >= 1 && e.length <= 65536);
-  if (txv) doc.carry.txvText = new TextDecoder("windows-1252").decode(await source.read(txv));
+  if (v6) doc.carry.txvText = v6TxvText;
+  else if (txv) doc.carry.txvText = new TextDecoder("windows-1252").decode(await source.read(txv));
 
   // Now that the .RAW and the .TXV are both in, what the terrain is (Load, after the item loop).
-  const heightsEntry = parseTerrainHeightsKey(doc.carry.txvText);
-  if (heightsEntry) applyTerrainHeightsImage(doc, doc.carry.txvText, heightsEntry, await fetchPodOnly(heightsEntry.toUpperCase()), raw);
+  // A version 6 track with terrainHeightMap has its heights already (readLevel); without one it
+  // follows CP4's rules, as today (spec 7.1).
+  const heightsEntry = v6?.terrainHeightMap ? "" : parseTerrainHeightsKey(doc.carry.txvText);
+  if (v6?.terrainHeightMap) { /* read in readLevel */ }
+  else if (heightsEntry) applyTerrainHeightsImage(doc, doc.carry.txvText, heightsEntry, await fetchPodOnly(heightsEntry.toUpperCase()), raw);
   else if (raw.length >= 0 && raw.ok) resolveTerrainFromTxv(doc, doc.carry.txvText, raw.length);
 
   // Traxx 1.7: WORLD\<stem>.VEG and its painted masks, WORLD\<stem>.WTR (Load, after the info pop-up).
-  await readVegetationAndLakes(doc, fetchPodOnly);
+  await readVegetationAndLakes(doc, fetchPodOnly, si3);
 
   // Models, in the order ParseSITFile loads them: each box's model, a crush car's base, cab and cab frame 0.
   progress(0.6, "Reading models");
@@ -203,7 +238,8 @@ export async function loadPodTrack(source: PodSource, which: number, fileName: s
     await loadModel(box.modelName);
     if (box.type === TRAXX_BOX_CRUSH && box.crushName) {
       const cab = await loadModel(box.crushName);
-      if (cab?.frameNames[0]) await loadModel(cab.frameNames[0]);
+      // ParseSITFile (Traxx 1.8.0): a frame name longer than a pod entry is not loaded (CheckIntegrity reports it).
+      if (cab?.frameNames[0] && !frameNameTooLongForPod(cab.frameNames[0])) await loadModel(cab.frameNames[0]);
     }
   }
   // The vegetation's species models reach a pod only by being in the model list. Traxx loads
@@ -234,13 +270,16 @@ export async function loadPodTrack(source: PodSource, which: number, fileName: s
   const infoText = await fetchPodOnly(`DATA\\${track.prefix}.TXT`.toUpperCase());
   if (infoText && infoText.length > 0) track.infoText = infoText;
 
-  // The terrain detail normal and its painted mask, .PNG then .TGA.
-  for (const [suffix, which2] of [["_DTL", "detail"], ["_MASK", "mask"]] as const) {
+  // The terrain detail normal and its painted mask, and the water pair beside them (Traxx 1.7.2:
+  // _WDTL, _WMSK), .PNG then .TGA, byte for byte, any situation kind (.SIT, .SI2, .SI3).
+  for (const [suffix, which2] of [["_DTL", "detail"], ["_MASK", "mask"], ["_WDTL", "wdetail"], ["_WMSK", "wmask"]] as const) {
     for (const ext of ["PNG", "TGA"] as const) {
       const bytes = await fetchPodOnly(`ART\\${track.prefix}${suffix}.${ext}`.toUpperCase());
       if (!bytes) continue;
       if (which2 === "detail") { track.detailMap = bytes; track.detailExt = `.${ext}`; doc.carry.detailFromPod = true; }
-      else { track.maskMap = bytes; track.maskExt = `.${ext}`; doc.carry.maskFromPod = true; }
+      else if (which2 === "mask") { track.maskMap = bytes; track.maskExt = `.${ext}`; doc.carry.maskFromPod = true; }
+      else if (which2 === "wdetail") { track.waterDetailMap = bytes; track.waterDetailExt = `.${ext}`; doc.carry.waterDetailFromPod = true; }
+      else { track.waterMaskMap = bytes; track.waterMaskExt = `.${ext}`; doc.carry.waterMaskFromPod = true; }
       break;
     }
   }
@@ -303,8 +342,17 @@ async function readLevel(
   progress: (f: number, label: string) => void,
   resolve: (name: string) => string,
   entryName: (name: string) => string | null,
+  v6: TxvV6 | null = null,
 ): Promise<{ length: number; ok: boolean }> {
   const track = doc.track;
+  const cells = v6?.worldCells ?? 256;
+  const nn = cells * cells;
+  /* A .SI3 track's grid files must be N x N cells (spec 8.2): any other size refuses the track. */
+  const gridFile = async (name: string): Promise<Uint8Array | null> => {
+    const bytes = await fetchPodOnly(name);
+    if (bytes && v6) checkMtm2GridSize(name, bytes.length, cells);
+    return bytes;
+  };
   const lvl = parseMtmLvl(bytes);
   const rawResult = { length: -1, ok: false };
   if (!lvl) return rawResult;
@@ -313,7 +361,10 @@ async function readLevel(
   if (lvl.textName) track.text = await fetchPodOnly(up(lvl.textName));
 
   progress(0.1, "Reading the terrain");
-  const raw = await fetchPodOnly(`DATA\\${up(lvl.rawName)}`);
+  // A version 6 track with terrainHeightMap: the heights come from that entry only, and the .RAW
+  // the .LVL names need not exist (spec 6, 7).
+  const raw = v6?.terrainHeightMap ? null : await fetchPodOnly(`DATA\\${up(lvl.rawName)}`);
+  if (v6?.terrainHeightMap) await readV6Heights(doc, v6, fetchPodOnly);
   if (raw) {
     // LoadRawLegacy: 65,536, 131,072 or 2,097,152 bytes by size; any other size the old way, as
     // an 8-bit map from its first 64 KB (the rest at 100).
@@ -329,11 +380,17 @@ async function readLevel(
   }
   // Read with or without the .RAW: a PNG-heights track packs none, and the ground boxes are
   // found from the name the .LVL gives all the same.
-  readGroundBoxes(doc, up(lvl.rawName), await fetchPodOnly(swapExt(up(lvl.rawName), "RA0")),
-    await fetchPodOnly(swapExt(up(lvl.rawName), "RA1")), await fetchPodOnly(swapExt(up(lvl.rawName), "CL0")));
-  const clr = await fetchPodOnly(up(lvl.clrName));
+  const boxGrid = (ext: string) => (v6 ? gridFile : fetchPodOnly)(swapExt(up(lvl.rawName), ext));
+  if (v6) {
+    // Spec 8.2: every grid file of a .SI3 track is checked against N, used or not.
+    for (const ext of ["RA2", "RA3", "RA4", "RA5", "CL1", "CL2"]) await boxGrid(ext);
+    readGroundBoxesV6(doc, v6, await boxGrid("RA0"), await boxGrid("RA1"), await boxGrid("CL0"), swapExt(up(lvl.rawName), "RA0"), swapExt(up(lvl.rawName), "RA1"));
+  } else {
+    readGroundBoxes(doc, up(lvl.rawName), await boxGrid("RA0"), await boxGrid("RA1"), await boxGrid("CL0"));
+  }
+  const clr = await (v6 ? gridFile : fetchPodOnly)(up(lvl.clrName));
   if (clr) {
-    const n = Math.min(CELLS, clr.length >> 1);
+    const n = Math.min(nn, clr.length >> 1);
     const view = new DataView(clr.buffer, clr.byteOffset, n * 2);
     for (let i = 0; i < n; i++) track.clr[i] = view.getUint16(i * 2, true);
   }
@@ -368,19 +425,30 @@ async function readLevel(
     if (fog) { doc.carry.fogFog = new Uint8Array(4096); doc.carry.fogFog.set(fog.subarray(0, 4096)); }
   }
   if (lvl.lteName) {
-    const lte = await fetchPodOnly(up(lvl.lteName));
-    if (lte) { const plane = new Uint8Array(CELLS * 7); plane.set(lte.subarray(0, CELLS * 7)); track.lte = plane; }
+    const lte = await (v6 ? gridFile : fetchPodOnly)(up(lvl.lteName));
+    if (lte) { const plane = new Uint8Array(nn * 7); plane.set(lte.subarray(0, nn * 7)); track.lte = plane; }
   }
-  track.sun = {
-    vector: lvl.sunVector ?? [0, 0, 0],
-    shadowIntensity: lvl.shadowIntensity ?? 0,
-    position: lvl.sunPosition ?? [0, 0, 0],
-    intensity: lvl.sunIntensity ?? 0,
-  };
-  doc.carry.levelValue = lvl.levelValue ?? 0;
+  readLvlLighting(doc, lvl);
   // The line after the level value must be the label (ParseLVLFile reads it there).
   if (lvl.waterHeight !== null) track.waterLevel4 = lvl.waterHeight;
   return rawResult;
+}
+
+/**
+  CTrackPOD::ReadLVLLighting (Traxx 1.7.2, 7d36314): the five lines after the .LTE name, the sun
+  (the direction the light travels), the ambient, the boss light position and intensity, and the
+  255 line. One reader for both ways in: a pod (ParseLVLFile) and Clone (CloneFromSIT), which
+  used to skip them and so shipped Traxx's defaults. A missing line reads as 0, as atoi does.
+*/
+export function readLvlLighting(doc: TrackDocument, lvl: { sunVector?: number[] | null; shadowIntensity?: number | null; sunPosition?: number[] | null; sunIntensity?: number | null; levelValue?: number | null }): void {
+  const v3 = (v: number[] | null | undefined): [number, number, number] => [v?.[0] ?? 0, v?.[1] ?? 0, v?.[2] ?? 0];
+  doc.track.sun = {
+    vector: v3(lvl.sunVector),
+    shadowIntensity: lvl.shadowIntensity ?? 0,
+    position: v3(lvl.sunPosition),
+    intensity: lvl.sunIntensity ?? 0,
+  };
+  doc.carry.levelValue = lvl.levelValue ?? 0;
 }
 
 /**
@@ -478,29 +546,45 @@ export function applyHeightsKeyUnsupported(doc: TrackDocument, txv: string | nul
       recomputed only then, with the spillway notches the falls cut (UpdateLakeNotches), before
       the tile map is compared. An unusable file leaves no falls.
 */
-async function readVegetationAndLakes(doc: TrackDocument, fetchPodOnly: (name: string) => Promise<Uint8Array | null>): Promise<void> {
+async function readVegetationAndLakes(doc: TrackDocument, fetchPodOnly: (name: string) => Promise<Uint8Array | null>, si3 = false): Promise<void> {
   const p = doc.track.prefix.toUpperCase();
   if (!p) return;
+  const cells = cellsOf(doc.track);
   const veg = await fetchPodOnly(`WORLD\\${p}.VEG`);
   if (veg && veg.length > 0) {
-    const v = await vegetationFromPod(p, async (name) => (name === `WORLD\\${p}.VEG` ? veg : fetchPodOnly(name)));
+    // Spec 9.2: trees anywhere in [0, W * 256), grass tiles 0..N-1.
+    const v = await vegetationFromPod(p, async (name) => (name === `WORLD\\${p}.VEG` ? veg : fetchPodOnly(name)), cells);
     doc.track.vegetation = { masks: v.masks.map((m) => (m ? { ext: m.ext, data: m.data } : null)), image: veg };
+    const why = si3 ? vegBoundsProblem(veg, cells) : null;
+    if (why) doc.warnings.push(`WORLD\\${p}.VEG: ${why}`);
   }
   const wtr = await fetchPodOnly(`WORLD\\${p}.WTR`);
   let stored: Uint8Array | null | undefined;
   if (wtr && wtr.length > 0) {
-    const parsed = parseWtrLakes(wtr);
+    // A .SI3 track's .WTR may be version 1 or 2, N x N (spec 9.1); others are read as Traxx reads them.
+    const parsed = si3 ? parseWtrLakes(wtr, cells) : parseWtrLakes(wtr);
     if (parsed) {
       doc.track.lakes = parsed.lakes;
       stored = parsed.tmap;
+      // Traxx 1.7.3: the lakes are re-filled with the rule that built them (header flags bit 0: EDGE, else TILE).
+      doc.track.lakeRule = parsed.rule;
     }
   }
   const wfl = await fetchPodOnly(`WORLD\\${p}.WFL`);
-  if (wfl && wfl.length > 0) doc.track.falls = parseWflFalls(wfl) ?? [];
+  if (wfl && wfl.length > 0) {
+    // A .SI3 track's .WFL may be version 1 or 2, its header N x N (spec 9.3); others are read as Traxx reads them.
+    const falls = si3 ? parseWflFalls(wfl, cells) : parseWflFalls(wfl);
+    if (!falls && si3) doc.warnings.push(FALLS_WFL_REFUSED);
+    doc.track.falls = falls ?? [];
+  }
   // The lakes, now that the falls (and so the notches) are in; the stored map is only compared.
   if (stored !== undefined) {
     const st = recomputeLakes(buildLakeGround(doc.track), doc.track.lakes, doc.track.waterLevel4, trackNotches(doc.track));
-    if (!stored || !sameBytes(stored, st.tmap)) doc.warnings.push(LAKES_MISMATCH);
+    if (!stored || !sameBytes(stored, st.tmap)) {
+      doc.warnings.push(LAKES_MISMATCH);
+      // JSTraxx: the pod's own map and file are kept until a lake or a fall changes (StoredLakes).
+      if (stored && stored.length === st.tmap.length && wtr) doc.track.storedLakes = { sig: lakesSignature(doc.track), tmap: stored, wtr };
+    }
   }
 }
 
@@ -527,6 +611,76 @@ export function readGroundBoxes(doc: TrackDocument, _rawName: string, ra0: Uint8
       const words: number[] = [];
       for (let f = 0; f < 6; f++) words.push(c * 12 + f * 2 + 1 < cl0.length ? faces.getUint16(c * 12 + f * 2, true) : 0);
       boxes.push({ x: i, y: j, w: 1, h: 1, lower: ra0[c] ?? 0, upper, faces: words });
+    }
+  }
+  doc.track.groundBoxes = boxes;
+}
+
+/*
+  The heights of a version 6 track with terrainHeightMap (spec 7): the entry decoded at N with its
+  step and base (decodeMtm2V6Heights; a wrong size refuses the track), kept at 1/128 ft in the
+  32-bit store (mtm2V6HeightsH128, spec 7.3). classic is the 16-bit 32 ft grid, spline the same
+  grid shown smoothed, fine the 8 ft Full Map. The step and base are remembered for Write POD.
+*/
+async function readV6Heights(doc: TrackDocument, v6: TxvV6, fetchPodOnly: (name: string) => Promise<Uint8Array | null>): Promise<void> {
+  const t = doc.track;
+  const name = v6.terrainHeightMap!;
+  const bytes = await fetchPodOnly(name.toUpperCase());
+  if (!bytes) throw new Error(`terrainHeightMap: this pod has no entry ${name}, so the track cannot be opened.`);
+  let d;
+  try {
+    d = decodeMtm2V6Heights(bytes, { name, cells: v6.worldCells, step: v6.terrainHeightStep, base: v6.terrainHeightBase, terrainGrid: v6.terrainGrid });
+  } catch (err) {
+    throw new Error(`terrainHeightMap ${name}: ${(err as Error).message}`);
+  }
+  if (d.warning) doc.warnings.push(d.warning);
+  const n = v6.worldCells;
+  if (d.mode === "fine") {
+    t.terrainMode = TERRAINMODE_FINE;
+    t.fine = mtm2V6HeightsH128(d.fine!, d.step, d.base);
+    t.h16 = null;
+  } else {
+    t.terrainMode = d.mode === "spline" ? TERRAINMODE_SPLINE : TERRAINMODE_CLASSIC16;
+    t.h16 = mtm2V6HeightsH128(d.coarse, d.step, d.base);
+    t.fine = null;
+  }
+  t.rawShadow = new Uint8Array(n * n);
+  refreshRaw(t);
+  t.pngHeights = /\.PNG$/i.test(name);
+  t.heightStep = d.step;
+  t.heightBase = d.base;
+}
+
+/*
+  The ground boxes of a version 6 track (spec 8.3): RA0 / RA1 8 or 16-bit (the pair must agree,
+  mtm2GroundBoxDepth), heights base + 2 * byte or base + value / step (mtm2GroundBoxHeightFt; step
+  128 and base 0 when the track has no terrainHeightMap). Kept in Traxx's 2 ft units, which may now
+  be fractional, negative or above 255. One box per cell whose top is not 0, up to 2048, as LoadGroundBoxes.
+*/
+export function readGroundBoxesV6(doc: TrackDocument, v6: TxvV6, ra0: Uint8Array | null, ra1: Uint8Array | null, cl0: Uint8Array | null, ra0Name = "RA0", ra1Name = "RA1"): void {
+  if (!ra0 || !ra1 || !cl0) return;
+  const n = v6.worldCells;
+  const depth = mtm2GroundBoxDepth(ra0, ra1, n, [ra0Name, ra1Name]);
+  const step = v6.terrainHeightMap ? v6.terrainHeightStep : 128;
+  const base = v6.terrainHeightMap ? v6.terrainHeightBase : 0;
+  const r0 = new DataView(ra0.buffer, ra0.byteOffset, ra0.byteLength), r1 = new DataView(ra1.buffer, ra1.byteOffset, ra1.byteLength);
+  const value = (v: DataView, c: number) => (depth === 16 ? v.getUint16(2 * c, true) : v.getUint8(c));
+  const faces = new DataView(cl0.buffer, cl0.byteOffset, cl0.byteLength);
+  const boxes: TxxGroundBox[] = [];
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const c = i + j * n;
+      const top = value(r1, c);
+      if (top === 0) continue;
+      if (boxes.length >= MAX_GROUND_BOXES) { doc.groundBoxOverflow++; continue; }
+      const words: number[] = [];
+      for (let f = 0; f < 6; f++) words.push(faces.getUint16(c * 12 + f * 2, true));
+      boxes.push({
+        x: i, y: j, w: 1, h: 1,
+        lower: mtm2GroundBoxHeightFt(value(r0, c), depth, step, base) / 2,
+        upper: mtm2GroundBoxHeightFt(top, depth, step, base) / 2,
+        faces: words,
+      });
     }
   }
   doc.track.groundBoxes = boxes;
@@ -656,7 +810,8 @@ export function modelAsset(name: string, bytes: Uint8Array): ModelAsset {
     if (face.opcode === 0x19) continue;
     for (const t of face.textureFrames ?? [face.textureName]) if (t && !textureNames.includes(t)) textureNames.push(t);
   }
-  return { name, bytes, textureNames, frameNames: bin.frameNames.map((f) => cText(new TextEncoder().encode(f))), bad: false };
+  // GetAniName (Traxx 1.8.0, eaaace7): KEYFRAME and KEYFRAME64, every name whole and upper-cased.
+  return { name, bytes, textureNames, frameNames: modelFrameNames(bytes), bad: false };
 }
 
 /*
