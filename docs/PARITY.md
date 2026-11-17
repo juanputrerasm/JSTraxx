@@ -195,6 +195,7 @@ is given). **Added** is not in Traxx. **Not ported** is left out, with the reaso
 - Deleting a texture renumbers an animation's first frame too (Traxx leaves it pointing at the wrong texture).
 - New objects are appended (Traxx reuses the first empty slot); the list stays dense.
 - Model vertices keep full precision (Traxx rounds to whole units for its polygon library).
+- Course points and truck starts are placed on the drivable surface under the pointer: a placed model's floor (a street, deck or tunnel floor of a track built of meshes) where it is nearer the eye than the terrain, else the terrain. Traxx picks the terrain only, so on such a track a course ran at the ground under the meshes. Drivable as Community Patch 4 drives (OpenMTM2 CP4_EXE_ANALYSIS.md 11.2): every object with a model but a fog, its faces from both sides, a face whose up component is at least 0.5 (walls are passed through). `src/core/view/mesh-pick.ts`, `TrackView.pickDrivable`.
 - Loading art from disk copies it into the browser's ART or MODELS folder, so the track finds it again.
 - Purge Unused Models keeps a model a top-crush uses as its base.
 - The software renderer is replaced by WebGL; there is no Display Resolution setting (the view fills the window).

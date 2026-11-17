@@ -3,7 +3,8 @@
 
     - moving the pointer picks the nearest segment end of the course being edited (within 20
       pixels at 640 x 480), else the nearest truck (within 64);
-    - dragging moves it onto the ground (a truck 4 steps above it);
+    - dragging moves it onto the ground (a truck 4 steps above it), or onto a placed model's
+      floor where the pointer is on one (a JSTraxx addition for tracks built of meshes);
     - right-click: the Course menu on an anchor or open ground, the Truck menu on a truck.
 
   The course being edited and "Always show main" are the Course Tools bar's.
@@ -38,9 +39,13 @@ export function courseMode(ctx: ModeContext): ModeHandler {
     The ground under a point, as Traxx stores positions: whole ipos and whole steps. Traxx 1.7
     (b100b6b): off Classic 8-bit a course point or truck has no fraction field, so the picked
     point rounds to the nearest step on each axis (+ fraction >> 7).
+
+    A JSTraxx addition: the ground is the drivable surface, a placed model's street, deck or
+    tunnel floor where one is nearer the eye than the terrain (core/view/mesh-pick.ts), so a
+    course on a track built of meshes runs at the meshes' level, where the trucks drive.
   */
   const ground = (p: ViewPoint): [number, number, number] | null => {
-    const hit = view.pick(p.clientX, p.clientY);
+    const hit = view.pickDrivable(p.clientX, p.clientY);
     if (!hit) return null;
     const [x, y, z] = hit.ipos, [fx, fy, fz] = hit.fraction;
     return [x + (fx >> 7), y + (fy >> 7), z + (fz >> 7)];

@@ -22,6 +22,8 @@ Storage in OPFS mirrors Traxx's folders: `jstraxx/art` and `jstraxx/models` are 
 
 The view is Traxx's: its fly camera (arrows or the keypad to move and turn, PgUp and PgDn to pitch, A and Z to climb, comma and period to strafe, Shift for speed, keypad 5 to level, Home to face north, F2 and F3 to save and return to a place, F4 to keep the height above the ground), its grid window, Wire Frame, gamma and colours. On top of that the mouse can move too: the wheel goes forward and back (Ctrl for up and down), middle-drag looks around, Shift+middle-drag pans, and Alt+left-drag orbits the point under the pointer. Click the terrain map to jump there.
 
+On a track built of meshes, Course mode places course points and truck starts on the street, deck or tunnel floor under the pointer, where the trucks drive, instead of on the terrain beneath it.
+
 ## Windows and dialogs
 
 The Textures, Models, Patterns and Transitions windows work as Traxx's do. The Textures window's **Load >>** pane lists the ART folder and then the game library's art; loading a PNG or TGA keeps it as HD art and builds its 8-bit tile in memory with Traxx's own median cut, and textures picked from disk are copied into the ART folder so the track finds them again. The Patterns window starts with Traxx's own `Patterns.txp`. Object, Group and Light Properties show their changes in the view as you type, and Cancel puts them back. Track Components, Random Terrain, Lighting, Weather Mask, Palette, Statistics and the Keyboard Summary are all there; **Help > Contents** opens Traxx's own help, converted to pages. **File > Save View as Image** stands in for Print.

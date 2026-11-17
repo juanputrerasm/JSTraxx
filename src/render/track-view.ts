@@ -45,6 +45,7 @@ import { Overlay2D } from "./overlay.ts";
 import { arrowSegments, checkpointArrow, checkpointWantsArrow } from "../core/view/arrows.ts";
 import { objectMatrix } from "../core/view/model-geometry.ts";
 import { pickSurface, pickTerrain, type TerrainHit } from "../core/view/pick.ts";
+import { drivableMeshes, pickMesh, type DrivableMesh } from "../core/view/mesh-pick.ts";
 import { EDIT_COURSE } from "../core/settings.ts";
 import { ALTITUDE_SCALE } from "../core/view/camera.ts";
 import type { Touch } from "../core/edit/history.ts";
@@ -67,6 +68,8 @@ export class TrackView {
   private terrain: TerrainMesh | null = null;
   private tiles: TileSet | null = null;
   private models: ModelLibrary | null = null;
+  /** The placed models trucks drive on (core/view/mesh-pick.ts), built when first picked; null after a change. */
+  private drivable: DrivableMesh[] | null = null;
   private objects: ObjectLayer | null = null;
   private groundBoxes: GroundBoxLayer | null = null;
   private water = new WaterLayer();
@@ -252,7 +255,7 @@ export class TrackView {
     if (this.groundBoxes) { this.viewport.scene.remove(this.groundBoxes.mesh); this.groundBoxes.dispose(); }
     if (this.objects) { this.viewport.scene.remove(this.objects.group); this.objects.dispose(); }
     this.models?.dispose();
-    this.terrain = null; this.groundBoxes = null; this.objects = null; this.models = null; this.tiles = null;
+    this.terrain = null; this.groundBoxes = null; this.objects = null; this.models = null; this.tiles = null; this.drivable = null;
     this.water.rebuild(new Uint8Array(65536), 0);
     this.lakes.rebuild(null, [], []);
     this.waterfalls.rebuild([], 0, 0);
@@ -280,6 +283,7 @@ export class TrackView {
     const models = new ModelLibrary(doc, s.gamma, this.modelHd);
     models.transparency = s.model_transparency;
     this.models = models;
+    this.drivable = null;
     this.objects = new ObjectLayer(doc, models, s.gamma);
     this.objects.hideColliders = s.hide_colliders;
     this.viewport.scene.add(this.objects.group);
@@ -642,14 +646,43 @@ export class TrackView {
     return `${this.camera.gridx >> 2},${this.camera.gridy >> 2}`;
   }
 
-  /** The terrain under a point of the view (client pixels), or null. */
-  pick(clientX: number, clientY: number): TerrainHit | null {
-    if (!this.doc) return null;
+  /** The camera's ray through a point of the view (client pixels), scene units. */
+  private rayAt(clientX: number, clientY: number): { o: THREE.Vector3; d: THREE.Vector3 } {
     const r = this.viewport.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     const ray = new THREE.Raycaster();
     ray.setFromCamera(ndc, this.viewport.camera);
-    const o = ray.ray.origin, d = ray.ray.direction;
+    return { o: ray.ray.origin, d: ray.ray.direction };
+  }
+
+  /*
+    The drivable surface under a point of the view: the terrain (`pick`), or a placed model's floor nearer the eye
+    (a street, deck or tunnel floor of a track built of meshes, core/view/mesh-pick.ts), as a TerrainHit whose point
+    carries its 1/256 fractions. A JSTraxx addition: Traxx picks the terrain only.
+  */
+  pickDrivable(clientX: number, clientY: number): TerrainHit | null {
+    const ground = this.pick(clientX, clientY);
+    if (!this.doc || !this.models) return ground;
+    const models = this.models;
+    this.drivable ??= drivableMeshes(this.doc.track.boxes, (name) => models.meshesFor(name)?.geometry ?? null);
+    if (!this.drivable.length) return ground;
+    const { o, d } = this.rayAt(clientX, clientY);
+    const hit = pickMesh(this.drivable, [o.x, o.y, o.z], [d.x, d.y, d.z], ground ? ground.t : Infinity);
+    if (!hit) return ground;
+    const cells = cellsOf(this.doc.track);
+    const px = Math.floor(hit.point[0] * 256), py = Math.floor(hit.point[1] * 256), v = Math.floor((hit.point[2] * 256) / ALTITUDE_SCALE);
+    const ix = px >> 8, iy = py >> 8;
+    if (ix < 0 || iy < 0 || ix >= cells << 6 || iy >= cells << 6) return ground;
+    return {
+      point: hit.point, cell: [ix >> 6, iy >> 6], vertex: [Math.round(hit.point[0] / 64) & (cells - 1), Math.round(hit.point[1] / 64) & (cells - 1)], t: hit.t,
+      ipos: [ix, iy, v >> 8], fraction: [px & 255, py & 255, v & 255],
+    };
+  }
+
+  /** The terrain under a point of the view (client pixels), or null. */
+  pick(clientX: number, clientY: number): TerrainHit | null {
+    if (!this.doc) return null;
+    const { o, d } = this.rayAt(clientX, clientY);
     const t = this.doc.track;
     if (t.terrainMode === TERRAINMODE_CLASSIC8) return pickTerrain(t.heights, [o.x, o.y, o.z], [d.x, d.y, d.z]);
     // Traxx 1.7: the drive surface itself, over the grid window (PickSurfaceRay).
@@ -709,6 +742,7 @@ export class TrackView {
 
   /** The objects or ground boxes changed. */
   objectsChanged(): void {
+    this.drivable = null;
     this.objectWindow = "";
     this.updateWindow();
     if (this.doc && this.groundBoxes) this.groundBoxes.rebuild(this.doc.track.groundBoxes, this.tiles, cellsOf(this.doc.track));

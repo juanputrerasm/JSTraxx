@@ -162,9 +162,9 @@
     "semantic_hash": ""
   },
   "src/core/doc/load-pod.ts": {
-    "mtime": 1794866526.7392955,
-    "seen": 1794866725.826537,
-    "ast_hash": "f6569f47d2b3abdb6d25ab958cab4a88",
+    "mtime": 1794867067.8401527,
+    "seen": 1794867136.354651,
+    "ast_hash": "c7e4827ec625709a6f153ccc0386f99b",
     "semantic_hash": ""
   },
   "src/core/doc/load-txx.ts": {
@@ -366,9 +366,9 @@
     "semantic_hash": ""
   },
   "src/core/traxx/pod-writer.ts": {
-    "mtime": 1794806710.105829,
-    "seen": 1794806900.753772,
-    "ast_hash": "6259b6accbb19e78aaaa9c194a6971b4",
+    "mtime": 1794867067.8404136,
+    "seen": 1794867136.3546891,
+    "ast_hash": "3c40a93c3d8ae393ac61903009e40294",
     "semantic_hash": ""
   },
   "src/core/traxx/sit.ts": {
@@ -396,9 +396,9 @@
     "semantic_hash": ""
   },
   "src/core/traxx/txx.ts": {
-    "mtime": 1794863258.7836964,
-    "seen": 1794864574.0184479,
-    "ast_hash": "0a8fbe15f10666e4a7a8d6c88eeab2c5",
+    "mtime": 1794867067.8399978,
+    "seen": 1794867136.354694,
+    "ast_hash": "f60079c60584ef676c9a355eb0ebe5f5",
     "semantic_hash": ""
   },
   "src/core/version.ts": {
@@ -2484,9 +2484,9 @@
     "semantic_hash": ""
   },
   "docs/PARITY.md": {
-    "mtime": 1794866705.4574616,
-    "seen": 1794866725.8269382,
-    "ast_hash": "2080b84160e99938cf19ac7040f6a69f",
+    "mtime": 1794867127.1023312,
+    "seen": 1794867136.355042,
+    "ast_hash": "24989ed946bb588c25d79a4dabacff5a",
     "semantic_hash": ""
   },
   "index.html": {
@@ -3042,9 +3042,9 @@
     "semantic_hash": ""
   },
   "src/core/traxx/lakes.ts": {
-    "mtime": 1794806723.8782225,
-    "seen": 1794806900.753768,
-    "ast_hash": "0282f5bfefcaf5ff2abfd42402459230",
+    "mtime": 1794867052.4195678,
+    "seen": 1794867136.3546848,
+    "ast_hash": "a45c2822df12bf60327b6f8f6310d4a5",
     "semantic_hash": ""
   },
   "src/core/traxx/surface.ts": {
@@ -4320,9 +4320,9 @@
     "semantic_hash": ""
   },
   "tests/v6-water-veg.test.ts": {
-    "mtime": 1794806792.3822274,
-    "seen": 1794806900.754124,
-    "ast_hash": "866ca9e324f728e39508f9806942683c",
+    "mtime": 1794867140.5294425,
+    "seen": 1794867157.314419,
+    "ast_hash": "e31367d500d59e2188fd09ee88eba379",
     "semantic_hash": ""
   },
   "tests/falls-v6.test.ts": {
@@ -4416,9 +4416,9 @@
     "semantic_hash": ""
   },
   "src/core/doc/preflight-gather.ts": {
-    "mtime": 1794863979.870208,
-    "seen": 1794864574.01841,
-    "ast_hash": "8c1adc9e251bba6367b4957444f2379f",
+    "mtime": 1794867067.8406303,
+    "seen": 1794867136.354655,
+    "ast_hash": "facdcdd6f9a540ecc47b65200092af0e",
     "semantic_hash": ""
   },
   "src/core/edit/engine-glow-cone.ts": {
