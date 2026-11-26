@@ -10,7 +10,11 @@
   Traxx 1.7.3 (a28fe7d, 71a93b8): the Problems box says where a leaking lake's water gets out (the
   tile, also a yellow post in the view) and where the ground sits exactly at the water's height
   (up to 6 points in tile coordinates, quarters on the Spline / Full Map ground; orange posts).
+
+  Traxx origin/main (LakeDlg.cpp HeightsInFeet): on a v6 track the box is "Water height (ft)", feet with 2
+  decimals rounded to the nearest half foot, the readout beside it "ft" and "Holds up to %.2f ft".
 */
+import { waterUnitsStep } from "../../core/edit/feet-fields.ts";
 import { el } from "../../shared/dom.ts";
 import { openDialog } from "../shell/dialog.ts";
 import { cG } from "../../core/traxx/veg.ts";
@@ -31,11 +35,13 @@ export interface LakeDialogHooks {
   capacity(): number;
   /**
     The heights the ground allows, water units: [0, LAKE_MAX_HEIGHT] when absent (Traxx). A
-    version 6 track's ground below 0 or above 512 ft widens it (track-format-v6.md 9.1).
+    tall track's ground above 512 ft widens it (to LAKE_MAX_HEIGHT_V6).
   */
   heightRange?(): [number, number];
   /** N, the cells a side of the track's world (a tile index is x + z * N); absent: 256. */
   cells?(): number;
+  /** Traxx origin/main: the track's heights are in feet (a v6 track); the box is then feet with 2 decimals. */
+  feet?(): boolean;
 }
 
 /**
@@ -65,7 +71,10 @@ export function lakeProblemsText(state: LakeState, cells = 256): string {
 export async function lakeDialog(index: number, lake: TxxLake, hooks: LakeDialogHooks): Promise<boolean> {
   let state = hooks.changed();
   const [hmin, hmax] = hooks.heightRange?.() ?? [0, LAKE_MAX_HEIGHT];
-  const height = el("input", { type: "number", step: "0.25", min: String(hmin / 4), max: String(hmax / 4), class: "spin" }) as HTMLInputElement;
+  const inFeet = hooks.feet?.() ?? false;
+  const height = (inFeet
+    ? el("input", { type: "text", inputmode: "decimal", class: "spin" })
+    : el("input", { type: "number", step: "0.25", min: String(hmin / 4), max: String(hmax / 4), class: "spin" })) as HTMLInputElement;
   const feet = el("span", {});
   const max = el("div", {}), tiles = el("div", {}), seeds = el("div", {}), heights = el("div", {});
   const reflective = el("input", { type: "checkbox" }) as HTMLInputElement;
@@ -79,23 +88,29 @@ export async function lakeDialog(index: number, lake: TxxLake, hooks: LakeDialog
     return Math.max(hmin, Math.min(hmax, q));
   };
   const refresh = (writeHeight: boolean) => {
-    if (writeHeight) height.value = cG(lake.height / 4);
-    feet.textContent = `= ${cG(lake.height / 2)} ft`;
+    // Refresh (LakeDlg.cpp): on a v6 track the box itself is feet, so the readout beside it just names the unit.
+    if (writeHeight) height.value = inFeet ? (lake.height / 2).toFixed(2) : cG(lake.height / 4);
+    feet.textContent = inFeet ? "ft" : `= ${cG(lake.height / 2)} ft`;
     const cap = hooks.capacity();
-    max.textContent = cap === LAKE_NO_BASIN ? "No basin here" : `Holds up to ${cG(cap / 4)} = ${cG(cap / 2)} ft`;
+    max.textContent = cap === LAKE_NO_BASIN ? "No basin here" : inFeet ? `Holds up to ${(cap / 2).toFixed(2)} ft` : `Holds up to ${cG(cap / 4)} = ${cG(cap / 2)} ft`;
     tiles.textContent = `${state.tilecount} tiles of water`;
     seeds.textContent = `${lake.seeds.length} of ${LAKE_MAX_SEEDS} seeds`;
     reflective.checked = (lake.flags & LAKEFLAG_REFLECTIVE) !== 0;
     problems.value = lakeProblemsText(state, hooks.cells?.() ?? 256);
     const n = hooks.distinctHeights();
-    heights.textContent = `This track has ${n} water heights${n > 2 ? " - the engine reflects 2; the rest borrow the closest" : ""}`;
+    // LakeDlg.cpp LoadControls: the engine's hybrid reflections, every lake reflects; a height
+    // over 10 ft above the lowest water may get a mirror of its own (the nearest 2 per frame).
+    heights.textContent = `This track has ${n} water heights.` + (n > 1
+      ? " Every lake reflects. By default the 2 nearest heights over 10 ft above the lowest water get a mirror of their own; the rest share the lowest one's, corrected for height."
+      : "");
   };
   const applyHeight = (q: number) => {
     lake.height = snap(q);
     state = hooks.changed();
     refresh(true);
   };
-  const typed = () => Math.floor((Number.parseFloat(height.value) || 0) * 4 + 0.5);
+  // HeightFromText: quarters of a step, or on a v6 track feet rounded to the nearest half foot (blank is 0).
+  const typed = () => (inFeet ? waterUnitsStep(height.value, 0, hmax) : Math.floor((Number.parseFloat(height.value) || 0) * 4 + 0.5));
   height.addEventListener("change", () => applyHeight(typed()));
   height.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); applyHeight(typed()); }
@@ -110,9 +125,9 @@ export async function lakeDialog(index: number, lake: TxxLake, hooks: LakeDialog
   const r = await openDialog({
     title: `Lake ${index + 1}`,
     body: el("div", { class: "lake-dialog" },
-      el("label", {}, "Water height (terrain steps) ", height, " ", feet),
+      el("label", {}, inFeet ? "Water height (ft) " : "Water height (terrain steps) ", height, " ", feet),
       max, tiles, seeds,
-      el("label", { class: "opt-check" }, reflective, "Reflective"),
+      el("label", { class: "opt-check" }, reflective, "Reflective (the game currently reflects every lake)"),
       el("div", {}, "Problems"), problems, heights),
     buttons: [{ label: "OK", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }],
     beforeClose: (v) => {

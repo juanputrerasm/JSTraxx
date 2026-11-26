@@ -13,7 +13,8 @@ import { parseWfl, writeWfl } from "../src/vendor/openphotex/mtm/wfl.js";
 import { newTrackDocument } from "../src/core/doc/new-track.ts";
 import { buildTrackPod, podRefusal } from "../src/core/traxx/pod-writer.ts";
 import { loadPodTrack } from "../src/core/doc/load-pod.ts";
-import { fallWorldOf, isV6Document } from "../src/core/traxx/v6.ts";
+import { fallWorldOf } from "../src/core/traxx/v6.ts";
+import { isV6 } from "../src/core/traxx/track-kind.ts";
 import { setMode } from "../src/core/traxx/surface.ts";
 import { TERRAINMODE_CLASSIC16 } from "../src/core/traxx/terrain16.ts";
 import {
@@ -40,14 +41,15 @@ function spring(pts: [number, number][], height: number): TraxxFall {
 }
 
 test("a 512-cell world writes a version 2 .WFL with points beyond 8,192 ft and reads it back", async () => {
-  const doc = newTrackDocument(512); // flat at 200 ft: step 128, base 200, so version 2 heights 401..1424
+  const doc = newTrackDocument(512); // Standard V6, flat at 200 ft: step 128, base 200
   const fall = spring([[12000, 9000], [12040, 9000], [12060, 9030]], 410);
   doc.track.falls = [fall];
-  const world = fallWorldOf(doc.track, false);
-  assert.deepEqual(world, { cells: 512, terrain: { step: 128, base: 200 } });
+  const world = fallWorldOf(doc.track);
+  // FallMaxHeight on a Standard V6 track: the lake cap, 65535 / 64 = 1023 half-feet.
+  assert.deepEqual(world, { cells: 512, terrain: { step: 128, base: 200 }, maxHeight: 1023 });
   const lakes: FallLakes = { lakes: [], tmap: null, world };
   assert.equal(fallErrors(doc.track.falls, 0, lakes), 0);
-  assert.deepEqual(fallHeightLimits(doc.track.falls, lakes), { min: 401, max: 1424 });
+  assert.deepEqual(fallHeightLimits(doc.track.falls, lakes), { min: 1, max: 1023 });
 
   const { out, bytes } = podOf(doc);
   assert.equal(out.v6, true);
@@ -119,8 +121,8 @@ test("the walk's ground is the N x N terrain, the 32-bit store exact on a versio
   const h = new Int32Array(512 * 512).fill(200 * 128);
   h[400 + 300 * 512] = 3000 * 128 + 1; // 3,000 ft and 1/128 ft at the corner (400, 300): 12,800 x 9,600 ft
   t.h16 = h;
-  assert.equal(isV6Document(t, false), true);
-  const exact = fallGroundFor(t, null, fallWorldOf(t, false));
+  assert.equal(isV6(t), true);
+  const exact = fallGroundFor(t, null, fallWorldOf(t));
   assert.equal(exact.cells, 512);
   assert.equal(exact.height(400 * 32, 300 * 32), 3000 + 1 / 128);
   // Without the version 6 world it is Traxx's integer rule (CornerV / 2, truncated).
@@ -135,8 +137,8 @@ test("a 256-cell Traxx track is unchanged: version 1 .WFL, .SIT, Traxx's ranges 
   const doc = newTrackDocument();
   const fall = spring([[100, 100], [130, 100]], 410);
   doc.track.falls = [fall];
-  assert.equal(isV6Document(doc.track, false), false);
-  assert.equal(fallWorldOf(doc.track, false), FALL_WORLD_CLASSIC);
+  assert.equal(isV6(doc.track), false);
+  assert.equal(fallWorldOf(doc.track), FALL_WORLD_CLASSIC);
   const { out, bytes } = podOf(doc);
   assert.equal(out.v6, false);
   assert.ok(entry(out, "WORLD\\TRAXX.SIT"));
@@ -161,26 +163,28 @@ test("a 256-cell Traxx track is unchanged: version 1 .WFL, .SIT, Traxx's ranges 
   assert.equal(fallErrors([spring([[100, 100], [130, 100]], 4096)], 0, { lakes: [], tmap: null }), 0);
 });
 
-test("a 256-cell version 6 track writes version 1 only; a crest above 2,048 ft is an error, not version 2", () => {
-  const doc = newTrackDocument();
-  doc.carry.situationIsSi3 = true; // opened from a .SI3, 256 cells, flat at 200 ft
+test("a 256-cell version 6 track writes version 1; a crest above the kind's FallMaxHeight is an error", () => {
+  const doc = newTrackDocument(256, "standard"); // 256 cells, flat at 200 ft
   doc.track.falls = [spring([[100, 100], [130, 100]], 410)];
   const out = buildTrackPod(doc, { date: DATE });
   assert.equal(out.v6, true);
   assert.equal(entry(out, "WORLD\\TRAXX.WFL")!.data[4], 1);
-  // 5000 half-feet (2,500 ft) does not fit version 1: the fall is in error and no .WFL is written.
+  // 5000 half-feet (2,500 ft) is above a Standard V6 track's 1023: the fall is in error and no .WFL is written.
   doc.track.falls = [spring([[100, 100], [130, 100]], 5000)];
-  const world = fallWorldOf(doc.track, true);
+  const world = fallWorldOf(doc.track);
   const lakes: FallLakes = { lakes: [], tmap: null, world };
-  assert.deepEqual(fallHeightLimits(doc.track.falls, lakes), { min: 1, max: 4096 });
+  assert.deepEqual(fallHeightLimits(doc.track.falls, lakes), { min: 1, max: 1023 });
   assert.ok(fallErrors(doc.track.falls, 0, lakes) & FALLERR_HEIGHT);
-  assert.match(fallErrorText(FALLERR_HEIGHT, world), /256-cell track's waterfalls \(\.WFL version 1\)/);
+  assert.equal(fallErrorText(FALLERR_HEIGHT, world), "The crest height is outside 1..1023");
   const bad = buildTrackPod(doc, { date: DATE });
   assert.equal(entry(bad, "WORLD\\TRAXX.WFL"), undefined);
   assert.ok(bad.warnings.some((w) => /waterfalls could not be written/.test(w)));
-  // A fall never makes a track version 6: a .SIT track with that spring stays a .SIT, its fall in error.
-  doc.carry.situationIsSi3 = false;
-  assert.equal(isV6Document(doc.track, false), false);
-  assert.equal(entry(buildTrackPod(doc, { date: DATE }), "WORLD\\TRAXX.SIT")?.name, "WORLD\\TRAXX.SIT");
-  assert.equal(podRefusal(doc)?.title, "Waterfalls need fixing");
+  // A fall never makes a track version 6: a classic track with that spring stays a .SIT, its fall in error (1..4096).
+  const classic = newTrackDocument();
+  classic.track.falls = doc.track.falls;
+  assert.equal(isV6(classic.track), false);
+  assert.equal(entry(buildTrackPod(classic, { date: DATE }), "WORLD\\TRAXX.SIT")?.name, "WORLD\\TRAXX.SIT");
+  assert.equal(podRefusal(classic)?.title, "Waterfalls need fixing");
+  // A Tall Heights V6 track's crest reaches 16384 (8,192 ft).
+  assert.equal(fallWorldOf(newTrackDocument(512, "tall").track).maxHeight, 16384);
 });

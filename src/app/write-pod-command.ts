@@ -23,8 +23,19 @@
 
   The art beside each texture (HD sources and _N / _AO maps) is looked up in the ART folder and
   the library by the asset worker, as Traxx re-reads them from its ART folder.
+
+  Traxx origin/main (1.8.2-beta):
+    - a stored lake map that differs from Traxx's fill is asked about first (AskStoredLakes, Yes / No /
+      Cancel): Yes writes it (judged by the engine's own checks), No writes the fill and drops the stored
+      copy once the pod is written;
+    - a version 6 track the height scale cannot hold is refused (caption "Write POD"), after the lakes
+      and waterfalls;
+    - the export dialog's omit tick is forced (ticked and greyed, with the reason) on a v6 track, on any
+      terrain but Classic 8-bit, and for more than 20 checkpoint boxes; the fallback explanation is not
+      shown then;
+    - a refusal of Save itself (the race rules, the heights PNG's name, the v6 backstop) is its own
+      message box (PodBuildRefused's caption and text); nothing is written.
 */
-import { v6Features } from "../core/traxx/v6.ts";
 import { el } from "../shared/dom.ts";
 import type { AppState } from "./state.ts";
 import type { Editor } from "./editor.ts";
@@ -35,7 +46,10 @@ import { alertDialog, confirmDialog, openDialog } from "../ui/shell/dialog.ts";
 import { findLostSurfaceSidecars, lostSurfaceMessage, LOST_SURFACE_TITLE } from "../core/doc/surface-sidecar.ts";
 import { parsePod } from "../vendor/openphotex/pod/parse.js";
 import { checkIntegrity } from "../core/doc/integrity.ts";
-import { buildTrackPod, podRefusal, type TextureExtras } from "../core/traxx/pod-writer.ts";
+import { buildTrackPod, podExportForcedNote, podRefusal, PodBuildRefused, type LakeWrite, type TextureExtras } from "../core/traxx/pod-writer.ts";
+import { askStoredLakesText, recomputeLakes, storedLakeMapOf, storedLakesDiffer, LAKE_RULE_EDGE } from "../core/traxx/lakes.ts";
+import { buildLakeGround } from "../core/traxx/surface.ts";
+import { trackNotches } from "../core/traxx/falls.ts";
 import { recordFields } from "../core/edit/record.ts";
 import { writePod1, PodWriteError } from "../vendor/openphotex/pod/write.js";
 import type { TrackDocument } from "../core/doc/document.ts";
@@ -62,8 +76,34 @@ export function bindWritePod(registry: CommandRegistry, app: AppState, editor: E
     const doc = editor.doc;
     if (!doc || doc.viewOnly) return;
 
-    // Lakes, then waterfalls, in error refuse the export before any dialog (Traxx 1.7 / 1.7.1).
-    const refusal = podRefusal(doc);
+    /*
+      A STORED LAKE MAP (AskStoredLakes): asked once, before anything else, so Cancel is clean, and only when it differs
+      from a fresh fill. Yes keeps it (the checks below and the writer read it as the engine will); No writes the fill,
+      and the stored copy is dropped once the pod is written.
+    */
+    let lakeWrite: LakeWrite = "computed";
+    let dropStored = false;
+    if (storedLakeMapOf(doc.track)) {
+      const t = doc.track;
+      const ground = buildLakeGround(t);
+      const fill = ground ? recomputeLakes(ground, t.lakes, t.waterLevel4, trackNotches({ falls: t.falls, worldCells: t.worldCells, lakeRule: LAKE_RULE_EDGE })) : null;
+      const ndiff = storedLakesDiffer(t, fill);
+      if (ndiff > 0) {
+        const r = await openDialog({
+          title: "Write POD",
+          body: el("p", { class: "modal-text" }, askStoredLakesText(ndiff, true)),
+          buttons: [{ label: "Yes", value: "yes", primary: true }, { label: "No", value: "no" }, { label: "Cancel", value: "cancel" }],
+        });
+        if (r !== "yes" && r !== "no") return;
+        if (editor.doc !== doc) return;
+        lakeWrite = r === "yes" ? "stored" : "computed";
+        dropStored = r === "no";
+      }
+    }
+
+    // Lakes, then waterfalls, in error refuse the export before any dialog (Traxx 1.7 / 1.7.1); then a v6 track the
+    // height scale cannot hold, and a kept stored lake map the engine's checks refuse.
+    const refusal = podRefusal(doc, lakeWrite);
     if (refusal) { await alertDialog(refusal.title, refusal.text); return; }
 
     // The detail normals, terrain then water (Traxx 1.7.2, 28568e2).
@@ -73,14 +113,14 @@ export function bindWritePod(registry: CommandRegistry, app: AppState, editor: E
     }
 
     /*
-      The sun and ambient are only ever set from a .LVL (POD import, Clone) or in Edit > Lighting.
+      The sun and ambient are only ever set from a .LVL (POD import, Clone) or in Special > Lighting (b6bd02d moved it).
       A track still carrying Traxx's own defaults shipped them silently once, so ask before writing.
       One Yes covers the rest of this document's session.
     */
     // A track with no sun record writes the defaults too (pod-writer), so it is asked about as well.
     const lit = trackLighting(doc.track);
     if (sunIsTraxxDefault(lit.sun, lit.ambient) && !docs.sunDefaultsAcked) {
-      const yes = await confirmDialog("Write POD", "This track's sun and ambient are still Traxx's defaults (sun -46333,-46333,0, ambient 32768), not values from the track. Set them in Edit > Lighting.\n\nWrite the POD anyway?", "Yes");
+      const yes = await confirmDialog("Write POD", "This track's sun and ambient are still Traxx's defaults (sun -46333,-46333,0, ambient 32768), not values from the track. Set them in Special > Lighting.\n\nWrite the POD anyway?", "Yes");
       if (!yes || editor.doc !== doc) return;
       docs.sunDefaultsAcked = true;
     }
@@ -108,7 +148,9 @@ export function bindWritePod(registry: CommandRegistry, app: AppState, editor: E
     const cost = fallbackBytes(doc, extras);
     const total = cost.terrain + cost.model;
     const kb = (n: number) => Math.trunc((n + 512) / 1024);
-    if (total > 0 && !app.settings.pod_fallback_noask) {
+    // podexport_forced: Save writes .SI2 / .SI3 with legacyFallback=0 whatever the tick says (PODEXPORT_*_NOTE).
+    const forcedNote = podExportForcedNote(doc.track);
+    if (total > 0 && !app.settings.pod_fallback_noask && !forcedNote) {
       const dontAsk = el("input", { type: "checkbox" }) as HTMLInputElement;
       const r = await openDialog({
         title: "Legacy .RAW fallback",
@@ -126,18 +168,19 @@ export function bindWritePod(registry: CommandRegistry, app: AppState, editor: E
     // The export options.
     const fileName = el("input", { type: "text", value: `${doc.track.prefix || "TRACK"}.POD`, class: "cmp-wide" }) as HTMLInputElement;
     fileName.addEventListener("keydown", (e) => e.stopPropagation());
-    const omit = el("input", { type: "checkbox", checked: doc.track.omitRawFallback, disabled: total === 0 }) as HTMLInputElement;
+    // Forced: shown ticked and greyed with the reason; what the author stored is never rewritten from it.
+    const omit = el("input", { type: "checkbox", checked: forcedNote ? true : doc.track.omitRawFallback, disabled: total === 0 || Boolean(forcedNote) }) as HTMLInputElement;
     const r = await openDialog({
       title: "Write POD file",
       body: [
         el("label", { class: "opt-row" }, el("span", { class: "fld" }, "File name"), fileName),
         el("label", { class: "opt-check" }, omit, "Omit the legacy .RAW fallback"),
-        ...(total === 0 ? [el("p", { class: "hint" }, "No texture has HD art beside it, so there is nothing to omit.")] : []),
+        ...(forcedNote ? [el("p", { class: "hint" }, forcedNote)] : total === 0 ? [el("p", { class: "hint" }, "No texture has HD art beside it, so there is nothing to omit.")] : []),
       ],
       buttons: [{ label: "Write", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }],
     });
     if (r !== "ok" || editor.doc !== doc) return;
-    if (doc.track.omitRawFallback !== omit.checked) {
+    if (!forcedNote && doc.track.omitRawFallback !== omit.checked) {
       const rec = recordFields(doc.track, ["omitRawFallback"], "Omit Legacy Fallback", {});
       doc.track.omitRawFallback = omit.checked;
       editor.commit(rec);
@@ -156,15 +199,20 @@ export function bindWritePod(registry: CommandRegistry, app: AppState, editor: E
     let bytes: Uint8Array;
     let report: ReturnType<typeof buildTrackPod>;
     try {
-      report = buildTrackPod(doc, { extras });
+      report = buildTrackPod(doc, { extras, lakeWrite });
       bytes = writePod1(report.comment, report.entries);
     } catch (err) {
       app.status("");
+      // Save's own refusals ("Race rules: ...", the heights PNG's name, the v6 backstop): its message box, nothing written.
+      if (err instanceof PodBuildRefused) { await alertDialog(err.caption, err.message); return; }
       const msg = err instanceof PodWriteError ? `${err.message}${err.entryIndex !== null ? ` (entry ${err.entryIndex})` : ""}` : err instanceof Error ? err.message : String(err);
       await alertDialog("Cannot write the pod", `The pod could not be built: ${msg}\n\nNothing was written.`);
       return;
     }
     app.status("");
+    // The race rules put the type-6 boxes in the .CPX's order and forced the track type (Save reorders the live
+    // document's box[]), so the view and the windows follow.
+    if (report.cpx) editor.emit("changed", { objects: true });
     let name = fileName.value.trim() || `${doc.track.prefix}.POD`;
     if (!/\.pod$/i.test(name)) name += ".POD";
     /*
@@ -183,6 +231,11 @@ export function bindWritePod(registry: CommandRegistry, app: AppState, editor: E
       return lost.length === 0 || await confirmDialog(LOST_SURFACE_TITLE, lostSurfaceMessage(lost), "Yes");
     });
     if (!saved) return;
+    // A recomputed pod: the stored lake map it replaced goes (the guard's DropStored).
+    if (dropStored) {
+      doc.track.storedLakeMap = null;
+      editor.emit("changed", { water: true });
+    }
 
     /*
       INSTANCING WARNING (CTrackPOD::Save): once, with every vegetation model the game will not
@@ -197,8 +250,6 @@ export function bindWritePod(registry: CommandRegistry, app: AppState, editor: E
     if (report.longFrames.length) notes.push(`These animation frame names are longer than 15 characters:\n\n${report.longFrames.join("\n")}\n\nThe engine stores each frame's name next to that frame's SOUND name, so a longer name overwrites the sound instead of truncating. Rename these to at most 15 characters including the extension (an 11-character stem with .RAW) and build again.`);
     if (report.badTextures.length) notes.push(`The pod was written, but these textures could not be packed properly:\n\n${report.badTextures.join("\n")}\n\nThe track will load, but these will be wrong or missing in game.`);
     notes.push(...report.warnings);
-    // Track format version 6 (spec 5.1): only a version 6 build lists a .SI3 track.
-    if (report.v6 && !doc.carry.situationIsSi3) notes.push(`This track uses track format version 6 (${v6Reasons(doc)}), so it was written as WORLD\\${doc.track.prefix}.SI3 with formatVersion=6. Only a version 6 build (OpenMTM2) lists it; MTM2, Community Patch 3 and Community Patch 4 do not. Write POD writes a whole new pod, so no .SIT or .SI2 of this track is in it.`);
     if (notes.length) await alertDialog("Write POD", notes.join("\n\n"));
     else app.status(`Wrote ${name} (${Math.round(bytes.length / 1024)} KB, ${report.entries.length} entries${report.v6 ? ", .SI3 (track format version 6)" : report.omittedAny ? ", .SI2" : ""})`);
   }, { enabled: () => Boolean(editor.doc && !editor.doc.viewOnly) });
@@ -284,13 +335,3 @@ async function savePod(bytes: Uint8Array, name: string, beforeOverwrite: (old: U
   return true;
 }
 
-/** Why a document is a version 6 track, in words (v6Features). */
-function v6Reasons(doc: TrackDocument): string {
-  const f = v6Features(doc.track, doc.carry.situationIsSi3);
-  const out: string[] = [];
-  if (f.world512) out.push("a 512-cell world");
-  if (f.tallHeights) out.push("heights below 0 ft or at 512 ft and above");
-  if (f.wideBoxes) out.push("ground boxes that need 16-bit heights");
-  if (f.tallWater) out.push("water below 0 ft or above 510 ft");
-  return out.join(", ") || "opened from a .SI3";
-}

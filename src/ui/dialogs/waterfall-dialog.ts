@@ -30,6 +30,8 @@ export interface WaterfallDialogHooks {
   lakes(): readonly { height: number }[];
   /** The raw heights a spring may take: Traxx's 1..4096, or a version 6 track's (falls.ts fallHeightBounds). */
   heightBounds?(): { min: number; max: number };
+  /** Traxx origin/main: a v6 track shows the heights with 2 decimals (FeetText). */
+  feet?(): boolean;
   /** The fall changed: redraw, rebuilding the shapes when `shape`. */
   changed(shape: boolean): void;
   /** FallFit: orient, snap onto the lake's lip, orient again. */
@@ -71,7 +73,7 @@ export async function waterfallDialog(index: number, h: WaterfallDialogHooks): P
   // OK or Cancel is ending the box: a box losing the focus must not re-apply its text (m_closing).
   let closing = false;
 
-  for (const o of fallSourceOptions(h.lakes(), h.fall())) source.append(el("option", { value: o.value }, o.label));
+  for (const o of fallSourceOptions(h.lakes(), h.fall(), h.feet?.() ?? false)) source.append(el("option", { value: o.value }, o.label));
 
   /* RefreshReadouts. */
   const readouts = () => {
@@ -86,7 +88,7 @@ export async function waterfallDialog(index: number, h: WaterfallDialogHooks): P
     const w = h.fall(), eff = h.effectiveHeight();
     loading = true;
     if (writeBoxes) {
-      const t = fallBoxTexts(w, eff);
+      const t = fallBoxTexts(w, eff, h.feet?.() ?? false);
       height.value = t.height; speed.value = t.speed; opacity.value = t.opacity; mist.value = t.mist;
       mistdepth.value = t.mistdepth; mistheight.value = t.mistheight; volume.value = t.volume;
       soundFile.value = t.sound; texture.value = t.texture;
@@ -104,7 +106,7 @@ export async function waterfallDialog(index: number, h: WaterfallDialogHooks): P
     height.disabled = w.source !== 0;
     for (const b of heightSpin.querySelectorAll("button")) (b as HTMLButtonElement).disabled = w.source !== 0;
     snapBtn.disabled = w.source === 0;
-    heightFt.textContent = fallHeightText(w, eff);
+    heightFt.textContent = fallHeightText(w, eff, h.feet?.() ?? false);
     loading = false;
     readouts();
   };

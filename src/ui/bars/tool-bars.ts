@@ -8,8 +8,13 @@ import type { AppState } from "../../app/state.ts";
 import { defaultAltitudeForTool } from "../../core/settings.ts";
 import { altitudeV, AMPLITUDE_MAXV, EDITSIZE_MAX_COARSE } from "../../core/edit/terrain.ts";
 import { amplitudeFractional, amplitudeFromText, amplitudeText, editSizeMax, stepAmplitude, wholeAmplitude } from "../../core/edit/amplitude.ts";
-import { onTerrainMode } from "../../app/terrain-kind.ts";
+import { onFeetLimit, onTerrainMode, trackTerrainMode } from "../../app/terrain-kind.ts";
+import { amplitudeFeetFromText, amplitudeFeetRange, amplitudeFeetText, boxBottomOnLeave, boxBottomWhileTyping, boxTopOnLeave, boxTopWhileTyping,
+  followAmplitude, followBoxBar, stepAmplitudeFeet } from "../../core/edit/feet-fields.ts";
+import { clampBoxBottom, clampBoxTop, formatFeet } from "../../core/traxx/height-units.ts";
 import { bar, check, radioGroup, slider, spin } from "./controls.ts";
+import { onCourseBar, pickLeadInFromBar, type CourseBarState } from "../../app/course-bar.ts";
+import { courseBarTexts } from "../../core/edit/race-edit.ts";
 import { clampBottom, clampTop } from "../../core/edit/ground-boxes.ts";
 
 /*
@@ -83,6 +88,24 @@ export function terrainToolsBar(app: AppState): HTMLElement {
     }
     altitude.kind(fractional);
   });
+  /*
+    Traxx origin/main FollowAmplitudeKind: a v6 track's box is feet, to its height limit. The amounts kept for
+    each tool family come inside the new limit (the plane height not negative); leaving v6 they come inside
+    255 steps (and to whole steps on a classic 8-bit track, which the terrain mode above does).
+  */
+  let feetLimit = -1;
+  onFeetLimit(app, (limit) => {
+    if (limit === feetLimit) return;
+    const wasFeet = feetLimit > 0;
+    feetLimit = limit;
+    altitude.feet(limit);
+    if (limit <= 0 && !wasFeet) return;
+    const fractional = amplitudeFractional(trackTerrainMode(app));
+    for (const [k, steps] of remembered) remembered.set(k, followAmplitude(altitudeV(steps), k, limit, fractional) / 256);
+    const v = followAmplitude(altitudeV(app.settings.edit.altitude), app.settings.edit.tool, limit, fractional) / 256;
+    if (v !== app.settings.edit.altitude) app.updateSettings((st) => { st.edit.altitude = v; });
+    else altitude.set(v);
+  });
   app.on("settings", (s) => {
     buttons.forEach((b, i) => b.setAttribute("aria-pressed", String(i === s.edit.tool)));
     width.set(s.edit.terrainw);
@@ -101,35 +124,55 @@ export function terrainToolsBar(app: AppState): HTMLElement {
   point), whole steps on a classic track (rounded half away from zero). The value is kept in the
   settings in steps, a multiple of 1/256 (v / 256). Held to +-255 except for Direct Edit, whose
   amount Traxx takes as typed (OnEditAmplitude); JSTraxx's settings hold every tool to +-255.
+  Traxx origin/main: on a v6 track the box is feet with 2 decimals (ParseFeet, FormatFeet), 1 ft a
+  click, held to the tool's range: Plane 0..the height limit, every other tool (Direct Edit too)
+  +-the limit (AmplitudeRange); the box is wider (34,68,30,12).
 */
-function altitudeBox(app: AppState): { element: HTMLElement; set(steps: number): void; kind(fractional: boolean): void } {
+function altitudeBox(app: AppState): { element: HTMLElement; set(steps: number): void; kind(fractional: boolean): void; feet(limit: number): void } {
   let fractional = false;
+  let limit = 0;
   const input = el("input", { type: "number", min: -255, max: 255, step: 1, class: "spin", "aria-label": "Altitude" }) as HTMLInputElement;
-  const show = (steps: number) => { input.value = amplitudeText(altitudeV(steps), fractional); };
+  const range = () => amplitudeFeetRange(app.settings.edit.tool, limit);
+  const show = (steps: number) => { input.value = limit > 0 ? amplitudeFeetText(altitudeV(steps), range()) : amplitudeText(altitudeV(steps), fractional); };
   const store = (v: number) => {
-    if (app.settings.edit.tool !== 7) v = Math.max(-AMPLITUDE_MAXV, Math.min(AMPLITUDE_MAXV, v));
-    const steps = Math.max(-255, Math.min(255, v / 256));
+    if (limit > 0) {
+      const [lo, hi] = range();
+      v = Math.max(lo, Math.min(hi, v));
+    } else if (app.settings.edit.tool !== 7) v = Math.max(-AMPLITUDE_MAXV, Math.min(AMPLITUDE_MAXV, v));
+    const cap = limit > 0 ? limit / 256 : 255;
+    const steps = Math.max(-cap, Math.min(cap, v / 256));
     show(steps);
     if (steps !== app.settings.edit.altitude) app.updateSettings((s) => { s.edit.altitude = steps; });
   };
-  const commit = () => store(amplitudeFromText(input.value, fractional));
+  const commit = () => store(limit > 0 ? amplitudeFeetFromText(input.value) : amplitudeFromText(input.value, fractional));
   input.addEventListener("change", commit);
   input.addEventListener("keydown", (e) => {
     // Keys typed in the box belong to it, not to the 3D view.
     e.stopPropagation();
     if (e.key === "Enter") { commit(); input.blur(); }
     else if (e.key === "Escape") input.blur();
-    else if (fractional && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-      // OnAmplitudeSpin: StepAmplitude from the text as it reads.
+    else if ((fractional || limit > 0) && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      // OnAmplitudeSpin: StepAmplitude from the text as it reads (1 ft a click on a v6 track).
       e.preventDefault();
-      store(stepAmplitude(input.value, e.key === "ArrowUp" ? 1 : -1));
+      const units = e.key === "ArrowUp" ? 1 : -1;
+      store(limit > 0 ? stepAmplitudeFeet(input.value, units, range()) : stepAmplitude(input.value, units));
     }
   });
   show(app.settings.edit.altitude);
+  const label = el("span", { class: "bar-label" }, "Altitude");
   return {
-    element: el("label", { class: "bar-row" }, el("span", { class: "bar-label" }, "Altitude"), input),
+    element: el("label", { class: "bar-row" }, label, input),
     set: show,
-    kind: (on) => { fractional = on; input.step = on ? "0.1" : "1"; show(app.settings.edit.altitude); },
+    kind: (on) => { fractional = on; if (limit <= 0) input.step = on ? "0.1" : "1"; show(app.settings.edit.altitude); },
+    feet: (l) => {
+      limit = l;
+      // Feet are typed as text: a number box would refuse a decimal comma (ParseFeet reads one).
+      input.type = l > 0 ? "text" : "number";
+      input.inputMode = l > 0 ? "decimal" : "";
+      input.classList.toggle("spin-feet", l > 0);
+      input.step = l > 0 ? "" : fractional ? "0.1" : "1";
+      show(app.settings.edit.altitude);
+    },
   };
 }
 
@@ -144,24 +187,115 @@ export function textureToolsBar(app: AppState): HTMLElement {
   return bar("Texture Tools", paint.element, width.element, height.element);
 }
 
+/*
+  Course Tools (IDD_COURSE_CONTROL). Traxx 1.8.2 (RefreshCourseBar, OnLeadIn): on a lane track (a drag,
+  or Parallel rules) the radios read "Lane 1", "Lane 2", "2", "3", "4" and the tickbox "Always show
+  lanes"; otherwise "Main (0)", "1".."4" and "Always show main". "Lead-in, then:" (None, Lane 1, Lane
+  2: the selected course's lead-in) is enabled for courses 2..4, even with the rules off so a stale
+  lead-in can be cleared; a pick goes to Course mode (app/course-bar.ts), which may refuse it.
+*/
 export function courseToolsBar(app: AppState): HTMLElement {
   const courses = radioGroup("course", ["Main (0)", "1", "2", "3", "4"], app.tools.course, (v) => app.setTools({ course: v }));
   const always = check("Always show main", app.tools.alwaysMain, (v) => app.setTools({ alwaysMain: v }));
-  app.on("tools", (t) => { courses.set(t.course); always.set(t.alwaysMain); });
-  return bar("Course Tools", el("fieldset", { class: "bar-group" }, el("legend", {}, "Course"), courses.element), always.element);
+  const radioTexts = [...courses.element.querySelectorAll("label")].map((l) => l.lastChild as Text);
+  const alwaysText = always.element.lastChild as Text;
+  const leadIn = el("select", { "aria-label": "Lead-in, then" }, ...["None", "Lane 1", "Lane 2"].map((n, i) => el("option", { value: i }, n))) as HTMLSelectElement;
+  const leadLabel = el("span", { class: "bar-label" }, "Lead-in, then:");
+  const leadRow = el("div", { class: "bar-leadin" }, leadLabel, leadIn);
+  let bar0: CourseBarState = { open: false, lanes: false, leadIn: -1 };
+  const refresh = () => {
+    const t = courseBarTexts(bar0.lanes);
+    radioTexts.forEach((n, i) => { n.textContent = t.radios[i]!; });
+    alwaysText.textContent = t.always;
+    const sel = app.tools.course;
+    leadIn.value = String((sel >= 2 ? bar0.leadIn : -1) + 1);
+    const on = bar0.open && sel >= 2;
+    leadIn.disabled = !on;
+    leadRow.classList.toggle("disabled", !on);
+  };
+  leadIn.addEventListener("change", () => {
+    pickLeadInFromBar(app, app.tools.course, Number(leadIn.value));
+    // After a pick the keys go back to the view.
+    leadIn.blur();
+  });
+  leadIn.addEventListener("keydown", (e) => e.stopPropagation());
+  onCourseBar(app, (st) => { bar0 = st; refresh(); });
+  app.on("tools", (t) => { courses.set(t.course); always.set(t.alwaysMain); refresh(); });
+  refresh();
+  return bar("Course Tools", el("fieldset", { class: "bar-group" }, el("legend", {}, "Course"), courses.element), always.element, leadRow);
 }
 
 export function groundBoxToolsBar(app: AppState): HTMLElement {
   // Four checkboxes that behave as one choice, or none (CTraxxFrame::OnBuildingPaint*).
   const labels = ["Paint Face", "Paint Sides", "Paint Top/Bottom", "Paint All Faces"];
   const boxes = labels.map((label, i) => check(label, app.tools.gbPaint === i + 1, (on) => app.setTools({ gbPaint: on ? ((i + 1) as 1 | 2 | 3 | 4) : 0 })));
-  // Top stays above Bottom (CTraxxFrame::OnBuildingTop, OnBuildingBottom).
-  const top = spin("Top", app.tools.gbTop, 1, 255, (v) => app.setTools({ gbTop: clampTop(v, app.tools.gbBottom) }));
-  const bottom = spin("Bottom", app.tools.gbBottom, 0, 254, (v) => app.setTools({ gbBottom: clampBottom(v, app.tools.gbTop) }));
+  // Top stays above Bottom (CTraxxFrame::OnBuildingTop, OnBuildingBottom). The tools hold v (1/128 ft); the spins
+  // show whole 2 ft steps (v >> 8), as a classic track's boxes are.
+  const top = spin("Top", app.tools.gbTop >> 8, 1, 255, (v) => app.setTools({ gbTop: clampTop(v << 8, app.tools.gbBottom) }));
+  const bottom = spin("Bottom", app.tools.gbBottom >> 8, 0, 254, (v) => app.setTools({ gbBottom: clampBottom(v << 8, app.tools.gbTop) }));
+  /*
+    Traxx origin/main: on a v6 track the two boxes are feet with 2 decimals (BuildingFeet). While typing, only
+    a value already in range is taken (a top in (bottom, ceiling], a bottom in [0, top)), so "1000" can be
+    typed past a "1"; leaving the box takes it in full, held in range, a blank or unreadable box going back
+    to the last good value (OnBuildingTopKill); the arrows step 1 ft (StepBuildingFeet).
+  */
+  let ceiling = 0;
+  const feetBox = (label: string, isTop: boolean) => {
+    const input = el("input", { type: "text", inputmode: "decimal", class: "spin spin-feet", "aria-label": label }) as HTMLInputElement;
+    const show = () => { input.value = formatFeet(isTop ? app.tools.gbTop : app.tools.gbBottom); };
+    const leave = () => {
+      const t = app.tools;
+      const v = isTop ? boxTopOnLeave(input.value, t.gbTop, t.gbBottom, ceiling) : boxBottomOnLeave(input.value, t.gbBottom, t.gbTop);
+      app.setTools(isTop ? { gbTop: v } : { gbBottom: v });
+      show();
+    };
+    input.addEventListener("input", () => {
+      const t = app.tools;
+      const v = isTop ? boxTopWhileTyping(input.value, t.gbBottom, ceiling) : boxBottomWhileTyping(input.value, t.gbTop);
+      if (v !== null) app.setTools(isTop ? { gbTop: v } : { gbBottom: v });
+    });
+    input.addEventListener("blur", leave);
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") { leave(); input.blur(); }
+      else if (e.key === "Escape") input.blur();
+      else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        e.preventDefault();
+        const t = app.tools, step = 128 * (e.key === "ArrowUp" ? 1 : -1);
+        app.setTools(isTop ? { gbTop: clampBoxTop(t.gbTop + step, t.gbBottom, ceiling) } : { gbBottom: clampBoxBottom(t.gbBottom + step, t.gbTop) });
+        show();
+      }
+    });
+    const element = el("label", { class: "bar-row" }, el("span", { class: "bar-label" }, label), input);
+    return { element, input, show };
+  };
+  const topFeet = feetBox("Top", true), bottomFeet = feetBox("Bottom", false);
+  const showKind = () => {
+    top.element.hidden = bottom.element.hidden = ceiling > 0;
+    topFeet.element.hidden = bottomFeet.element.hidden = ceiling <= 0;
+  };
+  showKind();
+  // FollowBuildingKind: the two values carried into the new unit; the view is told them for its next box only.
+  onFeetLimit(app, (limit) => {
+    if (limit === ceiling) return;
+    ceiling = limit;
+    showKind();
+    const f = followBoxBar(app.tools.gbTop, app.tools.gbBottom, limit);
+    if (f.top !== app.tools.gbTop || f.bottom !== app.tools.gbBottom) {
+      // TX_GBUPPERSET / TX_GBLOWERSET: a selected box is not changed by the track's kind changing.
+      app.setTools({ gbTop: f.top, gbBottom: f.bottom, gbBarOnly: true });
+      app.tools.gbBarOnly = false;
+    }
+    topFeet.show();
+    bottomFeet.show();
+  });
   app.on("tools", (t) => {
     boxes.forEach((b, i) => b.set(t.gbPaint === i + 1));
-    top.set(t.gbTop);
-    bottom.set(t.gbBottom);
+    top.set(t.gbTop >> 8);
+    bottom.set(t.gbBottom >> 8);
+    // The box being typed in keeps its text.
+    if (document.activeElement !== topFeet.input) topFeet.show();
+    if (document.activeElement !== bottomFeet.input) bottomFeet.show();
   });
-  return bar("Groundbox Tools", ...boxes.map((b) => b.element), top.element, bottom.element);
+  return bar("Groundbox Tools", ...boxes.map((b) => b.element), top.element, bottom.element, topFeet.element, bottomFeet.element);
 }

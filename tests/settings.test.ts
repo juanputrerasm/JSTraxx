@@ -25,7 +25,7 @@ test("stored settings are held to the ranges Traxx's controls allow", () => {
   assert.equal(s.gamma, 2.0);
   assert.equal(s.polysize, 80);
   assert.equal(s.water_opacity, 0);
-  assert.equal(s.mode, 4);
+  assert.equal(s.mode, 5); // Traxx 1.8.2: EDIT_WALLS is the last mode
   assert.equal((s as unknown as Record<string, unknown>).unknown, undefined);
   assert.equal(s.edit.tool, 7);
   assert.equal(s.edit.terrainw, 1);

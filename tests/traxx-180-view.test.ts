@@ -45,8 +45,8 @@ test("light pool: R = min(int(rad), 4095); dim with no pool weather; no ring und
 test("light pool: a ground box's top when the head is above its bottom, else the terrain", () => {
   const doc = newTrackDocument();
   const box = lightBox();
-  // The box at cell (128, 128): bottom 0, top 120 steps; the head is 10 steps + 8 ft over the terrain.
-  const gb = { boxes: [{ x: 128, y: 128, lower: 0, upper: 120 }], cells: 256 };
+  // The box at cell (128, 128): bottom 0, top 120 steps (v = steps << 8); the head is 10 steps + 8 ft over the terrain.
+  const gb = { boxes: [{ x: 128, y: 128, lower: 0, upper: 120 << 8 }], cells: 256 };
   const bare = lightPoolDrawing(box, box.light, doc.track, null, ctx, { show: false, weather: 7 });
   const terrainZ = bare.lines[bare.lines.length - 1]![0][2];
   box.ipos[2] = terrainZ / 3 + 10;
@@ -54,7 +54,7 @@ test("light pool: a ground box's top when the head is above its bottom, else the
   const stem = on.lines[on.lines.length - 1]!;
   assert.equal(stem[0][2], 3 * 120);
   // The head under the box's bottom: the terrain.
-  const below = lightPoolDrawing(box, box.light, doc.track, { boxes: [{ x: 128, y: 128, lower: 250, upper: 255 }], cells: 256 }, ctx, { show: false, weather: 7 });
+  const below = lightPoolDrawing(box, box.light, doc.track, { boxes: [{ x: 128, y: 128, lower: 250 << 8, upper: 255 << 8 }], cells: 256 }, ctx, { show: false, weather: 7 });
   assert.equal(below.lines[below.lines.length - 1]![0][2], terrainZ);
 });
 

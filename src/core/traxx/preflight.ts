@@ -11,7 +11,14 @@
   Pure: plain inputs (PfInput) in, a list out. preflight-gather.ts fills the input from a
   document; the Write POD command shows the list. Also here: the engine's 64 shared fog slots
   (EngineFog.cpp EngineFogSlotOverflow), which the Waterfall window and View > Statistics share.
+
+  Traxx origin/main (1.8.2-beta): the race rules (CheckRaceRules, CheckWalls, CheckLeadIns), the engine's 100
+  checkpoints (603e219; slots with the rules on, boxes with them off) and the more-than-20 warning (bb921f2), and a
+  version 6 track's 16,384 objects (1c882a4). No looped-course distance check (removed upstream, 22d3ec6).
 */
+import { cpxRankSlots, cpxSortForExport, cpxValidate } from "./race-rules.ts";
+import { RACERULES_DRAG, RACERULES_NONE, RACERULES_PARALLEL } from "./race-types.ts";
+import { WALL_MAX_EXPORT_POINTS, WALL_MAX_EXPORT_TOTAL } from "./walls.ts";
 
 export const PF_WARN = 1;
 export const PF_ERROR = 2;
@@ -20,7 +27,10 @@ export const PF_MAXITEMS = 96;
 
 /* The limits, from section 5 of the engine handover. */
 export const PF_MAX_RAMPS = 100;
-export const PF_MAX_CHECKPOINTS = 20;
+/** Engine MAX_CHECKPOINTS (core\\sim.h, 603e219); it was 20. */
+export const PF_MAX_CHECKPOINTS = 100;
+/** Retail MTM2 and builds before 603e219 hold 20; more is exported as .SI2 and warned. */
+export const PF_RETAIL_CHECKPOINTS = 20;
 export const PF_MAX_MOVERS = 103;
 export const PF_MAX_CRUSH = 100;
 export const PF_MAX_LIGHTS = 128;
@@ -28,6 +38,13 @@ export const PF_LIGHT_RAD_MIN = 1.0;
 export const PF_LIGHT_RAD_MAX = 4095.0;
 export const PF_MAX_SCENERY = 4608;
 export const PF_SAFE_SCENERY = 4509;
+/** A version 6 track (.SI3): MAX_PLACED_BOXES_V6, with 4096 slots of ground-box headroom (MAX_BOX_LIST 20480). */
+export const PF_MAX_SCENERY_V6 = 16384;
+export const PF_SAFE_SCENERY_V6 = 16384;
+/** Race rules walls: one authored stretch longer than this is refused. */
+export const PF_WALL_MAX_STRETCH_FT = 4096;
+/** Race rules: the engine credits a crossing only when the front wheel hub (~3 ft up) is inside the box's height band. */
+export const PF_MIN_CHECKPOINT_HEIGHT_FT = 8;
 export const PF_MAX_LOOPSOUNDS = 30;
 export const PF_MAX_COURSES = 5;
 export const PF_MAX_SEGMENTS = 249;
@@ -71,6 +88,31 @@ export interface PfBox {
   sndCont: string | null;
   /** The 'L' block's rad (lights only). */
   lightRad: number;
+  /** PF_BOX_CHECKPOINT only: checkpoint_seq, cp_split, cp_lane (race rules). */
+  seq?: number;
+  split?: number;
+  lane?: number;
+  /** The box uses a model (its height is the model's, which Traxx does not know). */
+  hasModel?: boolean;
+  /** The "length,width,height" height WriteSITFile prints, in feet (model-less boxes). */
+  heightFt?: number;
+}
+
+/** One authored wall, as the .CPX export will see it (PfWall). */
+export interface PfWall {
+  name: string;
+  /** Authored points. */
+  npoints: number;
+  closed: boolean;
+  /** 1/256 ft. */
+  thickness: number;
+  height: number;
+  /** Points CTrackPODWalls::Export makes on a flat ground: 0 under 2 points, -1 over the per-wall cap. */
+  exportCount: number;
+  /** The longest straight distance from one authored point to the next (closing stretch too). */
+  maxStretchFt: number;
+  /** An exported point is outside 0..N*32 ft (ExportOutOfWorld). */
+  outOfWorld: boolean;
 }
 
 export interface PfTex {
@@ -111,6 +153,16 @@ export interface PfInput {
   stem: string | null;
   trackName: string | null;
   box: readonly PfBox[];
+  /** RACERULES_*: non-zero counts checkpoint slots, not boxes. Absent: none. */
+  raceRules?: number;
+  /** The track's walls; they reach the pod only with drag or Parallel rules on. */
+  wall?: readonly PfWall[];
+  /** The world size N (256 or 512) for the wall text; absent = 256. */
+  worldCells?: number;
+  /** A version 6 track (.SI3): the scenery cap is PF_*_SCENERY_V6. */
+  isV6?: boolean;
+  /** Per course: the Lane (1 or 2) it is a lead-in for, 0 = not a lead-in. */
+  leadinLane?: readonly number[];
   /** Segments in the main course and the four extended ones. */
   nCourseSeg: readonly number[];
   /** Waterfalls with a sound (PodPreflightFallHasSound). */
@@ -195,14 +247,14 @@ function hasSound(s: string | null): boolean {
 
 /* .SIT, section 5.1. */
 function checkBoxes(inp: PfInput, out: PfList): void {
-  let nramps = 0, ncheck = 0, nmovers = 0, ncrush = 0, nlights = 0, nscenery = 0, nloop = 0;
+  let nramps = 0, ncheck = 0, nchecktype = 0, nmovers = 0, ncrush = 0, nlights = 0, nscenery = 0, nloop = 0;
   const lowrad = new Agg(), highrad = new Agg(), longmodel = new Agg(), longwav = new Agg();
   for (const b of inp.box) {
     const label = boxLabel(b);
     if (b.type === PF_BOX_RAMP) nramps++;
     else if (b.type === PF_BOX_CRUSH) ncrush++;
     else nscenery++;
-    if (b.type === PF_BOX_CHECKPOINT) ncheck++;
+    if (b.type === PF_BOX_CHECKPOINT) { ncheck++; nchecktype++; }
     if (b.type === PF_BOX_TRAIN || b.type === PF_BOX_MOVING) nmovers++;
     if (b.type === PF_BOX_LIGHT) {
       nlights++;
@@ -218,16 +270,34 @@ function checkBoxes(inp: PfInput, out: PfList): void {
     add(out, PF_ERROR, `Ramps: ${nramps}, the most the game can hold is ${PF_MAX_RAMPS}. `
       + `The game keeps the first ${PF_MAX_RAMPS} and ignores the rest (older game versions overrun their ramp list).`);
   }
+  // With race rules on, the engine's list holds one entry per checkpoint (slot), however many boxes copy it.
+  if ((inp.raceRules ?? RACERULES_NONE) !== RACERULES_NONE) {
+    const cin = raceBoxes(inp);
+    ncheck = cin.length > 0 ? cpxRankSlots(cin.map((c) => c.cin)).count : 0;
+  }
+  // Checkpoints: the engine holds MAX_CHECKPOINTS (100) and quits on load past that ("Too many checkpoints").
   if (ncheck > PF_MAX_CHECKPOINTS) {
     add(out, PF_ERROR, `Checkpoints: ${ncheck}, the most the game can hold is ${PF_MAX_CHECKPOINTS}. `
-      + "The game refuses the 21st and quits on load with \"Too many checkpoints\" (older game versions "
-      + "first write it past the end of the list and overrun memory).");
+      + "The game refuses the next one and quits on load with \"Too many checkpoints\" (older game versions "
+      + `hold only ${PF_RETAIL_CHECKPOINTS}, and first write the 21st past the end of their list and overrun memory).`);
+  }
+  // More than the 20 retail holds, boxes counted (copies too): Write POD makes it a .SI2 so retail never lists it.
+  if (nchecktype > PF_RETAIL_CHECKPOINTS) {
+    add(out, PF_WARN, `This track has ${nchecktype} checkpoint boxes (more than ${PF_RETAIL_CHECKPOINTS}). Only new builds can load it: `
+      + "retail MTM2 won't list it, older community builds refuse it, and builds before 2026-11-15 "
+      + "may crash on it.");
   }
   if (nmovers > PF_MAX_MOVERS) {
     add(out, PF_ERROR, `Moving objects (Train and Moving): ${nmovers}, the most the game can hold is ${PF_MAX_MOVERS}. `
       + "Past that the game quits on load with \"Too many trains\".");
   }
-  if (nscenery > PF_SAFE_SCENERY) {
+  // A v6 track keeps 16384 and its box list has 4096 slots of headroom.
+  if (inp.isV6) {
+    if (nscenery > PF_SAFE_SCENERY_V6) {
+      add(out, PF_ERROR, `Objects: ${nscenery} (ramps and top-crush not counted). A version 6 track holds ${PF_MAX_SCENERY_V6} objects; the `
+        + `game keeps the first ${PF_MAX_SCENERY_V6} and drops the rest. Stay at ${PF_SAFE_SCENERY_V6} or fewer.`);
+    }
+  } else if (nscenery > PF_SAFE_SCENERY) {
     add(out, PF_ERROR, `Objects: ${nscenery} (ramps and top-crush not counted). The game keeps the first ${PF_MAX_SCENERY} and drops `
       + `the rest, and about 99 more ground boxes are added every frame, so from ${PF_SAFE_SCENERY + 1} up it can quit mid-race `
       + `with "Have mark increase box count". Stay at ${PF_SAFE_SCENERY} or fewer.`);
@@ -255,6 +325,80 @@ function checkBoxes(inp: PfInput, out: PfList): void {
       + "The rest are silent: the objects in file order first, then the stadium crowd, then the "
       + "waterfalls nearest the start.");
   }
+}
+
+/* Race rules: the checkpoint map, in the order Save exports it (RaceBoxes). */
+
+/** The type-6 boxes in .SIT order, at most CPX_MAX_BOXES + 1, sorted the way Save sorts them, each with its PfBox. */
+function raceBoxes(inp: PfInput): { cin: { seq: number; split: number; lane: number }; src: PfBox }[] {
+  const items: { seq: number; split: number; lane: number; src: PfBox }[] = [];
+  for (const b of inp.box) {
+    if (items.length >= 801) break;
+    if (b.type === PF_BOX_CHECKPOINT) items.push({ seq: b.seq ?? 0, split: b.split ?? 0, lane: b.lane ?? 0, src: b });
+  }
+  cpxSortForExport(items);
+  return items.map((i) => ({ cin: { seq: i.seq, split: i.split, lane: i.lane }, src: i.src }));
+}
+
+/** Walls, lead-ins and the checkpoint height check belong to new-style drag and Parallel (not split checkpoints). */
+function dragStyleRules(inp: PfInput): boolean {
+  return inp.raceRules === RACERULES_DRAG || inp.raceRules === RACERULES_PARALLEL;
+}
+
+/** "%.1f" of a C float. */
+const f1 = (v: number) => Math.fround(v).toFixed(1);
+
+function checkRaceRules(inp: PfInput, out: PfList): void {
+  if ((inp.raceRules ?? RACERULES_NONE) === RACERULES_NONE) return;
+  const err = cpxValidate(inp.raceRules!, raceBoxes(inp).map((c) => c.cin));
+  if (err !== null) add(out, PF_ERROR, `Race rules: ${err}`);
+  // A plain checkpoint box shorter than a truck is crossed without being counted; a box with a model is skipped.
+  if (dragStyleRules(inp)) {
+    for (const b of inp.box) {
+      if (b.type === PF_BOX_CHECKPOINT && !b.hasModel && Math.fround(b.heightFt ?? 0) < PF_MIN_CHECKPOINT_HEIGHT_FT) {
+        add(out, PF_WARN, `Checkpoint box ${b.index} is ${f1(b.heightFt ?? 0)} ft tall; race-rules checkpoints should be at least `
+          + `${f0(PF_MIN_CHECKPOINT_HEIGHT_FT)} ft (a truck's height) or trucks may pass without being counted.`);
+      }
+    }
+  }
+}
+
+/* Lead-ins: an empty lead-in or lane course is written anyway (the engine copes), so only a warning. */
+function checkLeadIns(inp: PfInput, out: PfList): void {
+  let any = false;
+  for (let c = 0; c < PF_MAX_COURSES; c++) {
+    const lane = inp.leadinLane?.[c] ?? 0;
+    if (lane !== 1 && lane !== 2) continue;
+    any = true;
+    if (!dragStyleRules(inp)) continue;
+    if ((inp.nCourseSeg[c] ?? 0) <= 0) add(out, PF_WARN, `Course ${c} is a lead-in but has no segments.`);
+    else if ((inp.nCourseSeg[lane - 1] ?? 0) <= 0) add(out, PF_WARN, `Course ${c} is a lead-in for Lane ${lane}, but Lane ${lane}'s course has no segments.`);
+  }
+  if (any && !dragStyleRules(inp)) add(out, PF_WARN, "Lead-ins are only used on new-style drag and Parallel tracks; they will not be in the pod.");
+}
+
+/* Walls: with drag or Parallel rules off nothing is exported (a warning); on, each defect the export refuses is an error. */
+function checkWalls(inp: PfInput, out: PfList): void {
+  const walls = inp.wall ?? [];
+  if (walls.length <= 0) return;
+  if (!dragStyleRules(inp)) {
+    add(out, PF_WARN, `Walls are only exported on new-style drag or Parallel tracks; this track's ${walls.length} walls will not be in the pod.`);
+    return;
+  }
+  let total = 0;
+  for (const w of walls) {
+    const nm = w.name ?? "";
+    if (w.npoints < 2) add(out, PF_ERROR, `Wall "${nm}" has ${w.npoints} point(s); a wall needs at least 2.`);
+    else if (w.closed && w.npoints < 3) add(out, PF_ERROR, `Wall "${nm}" is closed with ${w.npoints} points; a closed wall needs at least 3.`);
+    else if (w.exportCount >= 0 && w.exportCount < (w.closed ? 3 : 2)) add(out, PF_ERROR, `Wall "${nm}" has fewer than ${w.closed ? 3 : 2} distinct points; points on the same spot count once.`);
+    if (w.thickness <= 0) add(out, PF_ERROR, `Wall "${nm}" has no thickness; it must be greater than 0.`);
+    if (w.height <= 0) add(out, PF_ERROR, `Wall "${nm}" has no height; it must be greater than 0.`);
+    if (w.maxStretchFt > PF_WALL_MAX_STRETCH_FT) add(out, PF_ERROR, `Wall "${nm}" has a stretch of ${String(Math.round(w.maxStretchFt))} ft; the longest allowed is ${f0(PF_WALL_MAX_STRETCH_FT)} ft.`);
+    if (w.outOfWorld) add(out, PF_ERROR, `Wall "${nm}" goes outside the world (0 to ${((inp.worldCells ?? 0) > 0 ? inp.worldCells! : 256) * 32} ft)`);
+    if (w.exportCount < 0) add(out, PF_ERROR, `Wall "${nm}" needs more than ${WALL_MAX_EXPORT_POINTS} points once subdivided (the most one wall can have); shorten it or split it.`);
+    else total += w.exportCount;
+  }
+  if (total > WALL_MAX_EXPORT_TOTAL) add(out, PF_ERROR, `The walls need ${total} points in all once subdivided; one pod holds at most ${WALL_MAX_EXPORT_TOTAL}.`);
 }
 
 /**
@@ -457,6 +601,9 @@ export function podPreflightLegacyWritten(hasHD: boolean, omitFallback: boolean,
 export function podPreflightCheck(inp: PfInput): PfList {
   const out: PfList = { item: [], nerr: 0, nwarn: 0, dropped: 0 };
   checkBoxes(inp, out);
+  checkRaceRules(inp, out);
+  checkWalls(inp, out);
+  checkLeadIns(inp, out);
   checkFogSlots(inp, out);
   checkCourse(inp, out);
   checkNames(inp, out);

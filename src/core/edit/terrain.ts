@@ -471,14 +471,38 @@ export function pasteTerrain(heights: Uint8Array, block: TerrainBlock, gi: numbe
 */
 export function pasteBitmapHeights(t: Terrain16, data: Uint8Array): boolean {
   if (t.fine) return false;
-  const cells = cellsOf(t) * cellsOf(t);
-  if (data.length < cells) return false;
+  const n = cellsOf(t), bw = sideOf(data.length);
+  // Traxx 1.8.2 (d932015): the picture is N x N, or on a 512 world 256 x 256 into cells 0..255.
+  if (bw * bw !== data.length || !pasteBitmapFits(bw, bw, n)) return false;
   if (t.h16) {
-    for (let k = 0; k < cells; k++) t.h16[k] = data[k]! << 8;
+    for (let r = 0; r < bw; r++) for (let c = 0; c < bw; c++) t.h16[r * n + c] = data[r * bw + c]! << 8;
     refreshRaw(t);
     heightsChanged(t);
-  } else t.heights.set(data.subarray(0, cells));
+  } else for (let r = 0; r < bw; r++) t.heights.set(data.subarray(r * bw, (r + 1) * bw), r * n);   // Traxx: Classic 8-bit is always 256 x 256
   return true;
+}
+
+/**
+  OnTerrainPasteBitmap's shape test (Traxx 1.8.2, d932015): a square picture of the world's N, or
+  on a 512 world a 256 x 256 one, which goes into the top-left corner (cells 0..255, the corner a
+  256 track keeps when it is enlarged).
+*/
+export function pasteBitmapFits(width: number, height: number, cells: number): boolean {
+  return width === height && (width === cells || (cells === 512 && width === 256));
+}
+
+/**
+  OnTerrainPasteBitmap's three refusals, or null when the picture fits. Traxx's "un-compressed,
+  8-bit" is about the clipboard's DIB; a browser hands JSTraxx a decoded picture, read by its grey
+  level, so those words are left out.
+*/
+export function pasteBitmapRefusal(width: number, height: number, cells: number): string | null {
+  if (pasteBitmapFits(width, height, cells)) return null;
+  if (width === 512 && height === 512 && cells === 256) {
+    return "Sorry, this bitmap is 512 x 512 pixels but this track's world is 256 x 256. A 512 x 512 bitmap needs a 512 x 512 track.";
+  }
+  if (cells === 512) return "Sorry, Bitmap must be 512 x 512 pixels (or 256 x 256, which goes in the top-left corner).";
+  return "Sorry, Bitmap must be 256 x 256 pixels.";
 }
 
 /* CRaiseLowerDlg's rules. */
@@ -502,6 +526,35 @@ export function liftHeight(h: number, inc: number): number {
   return Math.min(255, Math.max(0, h + inc));
 }
 
+/*
+  Traxx origin/main RaiseLowerDlg.cpp: the same in v, for a v6 track. Heights are 0..hmax (the terrain's height
+  limit); a scale rounds to the nearest (half up), as AdjustHeights16 does, so the readout is what the grid gets.
+*/
+export function effectiveIncrementV(incv: number, minv: number, maxv: number, hmax: number, avoidClip: boolean): number {
+  if (avoidClip) {
+    if (minv + incv < 0) incv = -minv;
+    if (maxv + incv > hmax) incv = hmax - maxv;
+  }
+  return incv;
+}
+
+export function scaleHeightV(h: number, factor: number, hmax: number): number {
+  const v = Math.floor(h * factor + 0.5 + 1e-9);
+  return Math.trunc(v < 0 ? 0 : v > hmax ? hmax : v);
+}
+
+export function effectiveScaleV(factor: number, maxv: number, hmax: number, avoidClip: boolean): number {
+  return avoidClip && maxv > 0 && scaleHeightV(maxv, factor, 0x7fffffff) > hmax ? hmax / maxv : factor;
+}
+
+export function liftHeightV(h: number, incv: number, hmax: number): number {
+  const v = h + incv;
+  return Math.trunc(v < 0 ? 0 : v > hmax ? hmax : v);
+}
+
+/** A v6 track's Adjust Terrain Heights (the dialog in feet): the exact range in v, the ceiling and the lift typed. */
+export interface AdjustFeet { minv: number; maxv: number; hmax: number; liftv: number }
+
 /** Something that stands on the terrain: x and y in ipos, z in whole steps. */
 /** A truck start or course end (ipos only), or an object (with its fraction). */
 export type Placed = PlacedPoint;
@@ -516,32 +569,45 @@ export function adjustHeights(
   heights: Uint8Array,
   opts: { scale: boolean; increment: number; factor: number; avoidClip: boolean },
   placed: Placed[], water4: number | null,
-  /** A 16-bit track: adjust its real grid with the factor and the whole-step lift instead (AdjustHeights16 / Fine). */
-  grid16?: (scale: boolean, inc: number, factor: number) => void,
+  /** A 16-bit track: adjust its real grid with the factor and the lift in v instead (AdjustHeights16 / Fine). */
+  grid16?: (scale: boolean, liftv: number, factor: number) => void,
   /** The track, so placed points are grounded on the drive surface off Classic 8-bit (CollectPlacedPoints). */
   track?: Ground,
   /** The water's range, half feet: Traxx's 0..1020, or a version 6 document's (v6.ts trackWaterRange). */
   waterRange: readonly [number, number] = [0, 4 * 255],
-): { water4: number | null; factor: number; inc: number } {
+  /** Traxx origin/main: a v6 track's dialog in feet (with grid16): the factor and lift judged in v. */
+  feet?: AdjustFeet,
+): { water4: number | null; factor: number; inc: number; dq: number } {
   let min = 255, max = 0;
   for (const h of heights) { if (h < min) min = h; if (h > max) max = h; }
-  const factor = effectiveScale(opts.factor, max, opts.avoidClip);
-  const inc = effectiveIncrement(opts.increment, min, max, opts.avoidClip);
+  let factor: number, inc: number, liftv: number;
+  if (feet && grid16) {
+    factor = effectiveScaleV(opts.factor, feet.maxv, feet.hmax, opts.avoidClip);
+    liftv = effectiveIncrementV(feet.liftv, feet.minv, feet.maxv, feet.hmax, opts.avoidClip);
+    inc = 0;
+  } else {
+    factor = effectiveScale(opts.factor, max, opts.avoidClip);
+    inc = effectiveIncrement(opts.increment, min, max, opts.avoidClip);
+    liftv = inc * 256;
+  }
+  // The lift of the water and the lakes in their units (half feet): 4 a step, or 64 v apiece on a v6 track.
+  const dq = feet && grid16 ? Math.floor(liftv / 64 + 0.5) : 4 * inc;
   const g: Ground = track ?? heights;
   const ground = placed.map((p) => placedGround(g, p));
-  if (grid16) grid16(opts.scale, inc, factor);
+  if (grid16) grid16(opts.scale, liftv, factor);
   else for (let i = 0; i < heights.length; i++) heights[i] = opts.scale ? scaleHeight(heights[i], factor) : liftHeight(heights[i], inc);
   placed.forEach((p, i) => shiftPlaced(g, p, ground[i]!));
-  if (water4 === null) return { water4: null, factor, inc };
-  const w = opts.scale ? Math.floor(water4 * factor + 1e-9) : water4 + 4 * inc;
-  return { water4: Math.min(waterRange[1], Math.max(waterRange[0], w)), factor, inc };
+  if (water4 === null) return { water4: null, factor, inc, dq };
+  const w = opts.scale ? Math.floor(water4 * factor + 1e-9) : water4 + dq;
+  return { water4: Math.min(waterRange[1], Math.max(waterRange[0], w)), factor, inc, dq };
 }
 
 /*
   The terrain as an N x N greyscale picture (OnTerrainCopyBitmap writes the heights as an
   8-bit DIB with a grey palette; a DIB is bottom-up, so row 0 of the heights is the bottom of
   the picture). Paste takes an N x N picture back the same way, reading its grey level. N is 256,
-  or 512 in a version 6 world (spec section 8.1).
+  or 512 in a version 6 world (spec section 8.1); a 512 world also takes a 256 x 256 picture
+  (Traxx 1.8.2), whose rows come back 256 long (pasteBitmapHeights puts them in the corner).
 */
 export function heightsToRgba(heights: Uint8Array): Uint8ClampedArray {
   const n = sideOf(heights.length);
@@ -555,8 +621,8 @@ export function heightsToRgba(heights: Uint8Array): Uint8ClampedArray {
 }
 
 export function rgbaToHeights(rgba: Uint8ClampedArray | Uint8Array, width: number, height: number, cells = 256): Uint8Array | null {
-  if (width !== cells || height !== cells) return null;
-  const n = cells;
+  if (!pasteBitmapFits(width, height, cells)) return null;
+  const n = width;
   const out = new Uint8Array(n * n);
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const s = (i + (n - 1 - j) * n) * 4;

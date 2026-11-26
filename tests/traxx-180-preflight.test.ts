@@ -20,7 +20,7 @@ function reset(): Mut {
   return i;
 }
 function addBoxes(i: Mut, type: number, n: number): void {
-  for (let k = 0; k < n; k++) i.box.push({ index: i.box.length + 1, type, model: null, sndImpact: null, sndCont: null, lightRad: 64 });
+  for (let k = 0; k < n; k++) i.box.push({ index: i.box.length + 1, type, model: null, sndImpact: null, sndCont: null, lightRad: 64, seq: 0, split: 0, lane: 0, hasModel: false, heightFt: 0 });
 }
 const count = (l: PfList, level: number, needle: string) => l.item.filter((x) => x.level === level && x.text.includes(needle)).length;
 const boxesFlag = (type: number, n: number, level: number, needle: string) => { const i = reset(); addBoxes(i, type, n); return count(podPreflightCheck(i), level, needle) > 0 ? 1 : 0; };
@@ -52,7 +52,8 @@ test("a clean track gives an empty list", () => {
 
 test(".SIT counts at their boundaries", () => {
   boundary("ramps 100", boxesFlag(99, 100, PF_ERROR, "Ramps"), boxesFlag(99, 101, PF_ERROR, "Ramps"));
-  boundary("checkpoints 20", boxesFlag(6, 20, PF_ERROR, "Checkpoints"), boxesFlag(6, 21, PF_ERROR, "Checkpoints"));
+  // Traxx origin/main: the engine holds 100 checkpoints (603e219).
+  boundary("checkpoints 100", boxesFlag(6, 100, PF_ERROR, "Checkpoints"), boxesFlag(6, 101, PF_ERROR, "Checkpoints"));
   boundary("movers 103 (trains)", boxesFlag(10, 103, PF_ERROR, "Moving objects"), boxesFlag(10, 104, PF_ERROR, "Moving objects"));
   boundary("movers 103 (moving)", boxesFlag(13, 103, PF_ERROR, "Moving objects"), boxesFlag(13, 104, PF_ERROR, "Moving objects"));
   boundary("top-crush 100 (warning)", boxesFlag(98, 100, PF_WARN, "Top-crush"), boxesFlag(98, 101, PF_WARN, "Top-crush"));
@@ -231,11 +232,159 @@ test("gathering a document: boxes, courses, weather, stock music, no falls", asy
   t.versionFlags |= 1; t.weatherMask = 0;
   t.music = new Uint8Array([...new TextEncoder().encode("MUSIC\\MY SONG.WAV"), 0]);
   const inp = gatherPreflight(doc);
-  assert.deepEqual(inp.box[0], { index: 1, type: 12, model: "LAMP.BIN", sndImpact: "NULL.WAV", sndCont: "NULL.WAV", lightRad: 0.5 });
+  assert.deepEqual(inp.box[0], { index: 1, type: 12, model: "LAMP.BIN", sndImpact: "NULL.WAV", sndCont: "NULL.WAV", lightRad: 0.5, seq: 0, split: 0, lane: 0, hasModel: true, heightFt: 20 });
+  assert.deepEqual([inp.raceRules, inp.wall, inp.worldCells, inp.isV6, inp.leadinLane], [0, [], 256, false, [0, 0, 0, 0, 0]]);
   assert.equal(inp.stockBgm, "MY SONG.WAV");
   assert.equal(inp.mistLandings, null);
   const l = podPreflightRun(doc);
   assert.ok(l.item.some((i) => i.text.startsWith("Light radius under 1 ft: Object #1 (LAMP.BIN).")));
   assert.ok(l.item.some((i) => i.text.includes("Bad weather mask")));
   assert.ok(l.item.some((i) => i.text.includes("has a space")));
+});
+
+/*
+  Traxx origin/main (1.8.2-beta) preflighttest.cpp: the race rules, walls, lead-ins, the checkpoint caps and a version 6
+  track's 16,384 objects.
+*/
+import { RACERULES_DRAG, RACERULES_NONE, RACERULES_PARALLEL, RACERULES_RACE } from "../src/core/traxx/race-types.ts";
+import type { PfWall } from "../src/core/traxx/preflight.ts";
+
+type MutRace = Mut & { raceRules?: number; wall?: PfWall[]; worldCells?: number; isV6?: boolean; leadinLane?: number[] };
+
+/* `slots` checkpoints of `copies` boxes each, race rules `mode`; the list. A drag's first three slots are unsplit; a copied slot is split "any copy". */
+function raceSlots(mode: number, slots: number, copies: number): PfList {
+  const i = reset() as MutRace;
+  i.raceRules = mode;
+  for (let s = 0; s < slots; s++) {
+    const one = copies === 1 || (mode === RACERULES_DRAG && s < 3);
+    for (let c = 0; c < (one ? 1 : copies); c++) {
+      addBoxes(i, 6, 1);
+      const b = i.box[i.box.length - 1]!;
+      b.seq = s + 1; b.split = one ? 0 : 1; b.lane = 0;
+    }
+  }
+  return podPreflightCheck(i);
+}
+const raceErrors = (mode: number, slots: number, copies: number, needle: string) => count(raceSlots(mode, slots, copies), PF_ERROR, needle);
+
+test("checkpoints: 100 slots with the rules on, 100 boxes with them off, and the more-than-20 warning", () => {
+  assert.equal(raceErrors(RACERULES_DRAG, 100, 2, "Checkpoints"), 0, "race slots 100 (2 copies each)");
+  assert.equal(raceErrors(RACERULES_DRAG, 101, 2, "Checkpoints"), 1);
+  assert.equal(raceErrors(RACERULES_DRAG, 100, 2, "Race rules"), 0, "a valid drag map says nothing");
+  assert.equal(raceErrors(RACERULES_PARALLEL, 100, 8, ""), 0, "100 slots of 8 copies (800 boxes): no error");
+  assert.equal(raceErrors(RACERULES_RACE, 100, 8, "Race rules"), 0);
+  assert.equal(raceErrors(RACERULES_RACE, 101, 8, "Race rules"), 1, "race boxes 800 (100 slots of 8)");
+  assert.equal(raceErrors(RACERULES_PARALLEL, 100, 9, "Race rules"), 1, "9 copies of a slot");
+  assert.equal(raceErrors(RACERULES_DRAG, 3, 1, "Race rules"), 1, "a drag with 3 slots");
+  assert.equal(raceErrors(RACERULES_DRAG, 3, 1, "at least 4 checkpoints"), 1, "the drag message carries CpxValidate's text");
+  assert.equal(raceErrors(RACERULES_PARALLEL, 3, 1, "Race rules"), 0);
+  assert.equal(raceErrors(RACERULES_NONE, 101, 1, "Checkpoints: 101, the most the game can hold is 100"), 1);
+  assert.equal(raceErrors(RACERULES_NONE, 3, 1, "Race rules"), 0);
+  assert.equal(raceErrors(RACERULES_PARALLEL, 140, 1, "Checkpoints: 140"), 1, "rules on: the message counts slots, not boxes");
+  const l = raceSlots(RACERULES_NONE, 101, 1);
+  assert.equal(l.item.find((x) => x.text.startsWith("Checkpoints:"))!.text,
+    "Checkpoints: 101, the most the game can hold is 100. The game refuses the next one and quits on load with \"Too many checkpoints\" (older game versions hold only 20, and first write the 21st past the end of their list and overrun memory).");
+  const warn = (mode: number, slots: number, copies: number, needle: string) => { const r = raceSlots(mode, slots, copies); return [count(r, PF_ERROR, ""), count(r, PF_WARN, needle)]; };
+  assert.deepEqual(warn(RACERULES_PARALLEL, 10, 3, "This track has 30 checkpoint boxes"), [0, 1]);
+  assert.deepEqual(warn(RACERULES_PARALLEL, 10, 2, "checkpoint boxes (more than 20)"), [0, 0]);
+  assert.deepEqual(warn(RACERULES_NONE, 21, 1, "This track has 21 checkpoint boxes (more than 20). Only new builds can load it: retail MTM2 won't list it, older community builds refuse it, and builds before 2026-11-15 may crash on it."), [0, 1]);
+  assert.deepEqual(warn(RACERULES_NONE, 20, 1, "checkpoint boxes (more than 20)"), [0, 0]);
+  assert.deepEqual(warn(RACERULES_NONE, 100, 1, "This track has 100 checkpoint boxes"), [0, 1]);
+  assert.deepEqual(warn(RACERULES_NONE, 101, 1, "This track has 101 checkpoint boxes"), [1, 1]);
+});
+
+test("the race-rules checkpoint height: a plain box under 8 ft warns on drag and Parallel only", () => {
+  const warns = (mode: number, heightFt: number, model: boolean) => {
+    const i = reset() as MutRace;
+    i.raceRules = mode;
+    addBoxes(i, 6, 1);
+    Object.assign(i.box[0]!, { seq: 1, hasModel: model, heightFt });
+    return podPreflightCheck(i).item.filter((x) => x.level === PF_WARN && x.text.includes("at least 8 ft"));
+  };
+  assert.equal(warns(RACERULES_PARALLEL, Math.fround(7.9), false).length, 1);
+  assert.equal(warns(RACERULES_PARALLEL, Math.fround(7.9), false)[0]!.text, "Checkpoint box 1 is 7.9 ft tall; race-rules checkpoints should be at least 8 ft (a truck's height) or trucks may pass without being counted.");
+  assert.equal(warns(RACERULES_PARALLEL, 8, false).length, 0);
+  assert.equal(warns(RACERULES_DRAG, 5, false).length, 1);
+  assert.equal(warns(RACERULES_PARALLEL, 0, true).length, 0, "a model checkpoint is skipped");
+  assert.equal(warns(RACERULES_NONE, 2, false).length, 0);
+  assert.equal(warns(RACERULES_RACE, 2, false).length, 0, "split checkpoints: no height warning");
+});
+
+test("walls: a warning with the rules off or on split checkpoints, an error per defect on drag and Parallel", () => {
+  const good = (name = "w"): PfWall => ({ name, npoints: 2, closed: false, thickness: 256, height: 2048, exportCount: 6, maxStretchFt: 40, outOfWorld: false });
+  const run = (mode: number, walls: PfWall[], cells?: number) => { const i = reset() as MutRace; i.raceRules = mode; i.wall = walls; if (cells) i.worldCells = cells; return podPreflightCheck(i); };
+  let l = run(RACERULES_NONE, [good(), good()]);
+  assert.equal(count(l, PF_WARN, "Walls are only exported on new-style drag or Parallel tracks; this track's 2 walls will not be in the pod."), 1);
+  assert.equal(count(l, PF_ERROR, ""), 0);
+  assert.equal(count(run(RACERULES_NONE, []), PF_WARN, "Walls are only"), 0);
+  l = run(RACERULES_PARALLEL, [good()]);
+  assert.equal(count(l, PF_WARN, "Walls are only") + count(l, PF_ERROR, "Wall \""), 0, "a sound wall is silent");
+  const one = (f: (w: PfWall) => void, needle: string) => { const w = good(); f(w); return count(run(RACERULES_PARALLEL, [w]), PF_ERROR, needle); };
+  boundary("wall points >= 2", one((w) => { w.npoints = 2; }, "at least 2"), one((w) => { w.npoints = 1; w.exportCount = 0; }, "at least 2"));
+  boundary("closed wall points >= 3", one((w) => { w.closed = true; w.npoints = 3; }, "closed with"), one((w) => { w.closed = true; w.npoints = 2; }, "closed with"));
+  boundary("wall thickness > 0", one((w) => { w.thickness = 1; }, "no thickness"), one((w) => { w.thickness = 0; }, "no thickness"));
+  boundary("wall height > 0", one((w) => { w.height = 1; }, "no height"), one((w) => { w.height = 0; }, "no height"));
+  boundary("wall stretch 4096 ft", one((w) => { w.maxStretchFt = 4096; }, "stretch of"), one((w) => { w.maxStretchFt = 4096.5; }, "stretch of"));
+  boundary("wall export points 1024", one((w) => { w.exportCount = 1024; }, "once subdivided (the most"), one((w) => { w.exportCount = -1; }, "once subdivided (the most"));
+  const eight = Array.from({ length: 8 }, () => ({ ...good(), exportCount: 1024 }));
+  boundary("walls export total 8192", count(run(RACERULES_PARALLEL, eight), PF_ERROR, "in all once subdivided"),
+    count(run(RACERULES_PARALLEL, [...eight, { ...good(), exportCount: 1 }]), PF_ERROR, "in all once subdivided"));
+  const out = { ...good("lake"), outOfWorld: true };
+  assert.equal(count(run(RACERULES_PARALLEL, [good("lake")]), PF_ERROR, "goes outside the world"), 0);
+  assert.equal(count(run(RACERULES_PARALLEL, [out]), PF_ERROR, "Wall \"lake\" goes outside the world (0 to 8192 ft)"), 1);
+  assert.equal(count(run(RACERULES_PARALLEL, [out], 512), PF_ERROR, "Wall \"lake\" goes outside the world (0 to 16384 ft)"), 1);
+  assert.equal(count(run(RACERULES_NONE, [out]), PF_ERROR, "goes outside the world"), 0);
+  boundary("open wall distinct points >= 2", one((w) => { w.exportCount = 2; }, "distinct points"), one((w) => { w.exportCount = 0; }, "distinct points"));
+  boundary("closed wall distinct points >= 3", one((w) => { w.closed = true; w.npoints = 3; w.exportCount = 3; }, "distinct points"), one((w) => { w.closed = true; w.npoints = 3; w.exportCount = 2; }, "distinct points"));
+  assert.equal(count(run(RACERULES_PARALLEL, [{ ...good("inner"), height: 0 }]), PF_ERROR, "Wall \"inner\""), 1);
+  l = run(RACERULES_RACE, [good(), { ...good(), height: 0, outOfWorld: true }]);
+  assert.equal(count(l, PF_WARN, "this track's 2 walls will not be in the pod."), 1);
+  assert.equal(count(l, PF_ERROR, "Wall \"") + count(l, PF_ERROR, "outside the world"), 0);
+});
+
+test("lead-ins: an empty lead-in or lane course warns on drag and Parallel; with the rules off one warning", () => {
+  const run = (mode: number, lanes: number[], segs: number[]) => { const i = reset() as MutRace; i.raceRules = mode; i.leadinLane = lanes; i.nCourseSeg = segs; return podPreflightCheck(i); };
+  let l = run(RACERULES_PARALLEL, [0, 0, 2, 0, 0], [0, 4, 3, 0, 0]);
+  assert.equal(count(l, PF_WARN, "is a lead-in") + count(l, PF_WARN, "Lead-ins are only"), 0);
+  assert.equal(count(run(RACERULES_PARALLEL, [0, 0, 2, 0, 0], [0, 4, 0, 0, 0]), PF_WARN, "Course 2 is a lead-in but has no segments."), 1);
+  assert.equal(count(run(RACERULES_PARALLEL, [0, 0, 2, 0, 0], [0, 0, 3, 0, 0]), PF_WARN, "Course 2 is a lead-in for Lane 2, but Lane 2's course has no segments."), 1);
+  assert.equal(count(run(RACERULES_PARALLEL, [0, 0, 0, 0, 1], [0, 0, 3, 0, 2]), PF_WARN, "Course 4 is a lead-in for Lane 1, but Lane 1's course has no segments."), 1);
+  l = run(RACERULES_DRAG, [0, 0, 0, 1, 0], [0, 0, 0, 0, 0]);
+  assert.equal(count(l, PF_WARN, "Course 3 is a lead-in but has no segments."), 1);
+  assert.equal(count(l, PF_WARN, "but Lane"), 0, "one warning per lead-in");
+  for (const mode of [RACERULES_NONE, RACERULES_RACE]) {
+    l = run(mode, [0, 0, 1, 2, 0], [0, 0, 0, 0, 0]);
+    assert.equal(count(l, PF_WARN, "Lead-ins are only used on new-style drag and Parallel tracks; they will not be in the pod."), 1);
+    assert.equal(count(l, PF_WARN, "is a lead-in"), 0);
+  }
+  assert.equal(count(run(RACERULES_NONE, [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]), PF_WARN, "Lead-ins are only"), 0);
+});
+
+test("split checkpoints (RACE): the map check runs, a lane is an error", () => {
+  assert.equal(raceErrors(RACERULES_RACE, 3, 2, "Race rules"), 0);
+  assert.equal(raceErrors(RACERULES_RACE, 3, 1, "Race rules"), 0);
+  assert.equal(raceErrors(RACERULES_RACE, 101, 1, "Checkpoints: 101, the most the game can hold is 100"), 1);
+  const i = reset() as MutRace;
+  i.raceRules = RACERULES_RACE;
+  addBoxes(i, 6, 3);
+  i.box.forEach((b, k) => { b.seq = k === 2 ? 2 : 1; b.heightFt = 10; });
+  Object.assign(i.box[0]!, { split: 2, lane: 1 });
+  Object.assign(i.box[1]!, { split: 2, lane: 2 });
+  const l = podPreflightCheck(i);
+  assert.equal(count(l, PF_ERROR, "Race rules: "), 1);
+  assert.equal(count(l, PF_ERROR, "no lanes"), 1);
+});
+
+test("a version 6 track holds 16,384 objects", () => {
+  for (const n of [4510, 4609, 8000, 16384]) {
+    const i = reset() as MutRace; i.isV6 = true; addBoxes(i, 0, n);
+    assert.equal(count(podPreflightCheck(i), PF_ERROR, "Objects:"), 0, `v6: ${n}`);
+  }
+  const i = reset() as MutRace; i.isV6 = true; addBoxes(i, 0, 16385);
+  const l = podPreflightCheck(i);
+  assert.equal(count(l, PF_ERROR, "Objects:"), 1);
+  assert.equal(count(l, PF_ERROR, "Objects: 16385 (ramps and top-crush not counted). A version 6 track holds 16384 objects; the game keeps the first 16384 and drops the rest. Stay at 16384 or fewer."), 1);
+  const j = reset() as MutRace; j.isV6 = true; addBoxes(j, 0, 16384); addBoxes(j, 99, 100); addBoxes(j, 98, 100);
+  assert.equal(count(podPreflightCheck(j), PF_ERROR, "Objects:"), 0);
+  assert.equal(boxesFlag(0, 4510, PF_ERROR, "Objects:"), 1, "classic still errors at 4510");
 });

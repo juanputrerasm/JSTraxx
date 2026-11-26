@@ -4,19 +4,22 @@
   and StockSoundsDlg.cpp. Fog Properties is in fog-dialog.ts.
 
   Object Properties shows its changes on the object as they are made (ApplySettings), through
-  `preview`; the caller puts the object back on Cancel.
+  `preview`. Traxx 1.8.2: it is a modeless window with Apply (objectPropertiesWindow); its owner
+  applies, restores on Cancel and keeps the view's other objects inert while it is up.
 */
 import { el } from "../../shared/dom.ts";
-import { alertDialog, openDialog } from "../shell/dialog.ts";
+import { alertDialog, openDialog, openModeless } from "../shell/dialog.ts";
 import { OBJECT_TYPE_NAMES, TYPEIDX_CRUSH, TYPEIDX_RAMP, TYPE_MOVING, TYPE_TRAIN, CHECKPOINT } from "../../core/edit/objects.ts";
 import type { ObjectFields } from "../../core/edit/object-properties.ts";
+import { checkpointRolePreview, dlgItemInt, type ObjectRaceContext } from "../../core/edit/race-edit.ts";
+import { CPX_SPLIT_ANY, CPX_SPLIT_LANE, CPX_SPLIT_NONE, RACERULES_NONE, RACERULES_RACE } from "../../core/traxx/race-types.ts";
 import { STOCK_CONT_SOUNDS, STOCK_SOUNDS } from "../../core/traxx/stock-data.ts";
 import { traxxLightDefaults, type TraxxFog, type TraxxLight } from "../../core/traxx/sit.ts";
 import type { FogBox } from "../../core/edit/fog-properties.ts";
 import { fogPropertiesDialog } from "./fog-dialog.ts";
 import { LIGHT_RADIUS_MAX } from "../../core/view/light-pool.ts";
 import { ENGINELIGHT_RADIUS_MIN, lightPropertiesWarning, lightRadiusNeedsRaise, type LightGuideContext } from "../../core/traxx/light-props.ts";
-import { GP_HEIGHT, GP_MASS, GP_NAMES, GP_ANGLE, GP_PITCH, GP_TILT, GP_SIZEH, GP_SIZEL, GP_SIZEW, parses, type GroupFields, type GroupResult } from "../../core/edit/group-properties.ts";
+import { asOneOrig, GP_ASONE_LABELS, GP_HEIGHT, GP_MASS, GP_NAMES, GP_SIZEH, GP_SIZEL, GP_SIZEW, parses, type GroupFields, type GroupResult } from "../../core/edit/group-properties.ts";
 
 const TYPEIDX_LIGHT = 12;
 /** TYPEIDX_FOG (ObjectPropertiesDlg.h). */
@@ -62,7 +65,7 @@ export async function lightPropertiesDialog(light: TraxxLight, preview: (l: Trax
   // IDC_LIGHTWARN: the one warning line.
   const warn = el("p", { class: "hint" }, "Radius = wide.  Height = free.");
   const coneBox = el("fieldset", { class: "opt-group" }, el("legend", {}, "Cone"),
-    row("Length (ft)", coneLen), row("Radius at far end (ft)", coneRim), row("Radius at source (ft)", coneBase));
+    row("Length (ft)", coneLen), row("Radius at far end (ft)", coneRim), row("Width at source (ft)", coneBase));
   const enable = () => {
     const m = Number(mode.value);
     coneBox.disabled = m !== 2;
@@ -185,6 +188,11 @@ export interface ObjectDialogOptions {
   pickWav: () => Promise<File | null>;
   /** The cab "..." button: choose a keyframed model; resolves with its title, or null. */
   chooseCab: () => Promise<string | null>;
+  /**
+    ObjectDialogContext (Traxx 1.8.2): the track's race rules, the other checkpoints' numbers and the
+    Main route tick, read at open and again after each Apply (LoadFromBox).
+  */
+  raceContext: () => ObjectRaceContext;
 }
 
 export interface ObjectDialogResult { fields: ObjectFields; wavs: { cont: Uint8Array | null; impact: Uint8Array | null }; crushName: string }
@@ -195,32 +203,83 @@ const nudgeRaise = (shift: boolean, ctrl: boolean) => (shift && ctrl ? 10 : shif
 const nudgeTurn = (shift: boolean, ctrl: boolean) => (shift && ctrl ? 1 : shift ? 1000 : ctrl ? 10 : 100);
 const nudgeTilt = (shift: boolean, ctrl: boolean) => (shift && ctrl ? 1 : shift ? 10 : 100);
 
-export async function objectPropertiesDialog(o: ObjectDialogOptions): Promise<ObjectDialogResult | null> {
-  const f: ObjectFields = structuredClone(o.fields);
+/** What the modeless Object Properties window asks of its owner (CTraxxView's ObjectDialog* half). */
+export interface ObjectWindowHooks {
+  /**
+    ObjectDialogApply / ApplyObjectProperties: the fields onto the object. Resolves with the fields
+    loaded again from the object as it now is (a checkpoint renumber or a cap may have changed
+    them; LoadFromBox), or null when its object is gone (the window then goes without a word).
+  */
+  apply(result: ObjectDialogResult): Promise<ObjectFields | null> | ObjectFields | null;
+  /** Cancel's RestoreOriginal: the live fields (place, angles, size) back as the last load had them. */
+  restore(): void;
+  /** The window is gone (OK, Cancel or abandoned). */
+  closed(): void;
+}
+
+/** The open window (CTraxxView::objdlg). */
+export interface ObjectPropertiesWindow {
+  /** OnObjectProperties with the window up: it comes forward. */
+  raise(): void;
+  /**
+    RefreshFromBox: the view moved the object (a drag, a turn, a nudge key, the Models window): the
+    place, height, angle and size fields are written again, all but the box being typed in. Those
+    values are also what Cancel puts back now.
+  */
+  refreshFromBox(fields: ObjectFields, modelName: string, crushName: string, restingHeight: number): void;
+  /**
+    ObjectDialogClose: OK (Apply first; resolves false, the window staying, when Apply is refused;
+    modeSwitch adds "The edit to this object is being cancelled.") or Cancel.
+  */
+  close(ok: boolean, modeSwitch?: boolean): Promise<boolean>;
+  /** ObjectDialogAbandon: the window goes without a word (the document is closing, or its object is gone). */
+  abandon(): void;
+}
+
+/** The Fog-with-model refusal (ReadFields). */
+export const OBJECT_FOG_MODEL_REFUSAL = "Fog objects are model-less boxes. To take the model off, set this object to Ramp first (that clears it), then to Fog - or place a new box and set that to Fog.";
+
+/*
+  IDD_OBJECT_PROPERTIES, modeless (Traxx 1.8.2, 75cf23a, 90a876c: ObjectPropertiesDlg.cpp,
+  TraxxViewEdit.cpp OnObjectProperties .. ObjectDialogRefresh). Live preview as you type (an empty
+  box keeps the last value); Apply writes the fields onto the object and loads them again; OK is
+  Apply and close (a refused Apply keeps the window); Cancel, Escape and the close box put the
+  live place, angles and size back to the last load (what Apply committed stays). Only edits
+  (typing, a list choice, a level, Reset, a picked sound, Light..., Fog..., the cab) give Apply
+  something to write; nothing edited marks nothing. Light..., Fog..., the sound pickers and the
+  cab picker are modal over it. The race rows (Split, Lane, Role, Main route; IDC_CPSPLIT ..
+  IDC_CPMAIN under Reset) show only with race rules on (UpdateRaceRows).
+*/
+export function objectPropertiesWindow(o: ObjectDialogOptions, hooks: ObjectWindowHooks): ObjectPropertiesWindow {
+  let f: ObjectFields = structuredClone(o.fields);
   const show = (v: number) => (o.sitUnits ? v / 2 : v);
   const unshow = (v: number) => (o.sitUnits ? v * 2 : v);
-  const wavs: ObjectDialogResult["wavs"] = { cont: null, impact: null };
+  let wavs: ObjectDialogResult["wavs"] = { cont: null, impact: null };
   let crushName = o.crushName;
+  let modelName = o.modelName;
+  let restingHeight = o.restingHeight;
   let filling = true;
+  /* m_dirty: something for Apply to write; m_livedirty: a live field (place, angles, size) was edited. */
+  let dirty = false, liveDirty = false, closing = false;
 
   const type = stop(el("select", {}, ...OBJECT_TYPE_NAMES.map((n, i) => el("option", { value: i }, n)))) as HTMLSelectElement;
-  type.value = String(f.typeIndex);
   const checkpoint = num(f.checkpoint, 1, { min: 0 });
   const vx = num(f.vx, 1), vy = num(f.vy, 1);
-  const x = num(Number(show(f.fx).toFixed(3)), 0.1, { min: 0 }), y = num(Number(show(f.fy).toFixed(3)), 0.1, { min: 0 });
+  const x = num(0, 0.1, { min: 0 }), y = num(0, 0.1, { min: 0 });
   const sizeW = num(f.sizeW, 1, { min: 0 }), sizeH = num(f.sizeH, 1, { min: 0 }), sizeD = num(f.sizeD, 1, { min: 0 });
   const mass = num(f.mass, 10);
   const z = num(f.fz, 0.1), angle = num(f.angle, 0.01), elev = num(f.elev, 0.01), tilt = num(f.tilt, 0.01);
-  const levels = ["Sparse", "Normal", "Complex"].map((_, i) => el("input", { type: "radio", name: "obj-level", value: i, checked: f.level === i }) as HTMLInputElement);
-  const soundCont = el("input", { type: "text", readonly: true, value: f.soundCont, class: "obj-sound" }) as HTMLInputElement;
-  const soundImpact = el("input", { type: "text", readonly: true, value: f.soundImpact, class: "obj-sound" }) as HTMLInputElement;
+  const levels = ["Sparse", "Normal", "Complex"].map((_, i) => el("input", { type: "radio", name: "obj-level", value: i }) as HTMLInputElement);
+  const soundCont = el("input", { type: "text", readonly: true, class: "obj-sound" }) as HTMLInputElement;
+  const soundImpact = el("input", { type: "text", readonly: true, class: "obj-sound" }) as HTMLInputElement;
   const crushOff = f.crush.map((v) => num(v, "any"));
-  const crushText = el("input", { type: "text", readonly: true, value: crushName || "no ani model!" }) as HTMLInputElement;
+  const crushText = el("input", { type: "text", readonly: true }) as HTMLInputElement;
+  const edited = () => { if (!filling) dirty = true; };
 
   const soundButtons = (continuous: boolean, box: HTMLInputElement) => [
     el("button", { type: "button", class: "mini", title: "Stock sounds", onclick: async () => {
       const name = await stockSoundsDialog(continuous, box.value);
-      if (name) { box.value = name; if (continuous) wavs.cont = null; else wavs.impact = null; }
+      if (name) { box.value = name; if (continuous) wavs.cont = null; else wavs.impact = null; edited(); }
     } }, "#"),
     el("button", { type: "button", class: "mini", title: "Load a WAV file", onclick: async () => {
       const file = await o.pickWav();
@@ -228,30 +287,38 @@ export async function objectPropertiesDialog(o: ObjectDialogOptions): Promise<Ob
       box.value = file.name.replace(/\.[^.]*$/, "").toUpperCase();
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (continuous) wavs.cont = bytes; else wavs.impact = bytes;
+      edited();
     } }, "..."),
   ];
   const soundSel = [...soundButtons(true, soundCont), ...soundButtons(false, soundImpact)];
   const lightButton = el("button", { type: "button", onclick: async () => {
     const l = await lightPropertiesDialog(f.light, (p) => o.previewLight(p, true), o.lightContext);
-    if (l) f.light = l;
+    if (l) { f.light = l; edited(); }
     o.previewLight(f.light, Number(type.value) === TYPEIDX_LIGHT);
   } }, "Light...");
   /* OnFogProps: the dialog reads the size and height off the box and drives the preview. */
   const fogButton = el("button", { type: "button", onclick: async () => {
     const fog = await fogPropertiesDialog(f.fog, o.fogBox(), (p) => o.previewFog(p, true));
-    if (fog) f.fog = fog;
+    if (fog) { f.fog = fog; edited(); }
     // Back onto this dialog's working copy either way: the new values after OK, the old after Cancel.
     o.previewFog(f.fog, Number(type.value) === TYPEIDX_FOG);
   } }, "Fog...");
   const cabButton = el("button", { type: "button", class: "mini", onclick: async () => {
     const t = await o.chooseCab();
-    if (t) { crushName = t; crushText.value = t; }
+    if (t) { crushName = t; crushText.value = t; edited(); }
   } }, "...");
 
   const sizeRow = row("Size", sizeW, "x", sizeH, "x", sizeD);
-  const modelRow = row(o.modelName ? "Model" : "", el("input", { type: "text", readonly: true, value: o.modelName }));
+  const modelInput = el("input", { type: "text", readonly: true }) as HTMLInputElement;
+  const modelRow = row("", modelInput);
   const modelLabel = modelRow.querySelector(".fld")!;
-  if (o.modelName) sizeRow.hidden = true; else modelRow.hidden = true;
+  /* ShowModelOrSize: the model row for a model box, the size for a plain one. */
+  const showModelOrSize = () => {
+    modelInput.value = modelName;
+    sizeRow.hidden = Boolean(modelName);
+    modelRow.hidden = !modelName;
+    crushText.value = crushName || "no ani model!";
+  };
 
   /* OnSelChangeType. */
   const typeChanged = () => {
@@ -268,11 +335,36 @@ export async function objectPropertiesDialog(o: ObjectDialogOptions): Promise<Ob
     crushOff.forEach((i) => { i.disabled = !crush; });
     cabButton.disabled = !crush;
     crushText.disabled = !crush;
-    modelLabel.textContent = o.modelName ? (crush ? "Base" : "Model") : "";
+    modelLabel.textContent = modelName ? (crush ? "Base" : "Model") : "";
     o.previewLight(f.light, t === TYPEIDX_LIGHT);
     o.previewFog(f.fog, t === TYPEIDX_FOG);
   };
   type.addEventListener("change", typeChanged);
+
+  /* LoadFromBox: every field from the working copy. */
+  const fillAll = () => {
+    filling = true;
+    type.value = String(f.typeIndex);
+    checkpoint.value = String(f.checkpoint);
+    vx.value = String(f.vx); vy.value = String(f.vy);
+    x.value = String(Number(show(f.fx).toFixed(3))); y.value = String(Number(show(f.fy).toFixed(3)));
+    sizeW.value = String(f.sizeW); sizeH.value = String(f.sizeH); sizeD.value = String(f.sizeD);
+    mass.value = String(f.mass);
+    z.value = String(f.fz); angle.value = String(f.angle); elev.value = String(f.elev); tilt.value = String(f.tilt);
+    levels.forEach((r, i) => { r.checked = f.level === i; });
+    soundCont.value = f.soundCont; soundImpact.value = f.soundImpact;
+    crushOff.forEach((i, k) => { i.value = String(f.crush[k]); });
+    // LoadFromBox's race fields, after ObjectDialogContext.
+    race = o.raceContext();
+    split.value = String(Math.min(f.cpSplit, split.options.length - 1));
+    lane.value = String(f.cpLane);
+    main.checked = race.main;
+    mainEdit = false;
+    showModelOrSize();
+    typeChanged();
+    updateRaceRows();
+    filling = false;
+  };
 
   /* ApplySettings on every change of a field it reads; an empty box keeps the last value. */
   const read = () => {
@@ -287,8 +379,9 @@ export async function objectPropertiesDialog(o: ObjectDialogOptions): Promise<Ob
     f.sizeH = Math.max(0, Math.trunc(n(sizeH, f.sizeH)));
     f.sizeD = Math.max(0, Math.trunc(n(sizeD, f.sizeD)));
   };
-  const live = () => { if (!filling) { read(); o.preview(f); } };
-  for (const i of [x, y, z, angle, elev, tilt, sizeW, sizeH, sizeD]) i.addEventListener("input", live);
+  const liveFields = [x, y, z, angle, elev, tilt, sizeW, sizeH, sizeD];
+  const live = () => { if (!filling) { liveDirty = true; read(); o.preview(f); } };
+  for (const i of liveFields) i.addEventListener("input", live);
 
   /* NudgeKey: D/C, F/V, S/X, R/T, G/B, H/N with Traxx's steps. */
   const nudge = (e: KeyboardEvent) => {
@@ -318,15 +411,54 @@ export async function objectPropertiesDialog(o: ObjectDialogOptions): Promise<Ob
       f[k] = Math.fround(a);
       field.value = String(f[k]);
     }
+    dirty = true;
     live();
   };
 
   /* OnBnClickedReset: mass and the angles to 0, the height to the model's resting height. */
   const reset = el("button", { type: "button", onclick: () => {
     mass.value = "0"; angle.value = "0"; elev.value = "0"; tilt.value = "0";
-    z.value = String(o.restingHeight);
+    z.value = String(restingHeight);
+    dirty = true;
     live();
   } }, "Reset");
+  /*
+    The race rows (Traxx 1.8.2, IDC_CPSPLIT, IDC_CPLANE, IDC_CPROLE, IDC_CPMAIN at 246..293 DU): hidden
+    unless the track has race rules. Split lists None, Any copy and (not in RACE: a circuit has no
+    lanes) Per lane; Lane 1 / 2; the Role, read-only, says what Apply would make of the Sequence typed.
+  */
+  let race = o.raceContext();
+  /* m_cpmainedit: the Main route tick was clicked since the last load. */
+  let mainEdit = false;
+  const split = stop(el("select", {}, ...["None", "Any copy", ...(race.mode !== RACERULES_RACE ? ["Per lane"] : [])].map((n, i) => el("option", { value: i }, n)))) as HTMLSelectElement;
+  const lane = stop(el("select", {}, el("option", { value: 0 }, "1"), el("option", { value: 1 }, "2"))) as HTMLSelectElement;
+  const role = el("span", { class: "tex-sunken obj-role" });
+  const main = el("input", { type: "checkbox" }) as HTMLInputElement;
+  const splitRow = row("Split", split), laneRow = row("Lane", lane), roleRow = el("div", { class: "opt-row" }, el("span", { class: "fld" }, "Role"), role);
+  const mainRow = el("label", { class: "opt-check" }, main, "Main route (AI follows this one)");
+  const raceRows = el("div", { class: "obj-race-rows" }, splitRow, laneRow, roleRow, mainRow);
+  const disable = (r: HTMLElement, off: boolean) => r.classList.toggle("disabled", off);
+  /* UpdateRaceRows: shown with the rules on (no Lane row in RACE); live for a checkpoint, the Lane for a per-lane split. */
+  const updateRaceRows = () => {
+    const on = race.mode !== RACERULES_NONE;
+    raceRows.hidden = !on;
+    laneRow.hidden = race.mode === RACERULES_RACE;
+    if (!on) return;
+    const cp = Number(type.value) === CHECKPOINT;
+    let sp = Number(split.value);
+    if (!(sp >= CPX_SPLIT_NONE && sp <= CPX_SPLIT_LANE)) sp = CPX_SPLIT_NONE;
+    // Main route: only for a box in an any-copy slot of 2+ copies; never per lane or unsplit.
+    mainRow.hidden = !(cp && race.mainAvail && sp === CPX_SPLIT_ANY);
+    split.disabled = !cp; disable(splitRow, !cp);
+    lane.disabled = !(cp && sp === CPX_SPLIT_LANE); disable(laneRow, lane.disabled);
+    disable(roleRow, !cp);
+    role.textContent = cp ? checkpointRolePreview(race.mode, race.othersSeq, dlgItemInt(checkpoint.value), sp) : "";
+  };
+  checkpoint.addEventListener("input", updateRaceRows);
+  split.addEventListener("change", updateRaceRows);
+  type.addEventListener("change", updateRaceRows);
+  // Ticking it moves this box first among its slot's copies on Apply; unticking alone does nothing.
+  main.addEventListener("click", () => { mainEdit = true; edited(); });
 
   const body = el("div", { class: "obj-props" },
     el("div", { class: "opt-row" }, el("span", { class: "fld" }, "Type"), type, el("span", {}, "vx"), vx, el("span", {}, "vy"), vy),
@@ -346,43 +478,121 @@ export async function objectPropertiesDialog(o: ObjectDialogOptions): Promise<Ob
     row("Sequence", checkpoint, lightButton, fogButton),
     row("Cab offset", ...crushOff),
     row("Cab", crushText, cabButton),
-    reset);
+    reset, raceRows);
   body.addEventListener("keydown", nudge, true);
-  typeChanged();
-  filling = false;
+  // OnCommand: a typed change or a list choice is an edit; so is a level button.
+  body.addEventListener("input", (e) => { if (e.isTrusted) edited(); });
+  body.addEventListener("change", (e) => { if (e.isTrusted) edited(); });
+  // Enter in a box presses OK: the form's implicit submission, OK being its first button (openModeless).
+  fillAll();
 
-  const r = await openDialog({
-    title: "Object Properties",
-    className: "live",
-    body,
-    buttons: [{ label: "OK", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }],
-    // OnBnClickedOk: a Fog is always a model-less box; refused with the dialog left open.
-    beforeClose: async (v) => {
-      if (v !== "ok" || Number(type.value) !== TYPEIDX_FOG || !o.modelName) return true;
-      await alertDialog("Object Properties", "Fog objects are model-less boxes. To take the model off, set this object to Ramp first (that clears it), then to Fog - or place a new box and set that to Fog.");
+  /* ReadFields and the result OK has always handed back; empty Mass, Above ground and the angles become 0. */
+  const collect = (): ObjectDialogResult => {
+    for (const i of [mass, z, angle, elev, tilt]) if (!i.value.trim()) i.value = "0";
+    read();
+    const int = (i: HTMLInputElement, fallback = 0) => (i.value.trim() ? Math.trunc(Number(i.value)) || 0 : fallback);
+    const out: ObjectFields = structuredClone(f);
+    out.typeIndex = Number(type.value);
+    out.checkpoint = int(checkpoint);
+    out.vx = int(vx);
+    out.vy = int(vy);
+    out.mass = int(mass);
+    out.level = Math.max(0, levels.findIndex((l) => l.checked));
+    out.crush = crushOff.map((i) => Math.fround(Number(i.value) || 0)) as [number, number, number];
+    out.soundCont = soundCont.value;
+    out.soundImpact = soundImpact.value;
+    out.cpSplit = Number(split.value);
+    out.cpLane = Number(lane.value);
+    out.cpMain = main.checked;
+    out.cpMainEdit = mainEdit;
+    return { fields: out, wavs, crushName };
+  };
+
+  /* ObjectDialogApply: nothing edited, nothing to apply (and nothing marked); a Fog with a model is refused. */
+  const apply = async (modeSwitch = false): Promise<boolean> => {
+    if (closing) return true;
+    if (!dirty) return true;
+    if (Number(type.value) === TYPEIDX_FOG && modelName) {
+      await alertDialog("Object Properties", OBJECT_FOG_MODEL_REFUSAL + (modeSwitch ? "\n\nThe edit to this object is being cancelled." : ""));
       return false;
-    },
+    }
+    const next = await hooks.apply(collect());
+    if (!next) { abandon(); return true; }
+    f = structuredClone(next);
+    wavs = { cont: null, impact: null };
+    dirty = liveDirty = false;
+    fillAll();
+    return true;
+  };
+
+  const win = openModeless({
+    title: "Object Properties",
+    className: "live obj-window",
+    body,
+    buttons: [{ label: "OK", value: "ok", primary: true }, { label: "Apply", value: "apply" }, { label: "Cancel", value: "cancel" }],
+    onButton: (v) => { if (v === "apply") void apply(); else void close(v === "ok"); },
+    onCancel: () => void close(false),
   });
-  if (r !== "ok") return null;
-  read();
-  const int = (i: HTMLInputElement, fallback = 0) => (i.value.trim() ? Math.trunc(Number(i.value)) || 0 : fallback);
-  f.typeIndex = Number(type.value);
-  f.checkpoint = int(checkpoint);
-  f.vx = int(vx);
-  f.vy = int(vy);
-  f.mass = int(mass);
-  f.level = Math.max(0, levels.findIndex((l) => l.checked));
-  f.crush = crushOff.map((i) => Math.fround(Number(i.value) || 0)) as [number, number, number];
-  f.soundCont = soundCont.value;
-  f.soundImpact = soundImpact.value;
-  return { fields: f, wavs, crushName };
+
+  const takeDown = () => {
+    closing = true;
+    win.close();
+    hooks.closed();
+  };
+  const abandon = () => { if (!closing) takeDown(); };
+  const close = async (ok: boolean, modeSwitch = false): Promise<boolean> => {
+    if (closing) return true;
+    if (ok) {
+      if (!(await apply(modeSwitch))) return false;
+      if (closing) return true;   // its object was gone: the window already closed
+    } else if (liveDirty) hooks.restore();
+    takeDown();
+    return true;
+  };
+
+  return {
+    raise: () => win.raise(),
+    refreshFromBox: (fields, model, crush, resting) => {
+      if (closing) return;
+      const focus = document.activeElement;
+      filling = true;
+      modelName = model;
+      crushName = crush;
+      restingHeight = resting;
+      showModelOrSize();
+      modelLabel.textContent = modelName ? (Number(type.value) === TYPEIDX_CRUSH ? "Base" : "Model") : "";
+      const put = (i: HTMLInputElement, v: string) => { if (focus !== i) i.value = v; };
+      // The fields being typed in keep what the author has there; the rest follow the box.
+      if (focus !== x) f.fx = fields.fx;
+      if (focus !== y) f.fy = fields.fy;
+      if (focus !== z) f.fz = fields.fz;
+      if (focus !== angle) f.angle = fields.angle;
+      if (focus !== elev) f.elev = fields.elev;
+      if (focus !== tilt) f.tilt = fields.tilt;
+      if (focus !== sizeW) f.sizeW = fields.sizeW;
+      if (focus !== sizeH) f.sizeH = fields.sizeH;
+      if (focus !== sizeD) f.sizeD = fields.sizeD;
+      put(x, show(fields.fx).toFixed(3)); put(y, show(fields.fy).toFixed(3)); put(z, String(fields.fz));
+      put(angle, String(fields.angle)); put(elev, String(fields.elev)); put(tilt, String(fields.tilt));
+      put(sizeW, String(fields.sizeW)); put(sizeH, String(fields.sizeH)); put(sizeD, String(fields.sizeD));
+      filling = false;
+    },
+    close,
+    abandon,
+  };
 }
 
 /**
   IDD_GROUP_PROPERTIES. Blank fields are where the objects differ; `preview` gets the look
-  fields as they read on every edit. Resolves with what the author left, or null.
+  fields as they read on every edit, and whether "Move as one object" is ticked. Resolves with
+  what the author left, or null.
+
+  Traxx 1.8.2 (a68413d, GroupPropertiesDlg.cpp OnAsOne): "Move as one object" ticked, the Above
+  ground / Orientation / Pitch / Tilt fields show "0" (and "0" counts as unchanged) and their
+  labels read "Raise by", "Turn by (deg)", "Pitch by (deg)", "Tilt by (deg)"; unticked, the saved
+  texts and labels come back. It re-previews either way and starts off on every open.
 */
-export async function groupPropertiesDialog(n: number, start: GroupFields, pickWav: () => Promise<File | null>, preview: (text: string[]) => void): Promise<GroupResult | null> {
+export async function groupPropertiesDialog(n: number, start: GroupFields, pickWav: () => Promise<File | null>, preview: (text: string[], asOne: boolean) => void): Promise<GroupResult | null> {
   const type = stop(el("select", {}, el("option", { value: -1 }, ""), ...OBJECT_TYPE_NAMES.map((t, i) => el("option", { value: i }, t)))) as HTMLSelectElement;
   type.value = String(start.typeIndex);
   const fields = start.text.map((t) => stop(el("input", { type: "text", value: t, class: "spin", inputmode: "decimal" })) as HTMLInputElement);
@@ -406,18 +616,40 @@ export async function groupPropertiesDialog(n: number, start: GroupFields, pickW
   };
   const cont = sound(true, start.soundCont), impact = sound(false, start.soundImpact);
   const levels = ["Sparse", "Normal", "Complex"].map((_, i) => el("input", { type: "radio", name: "grp-level", value: i, checked: start.level === i }) as HTMLInputElement);
-  const look = () => preview(fields.map((f) => f.value.trim()));
+  let asOne = false, ready = true;
+  // The orig each field compares against: "0" for the four amounts while Move as one object is ticked.
+  let orig = [...start.text];
+  const look = () => { if (ready) preview(fields.map((f) => f.value.trim()), asOne); };
   for (let f = GP_HEIGHT; f <= GP_SIZEH; f++) fields[f]!.addEventListener("input", look);
+  const labelText = ["Above ground", "Orientation (deg)", "Pitch (deg)", "Tilt (deg)"];
+  const lookRows = labelText.map((t, i) => row(t, fields[GP_HEIGHT + i]!));
+  const saved: string[] = [];
+  const asOneBox = el("input", { type: "checkbox" }) as HTMLInputElement;
+  asOneBox.addEventListener("change", () => {
+    const on = asOneBox.checked;
+    if (on === asOne) return;
+    // orig is swapped before the fields are set, and the preview is held off while they are.
+    ready = false;
+    asOne = on;
+    orig = on ? asOneOrig(start.text) : [...start.text];
+    for (let i = 0; i < 4; i++) {
+      const input = fields[GP_HEIGHT + i]!, label = lookRows[i]!.querySelector(".fld")!;
+      if (on) { saved[i] = input.value; input.value = "0"; label.textContent = GP_ASONE_LABELS[i]!; }
+      else { input.value = saved[i] ?? ""; label.textContent = labelText[i]!; }
+    }
+    ready = true;
+    look();
+  });
   const body = el("div", { class: "obj-props" },
     row("Type", type),
     el("fieldset", { class: "opt-group" }, el("legend", {}, "Settings"),
-      row("Mass (Lbs)", fields[GP_MASS]!), row("Above ground", fields[GP_HEIGHT]!), row("Orientation (deg)", fields[GP_ANGLE]!),
-      row("Pitch (deg)", fields[GP_PITCH]!), row("Tilt (deg)", fields[GP_TILT]!)),
+      el("label", { class: "opt-check" }, asOneBox, "Move as one object"),
+      row("Mass (Lbs)", fields[GP_MASS]!), ...lookRows),
     size,
     el("div", { class: "obj-two" },
       el("fieldset", { class: "opt-group" }, el("legend", {}, "Sounds"), row("Cont.", ...cont.nodes), row("Impact", ...impact.nodes)),
       el("fieldset", { class: "opt-group" }, el("legend", {}, "Level"), ...levels.map((r, i) => el("label", { class: "opt-check" }, r, ["Sparse", "Normal", "Complex"][i]!)))),
-    el("p", { class: "hint" }, "A blank field is one where the objects differ. It is left as it is unless you fill it in."));
+    el("p", { class: "hint" }, "A blank field is one where the objects differ. It is left as it is unless you fill it in.  Move as one object: the four fields are amounts, around the group's centre."));
   const r = await openDialog({
     title: `Group Properties (${n} objects)`,
     className: "live",
@@ -427,7 +659,7 @@ export async function groupPropertiesDialog(n: number, start: GroupFields, pickW
       if (v !== "ok") return true;
       for (let f = 0; f < fields.length; f++) {
         const t = fields[f]!.value.trim();
-        if (!t || t === start.text[f] || parses(f, t)) continue;
+        if (!t || t === orig[f] || parses(f, t)) continue;
         await alertDialog("Group Properties", `${GP_NAMES[f]}: "${t}" is not a ${f === GP_MASS || f >= GP_SIZEW ? "whole " : ""}number.`);
         fields[f]!.focus();
         fields[f]!.select();
@@ -445,5 +677,6 @@ export async function groupPropertiesDialog(n: number, start: GroupFields, pickW
     soundImpact: impact.box.value,
     text: fields.map((f) => f.value.trim()),
     wavs,
+    asOne,
   };
 }

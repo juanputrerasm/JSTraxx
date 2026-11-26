@@ -17,6 +17,27 @@ export const MAX_XY_CHANGE = 500;
 export const MAX_ARG_CHANGE = 50;
 export const MAX_Z_CHANGE = ALTITUDE_SCALE * 10;
 export const MAX_Z_POSITION = 3 * ALTITUDE_SCALE * 256;
+
+/**
+  CTraxxView::CameraMaxZ (Traxx origin/main): the camera's ceiling in scene z (1.5 per ft). MAX_Z_POSITION
+  (1,536 ft) on a classic or Standard V6 track; on a Tall Heights track the terrain's height limit
+  (`heightLimitV`, in v = 1/128 ft) plus 1,024 ft, so the camera still climbs well above the highest ground.
+*/
+export function cameraMaxZ(tall: boolean, heightLimitV: number): number {
+  if (!tall) return MAX_Z_POSITION;
+  return Math.trunc(((Math.trunc(heightLimitV / 128) + 1024) * ALTITUDE_SCALE) / 2);
+}
+
+/**
+  JSTraxx (not Traxx): the highest object origin in scene z (ALTITUDE_SCALE per 2 ft step), 0 with none.
+  The view passes it to setWorld with the ground's high, so the camera keeps its 1,024 ft of headroom
+  above objects placed far above the ground (a sky track on flat terrain).
+*/
+export function objectsHighZ(boxes: readonly { ipos: readonly number[]; fraction: readonly number[] }[]): number {
+  let hi = 0;
+  for (const b of boxes) { const z = ALTITUDE_SCALE * (b.ipos[2]! + b.fraction[2]! / 256); if (z > hi) hi = z; }
+  return hi;
+}
 /** The 55 ms timer tick every speed is tuned to (NAV_BASELINE_TICK_MS). */
 export const NAV_TICK_MS = 55;
 
@@ -83,13 +104,14 @@ export class TraxxCamera {
     and its ground from groundLowZ to groundHighZ in scene z. x and y run over the whole world;
     z keeps Traxx's 0..MAX_Z_POSITION, widened only so the camera can go below ground below 0 ft
     and keeps the same headroom (MAX_Z_POSITION less the 512 ft of a retail track) above ground
-    above 512 ft. A 256-cell track inside 0..512 ft gets exactly Traxx's ranges.
+    above 512 ft. `ceilingZ` is the track's own ceiling (cameraMaxZ: higher on a Tall Heights
+    track). A 256-cell track inside 0..512 ft gets exactly Traxx's ranges.
   */
-  setWorld(cells: number, groundLowZ = 0, groundHighZ = 0): void {
+  setWorld(cells: number, groundLowZ = 0, groundHighZ = 0, ceilingZ = MAX_Z_POSITION): void {
     this.cells = cells;
     this.xyMax = (cells << 6) - 1;
     this.zMin = Math.min(0, groundLowZ);
-    this.zMax = Math.max(MAX_Z_POSITION, groundHighZ + (MAX_Z_POSITION - ALTITUDE_SCALE * 256));
+    this.zMax = Math.max(ceilingZ, groundHighZ + (MAX_Z_POSITION - ALTITUDE_SCALE * 256));
     this.x = Math.min(this.xyMax, Math.max(0, this.x));
     this.y = Math.min(this.xyMax, Math.max(0, this.y));
     this.z = Math.min(this.zMax, Math.max(this.zMin, this.z));
@@ -147,6 +169,20 @@ export class TraxxCamera {
   /** F2: save the location. F3: return to it (does nothing until one is saved). */
   saveLocation(): void {
     this.saved = { x: this.x, y: this.y, z: this.z, orientation: this.orientation, elevation: this.elevation };
+  }
+
+  /** The camera where it was before its world changed (Enlarge World keeps it), held inside the new ranges. */
+  get place(): { x: number; y: number; z: number; orientation: number; elevation: number } {
+    return { x: this.x, y: this.y, z: this.z, orientation: this.orientation, elevation: this.elevation };
+  }
+
+  setPlace(p: { x: number; y: number; z: number; orientation: number; elevation: number }): void {
+    this.x = Math.min(this.xyMax, Math.max(0, p.x));
+    this.y = Math.min(this.xyMax, Math.max(0, p.y));
+    this.z = Math.min(this.zMax, Math.max(this.zMin, p.z));
+    this.elevation = p.elevation;
+    this.setOrientation(p.orientation);
+    this.updateGrid();
   }
 
   restoreLocation(): boolean {

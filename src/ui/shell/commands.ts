@@ -6,6 +6,7 @@
   shown greyed out, so the menus already list everything Traxx has.
 */
 import type { AppState } from "../../app/state.ts";
+import { decodeFileNewV6, FILE_NEW_V6_IDS, V6_GRID_LABELS, V6_GRID_NAMES } from "../../core/traxx/track-kind-ui.ts";
 
 export interface Command {
   id: string;
@@ -54,9 +55,31 @@ export class CommandRegistry {
     return this.map.get(id)?.checked?.() ?? false;
   }
 
+  private guards = new Map<string, () => Promise<boolean>>();
+
+  /**
+    A check run before each of these commands; false stops the command. Traxx 1.8.2: an open
+    Object Properties window closes as OK before New, Open, Close, Save and Write POD, and a
+    refused Apply aborts them (CTraxxDoc's view loop, ObjectDialogClose).
+  */
+  guard(ids: readonly string[], check: () => Promise<boolean>): void {
+    // Traxx 1.8.2: the Wall window guards the same commands; each guard runs in turn, the first refusal stops.
+    for (const id of ids) {
+      const prev = this.guards.get(id);
+      this.guards.set(id, prev ? async () => (await prev()) && check() : check);
+    }
+  }
+
+  /** The command's guard, if any, has passed (also for flows outside exec, such as the recent-file list). */
+  async passGuard(id: string): Promise<boolean> {
+    const g = this.guards.get(id);
+    return g ? g() : true;
+  }
+
   async exec(id: string): Promise<void> {
     const c = this.map.get(id);
     if (!c?.run || !this.isEnabled(id)) return;
+    if (!(await this.passGuard(id))) return;
     try {
       await c.run();
     } catch (err) {
@@ -70,22 +93,27 @@ export class CommandRegistry {
 /* Traxx's string table entries, as [id, label, prompt, tip, shortcut]. */
 const TABLE: [string, string, string?, string?, string?][] = [
   // File
-  ["ID_FILE_NEW", "Classic 8-bit", "Create a track for MTM2", "New MTM2", "Ctrl+N"],
-  ["ID_FILE_NEW_CLASSIC16", "16-bit", "Create a track with 16-bit terrain heights", "New 16-bit"],
-  ["ID_FILE_NEW_SPLINE", "16-bit Spline", "Create a track with a smoothed 16-bit terrain surface", "New 16-bit Spline"],
-  ["ID_FILE_NEW_FINE", "16-bit Full Map", "Create a track with the 16-bit Full Map terrain grid", "New 16-bit Full Map"],
-  // JSTraxx: track format version 6 (not in Traxx.rc).
-  ["ID_FILE_NEW_WORLD", "World Size...", "Create a track with a 256-cell (8,192 ft) or 512-cell (16,384 ft, track format version 6) world"],
+  ["ID_FILE_NEW", "&Traditional 8-bit", "Create a track for MTM2", "New MTM2", "Ctrl+N"],
+  ["ID_FILE_NEW_CLASSIC16", "&Finer Heights 16-bit", "Create a Classic track with Finer Heights 16-bit", "New Finer Heights 16-bit"],
+  ["ID_FILE_NEW_SPLINE", "Finer Heights 16-bit &Spline", "Create a Classic track with Finer Heights 16-bit Spline, a smoothed terrain surface", "New Finer Heights 16-bit Spline"],
+  ["ID_FILE_NEW_FINE", "&Precision 8 ft grid and 16-bit Heights Full Map", "Create a Classic track with the Precision 8 ft grid and 16-bit Heights Full Map terrain grid", "New Precision 8 ft grid and 16-bit Heights Full Map"],
+  // File > New > World Size 256 / 512 > Standard V6 / Tall Heights V6 (ID_FILE_NEW_V6_FIRST..LAST, Traxx.cpp OnFileNewV6).
+  ...FILE_NEW_V6_IDS.map((id): [string, string, string, string] => {
+    const d = decodeFileNewV6(id)!;
+    const kind = d.kind === "tall" ? "Tall Heights V6 track (up to 8,192 ft, precise ground boxes)" : "Standard V6 track (precise ground boxes)";
+    return [id, V6_GRID_LABELS[d.grid]!, `Create a ${kind}, World Size ${d.cells}, with ${V6_GRID_NAMES[d.grid]}`, d.kind === "tall" ? "New Tall Heights V6" : "New Standard V6"];
+  }),
+  // JSTraxx: track format version 6 heightmaps (not in Traxx.rc).
   ["ID_TERRAIN_IMPORTV6", "Import Heightmap (Version 6)...", "Replace the terrain heights from a 16-bit PNG or .RAW in feet, with any height range; the height step and base are picked automatically"],
   ["ID_TERRAIN_EXPORTV6", "Export Heightmap (Version 6)...", "Save the terrain heights as a 16-bit grayscale PNG or 16-bit .RAW at the track format version 6 height step and base"],
   ["ID_TERRAIN_IMPORTRAW", "&Import Heightmap (.RAW/.PNG/.TGA)...", "Replace the terrain heights from a heightmap: 16-bit or 8-bit .RAW, or a grayscale PNG or TGA"],
   ["ID_TERRAIN_EXPORTRAW", "&Export Heightmap...", "Save the terrain heights as a grayscale PNG (16-bit or 8-bit) or a heightmap .RAW file (16-bit files are little-endian)"],
-  ["ID_TERRAIN_GRID_CLASSIC8", "Classic 8-bit", "Convert the terrain to the Classic 8-bit grid (2 ft height steps, 32 ft triangles)"],
-  ["ID_TERRAIN_GRID_CLASSIC16", "16-bit", "Convert the terrain to 16-bit heights on the 32 ft triangle grid"],
-  ["ID_TERRAIN_GRID_SPLINE", "16-bit Spline", "Convert the terrain to 16-bit heights with a smoothed surface"],
-  ["ID_TERRAIN_GRID_FINE", "16-bit Full Map", "Convert the terrain to the 16-bit Full Map 8 ft grid"],
+  ["ID_TERRAIN_GRID_CLASSIC8", "Traditional 8-bit", "Convert the terrain to the Traditional 8-bit grid (2 ft height steps, 32 ft triangles)", "Traditional 8-bit"],
+  ["ID_TERRAIN_GRID_CLASSIC16", "Finer Heights 16-bit", "Convert the terrain to Finer Heights 16-bit on the 32 ft triangle grid", "Finer Heights 16-bit"],
+  ["ID_TERRAIN_GRID_SPLINE", "Finer Heights 16-bit Spline", "Convert the terrain to Finer Heights 16-bit Spline, with a smoothed surface", "Finer Heights 16-bit Spline"],
+  ["ID_TERRAIN_GRID_FINE", "Precision 8 ft grid and 16-bit Heights Full Map", "Convert the terrain to the Precision 8 ft grid and 16-bit Heights Full Map 8 ft grid", "Precision 8 ft grid and 16-bit Heights Full Map"],
   ["ID_TERRAIN_SMOOTHFINE", "Smooth Full Map from 32 ft grid...", "Rebuild every 8 ft point from the 32 ft points with the game's spline"],
-  ["ID_TERRAIN_HEIGHTSPNG", "Store heights as PNG", "Write POD stores this track's heights as a grayscale PNG (16-bit, or 8-bit on Classic 8-bit)."],
+  ["ID_TERRAIN_HEIGHTSPNG", "Store heights as PNG", "Write POD stores this track's heights as a grayscale PNG (16-bit, or 8-bit on Traditional 8-bit)."],
   ["ID_EDIT_VEGETATION", "&Vegetation...", "Author trees and grass from painted masks", "Vegetation"],
   ["ID_VIEW_VEGETATION", "Show &Vegetation", "Show or hide the trees in the OpenGL view", "Show Vegetation"],
   ["ID_VIEW_GRASS", "Show &Grass", "Show or hide the grass near the camera in the OpenGL view", "Show Grass"],
@@ -95,9 +123,12 @@ const TABLE: [string, string, string?, string?, string?][] = [
   // Traxx 1.8.0: View > Visual Helpers, Light Guide and Preview Weather (Traxx.rc's string table).
   ["ID_VIEW_SKY", "Show S&ky", "Show or hide the game's own sky in the 3D view (art from the Game Library)", "Show Sky"],
   ["ID_VIEW_LIGHTGLOWS", "Show Light G&lows", "Show or hide every light's glow and cone as the game draws them (art from the Game Library)", "Show Light Glows"],
-  ["ID_VIEW_DETAILMAPS", "Show Detail M&aps", "Shade ground, water and lakes as the game shades the track's own detail maps (needs its _MASK / _WMSK). Drawn lit from the .LTE, so darker than the unlit view; smooth terrain unshadowed; terrDetail 10, terrDetailRep 64", "Show Detail Maps"],
-  ["ID_VIEW_DETAILMASK", "Show &Detail Strength", "Wash the ground with the detail strength the painted terrain mask gives (per texel)", "Show Detail Strength"],
-  ["ID_VIEW_WATERMASK", "Show &Water Mask", "Show or hide the water detail mask (_WMSK) as an orange tint over the ground in the 3D view", "Show Water Mask"],
+  // Traxx 1.8.2 (TraxxFrame.cpp OnViewWalls).
+  ["ID_VIEW_WALLS", "S&how Walls", "Show or hide every wall as a ribbon with its ground line in the OpenGL view, in every edit mode", "Show Walls"],
+  ["ID_VIEW_DETAILMAPS", "Show Detail M&aps", "Shade ground, ground boxes, water and lakes as the game shades the track's own detail maps (needs its _MASK / _WMSK). Drawn lit from the .LTE, so darker than the unlit view; smooth terrain unshadowed; terrDetail 10, terrDetailRep 64", "Show Detail Maps"],
+  ["ID_VIEW_DETAILMASK", "Show &Detail Strength", "Wash the ground and its ground boxes with the detail strength the painted terrain mask gives (per texel)", "Show Detail Strength"],
+  // Traxx 1.8.1: "per texel with fast draw and shaders" (JSTraxx always draws with shaders).
+  ["ID_VIEW_WATERMASK", "Show &Water Strength", "Wash the water with the detail strength the painted water mask gives (per texel; with no water shown, the ground per tile)", "Show Water Strength"],
   ["ID_VIEW_DRAWALLFOG", "Draw All &Fog Volumes", "Draw every fog and mist volume instead of the nearest 16 the game draws (may be slower)", "Draw All Fog Volumes"],
   ["ID_VIEW_LIGHTCORE", "Show &Core and Extent", "Show or hide the light guide: the exact saturated core ring and the vertical extent of the selected light", "Show Light Core and Extent"],
   ["ID_VIEW_PW_CLEAR", "&Clear", "Preview the track as it looks in Clear (fog colour, light pools)", "Preview Weather: Clear"],
@@ -121,7 +152,7 @@ const TABLE: [string, string, string?, string?, string?][] = [
   ["ID_FILE_SAVE_AS", "Save &As...", "Save the active Track with a new name", "Save As"],
   ["ID_FILE_CLONE", "&Clone TrackEd Track...", "Edit track from TrackEd components", "Clone old track"],
   ["ID_FILE_VIEWPOD", "&View POD file...", "Load an existing POD file (view only)", "View POD"],
-  ["ID_FILE_IMPORT", "&Import Viewed POD as Track...", "Extract the viewed POD's art and models and save it as a track you can edit", "Import as Track"],
+  ["ID_FILE_EDITTRACK", "&Edit This Track...", "Turn the viewed pod into an editable track", "Edit This Track"],
   ["ID_FILE_DOWNLOAD", "&Download .TXX...", "Save a copy of the track's .TXX file to your computer", "Download .TXX"],
   ["ID_FILE_WRITEPOD", "&Write POD File...", "Write the track to POD file.", "Write POD", "Ctrl+W"],
   // Print becomes an image of the view: a browser prints pages, not a 3D view.
@@ -144,6 +175,8 @@ const TABLE: [string, string, string?, string?, string?][] = [
   ["ID_EDIT_LIGHTING", "&Lighting", "Set the Ambient/Specular Lighting", "Set Lighting"],
   ["ID_EDIT_TRANSITIONS", "&Texture Transitions", "Paint transitions between textures"],
   ["ID_EDIT_PALETTE", "&Palette", "Set the track Palette", "Set Palette"],
+  ["ID_SPECIAL_TRACKTYPE", "Track &Type...", "Choose Classic, Standard V6 or Tall Heights V6 for this track"],
+  ["ID_SPECIAL_ENLARGEWORLD", "&Enlarge World to 512 x 512...", "Make this track's world 512 x 512; the track stays in the corner"],
   // View
   ["ID_VIEW_TOOLBAR", "&Tool Bar", "Show or hide the main toolbar", "Toggle ToolBar"],
   ["ID_VIEW_STATUS_BAR", "&Status Bar", "Show or hide the status bar", "Toggle StatusBar"],
@@ -174,6 +207,8 @@ const TABLE: [string, string, string?, string?, string?][] = [
   ["ID_EDITMODE_COURSE", "Course", "Edit the Course segments", "Edit Course"],
   ["ID_EDITMODE_OBJECTS", "Objects", "Edit the Scenery Objects", "Edit Objects"],
   ["ID_EDITMODE_BUILDINGS", "Ground Boxes", "Edit Ground Boxes", "Edit Ground Boxes"],
+  // Traxx 1.8.2 (TraxxFrame.cpp OnEditmodeWalls).
+  ["ID_EDITMODE_WALLS", "Walls", "Edit the Walls (right-click for the wall commands)", "Edit Walls"],
   // Textures window toolbar
   ["ID_TEXTURE_OPEN", "Load Texture", "Load Texture", "Load Texture"],
   ["ID_TEXTURE_CUT", "Cut", "Cut", "Cut"],
@@ -243,6 +278,12 @@ const TABLE: [string, string, string?, string?, string?][] = [
   ["ID_TRUCK_PROPERTIES", "Properties", "Edit the truck's start"],
   ["ID_TFOLDER_DELETE", "Delete", "Delete Texture"],
   ["ID_TFOLDER_RENAME", "Rename", "Rename the texture file"],
+  // Traxx 1.8.2: the Walls popup (TraxxViewWalls.cpp WallContextMenu). Traxx.rc has no prompts for them; these are JSTraxx's.
+  ["ID_WALL_NEW", "New Wall", "Click out a new wall on the ground, point by point"],
+  ["ID_WALL_INSERTPOINT", "Insert Point After", "Insert a point here, after the wall point under (or nearest) the pointer"],
+  ["ID_WALL_DELETEPOINT", "Delete Point", "Delete the wall point under the pointer"],
+  ["ID_WALL_PROPERTIES", "Wall Properties...", "Edit the wall under (or nearest) the pointer"],
+  ["ID_WALL_DELETE", "Delete Wall", "Delete the wall under (or nearest) the pointer"],
   // Palette dialog toolbar
   ["ID_PALETTE_NEW", "Create Optimized Palette", "Create Optimized Palette", "Create Optimized Palette"],
   ["ID_PALETTE_OPEN", "Load Palette File", "Load Palette File", "Load Palette File"],
@@ -256,18 +297,24 @@ export function registerTraxxCommands(registry: CommandRegistry): void {
 /*
   The main menu (IDR_MAINFRAME MENU in Traxx/Traxx.rc). Print Preview, Print Setup, Exit and
   New (MTM1) are left out: JSTraxx is MTM2 only and a browser tab has no exit. "-" is a
-  separator; "@recent" is the recent-tracks list. Close, Import Viewed POD, Download .TXX,
+  separator; "@recent" is the recent-tracks list. Close, Download .TXX,
   Redo, Cut, F5..F9 and Game Library are JSTraxx additions.
 */
 export type MenuItem = string | { label: string; items: MenuItem[] } | { id: string; label: string };
 export const MAIN_MENU: { label: string; items: MenuItem[] }[] = [
-  { label: "&File", items: [{ label: "&New", items: ["ID_FILE_NEW", "ID_FILE_NEW_CLASSIC16", "ID_FILE_NEW_SPLINE", "ID_FILE_NEW_FINE", "-", "ID_FILE_NEW_WORLD"] }, "ID_FILE_OPEN", "ID_FILE_SAVE", "ID_FILE_SAVE_AS", "ID_FILE_CLOSE", "-", "ID_FILE_CLONE", "ID_FILE_VIEWPOD", "ID_FILE_IMPORT", "ID_FILE_WRITEPOD", "-", "ID_FILE_DOWNLOAD", "ID_FILE_PRINT", "-", "@recent"] },
+  { label: "&File", items: [{ label: "&New", items: [
+    { label: "&Classic", items: ["ID_FILE_NEW", "ID_FILE_NEW_CLASSIC16", "ID_FILE_NEW_SPLINE", "ID_FILE_NEW_FINE"] },
+    ...([256, 512] as const).map((cells) => ({ label: `World Size &${cells}`, items: (["standard", "tall"] as const).map((kind) => ({
+      label: kind === "tall" ? "&Tall Heights V6" : "&Standard V6",
+      items: FILE_NEW_V6_IDS.filter((id) => { const d = decodeFileNewV6(id)!; return d.cells === cells && d.kind === kind; }),
+    })) }))] }, "ID_FILE_OPEN", "ID_FILE_SAVE", "ID_FILE_SAVE_AS", "ID_FILE_CLOSE", "-", "ID_FILE_CLONE", "ID_FILE_VIEWPOD", "ID_FILE_EDITTRACK", "ID_FILE_WRITEPOD", "-", "ID_FILE_DOWNLOAD", "ID_FILE_PRINT", "-", "@recent"] },
   { label: "&Edit", items: ["ID_EDIT_UNDO", "ID_EDIT_REDO", "-", "ID_EDIT_CUT", "ID_EDIT_COPY", "ID_EDIT_PASTE", "-", "ID_VIEW_COMPONENTS", "-", "ID_TERRAIN_COPYBITMAP", "ID_TERRAIN_PASTEBITMAP", "ID_TERRAIN_IMPORTRAW", "ID_TERRAIN_EXPORTRAW", "ID_TERRAIN_IMPORTV6", "ID_TERRAIN_EXPORTV6", "ID_TERRAIN_RAISELOWER", "-", "ID_EDIT_EXTRACT"] },
   { label: "&Special", items: ["ID_EDIT_WEATHERMASK", "ID_EDIT_GENTERRAIN", "ID_EDIT_LIGHTING", "ID_EDIT_TRANSITIONS", "ID_EDIT_PALETTE", "ID_EDIT_VEGETATION", "-",
-    { label: "Terrain &Grid", items: ["ID_TERRAIN_GRID_CLASSIC8", "ID_TERRAIN_GRID_CLASSIC16", "ID_TERRAIN_GRID_SPLINE", "ID_TERRAIN_GRID_FINE", "-", "ID_TERRAIN_SMOOTHFINE", "-", "ID_TERRAIN_HEIGHTSPNG"] }] },
+    { label: "Terrain &Grid", items: ["ID_TERRAIN_GRID_CLASSIC8", "ID_TERRAIN_GRID_CLASSIC16", "ID_TERRAIN_GRID_SPLINE", "ID_TERRAIN_GRID_FINE", "-", "ID_TERRAIN_SMOOTHFINE", "-", "ID_TERRAIN_HEIGHTSPNG"] },
+    "ID_SPECIAL_TRACKTYPE", "ID_SPECIAL_ENLARGEWORLD"] },
   { label: "&View", items: ["ID_VIEW_TOOLBAR", "ID_VIEW_STATUS_BAR", "ID_VIEW_VIEWCONTROL", "ID_VIEW_EDITCONTROL", "-", "ID_VIEW_TEXTURES", "ID_VIEW_PATTERNS", "ID_VIEW_OBJECTS", "-", "ID_VIEW_OPTIONS", "ID_VIEW_LIBRARY", "ID_VIEW_STATS", "-",
     { label: "Ve&getation", items: ["ID_VIEW_VEGETATION", "ID_VIEW_GRASS", "ID_VIEW_VEGMASK", "ID_VIEW_VEGAIDS", "-", "ID_VIEW_LAKEWALLS"] },
-    { label: "Visual &Helpers", items: ["ID_VIEW_SUN", "ID_VIEW_SKY", "ID_VIEW_LIGHTGLOWS", "ID_VIEW_DETAILMAPS", "ID_VIEW_DETAILMASK", "ID_VIEW_WATERMASK", "ID_VIEW_DRAWALLFOG"] },
+    { label: "Visual &Helpers", items: ["ID_VIEW_SUN", "ID_VIEW_SKY", "ID_VIEW_LIGHTGLOWS", "ID_VIEW_WALLS", "ID_VIEW_DETAILMAPS", "ID_VIEW_DETAILMASK", "ID_VIEW_WATERMASK", "ID_VIEW_DRAWALLFOG"] },
     { label: "&Light Guide", items: ["ID_VIEW_LIGHTCORE"] },
     { label: "Preview &Weather", items: ["ID_VIEW_PW_CLEAR", "ID_VIEW_PW_CLOUDY", "ID_VIEW_PW_FOGGY", "ID_VIEW_PW_DENSEFOG", "ID_VIEW_PW_RAIN", "ID_VIEW_PW_SNOW", "ID_VIEW_PW_DUSK", "ID_VIEW_PW_NIGHT", "ID_VIEW_PW_PITCHBLACK"] },
     { label: "&Field of View", items: ["ID_VIEW_FOV_50", "ID_VIEW_FOV_60", "ID_VIEW_FOV_70", "ID_VIEW_FOV_80", "ID_VIEW_FOV_90", "-", "ID_VIEW_FOV_LEGACY"] }] },
@@ -292,6 +339,7 @@ export const CONTEXT_MENUS: Record<string, MenuItem[]> = {
   TextureEdit: [{ id: "ID_TEXTURE_CUT", label: "Cut" }, { id: "ID_TEXTURE_COPY", label: "Copy" }, "ID_TEXTURE_PASTE", "ID_TEXTURE_PASTEX", "-", "ID_TEXTURE_ANIMATE", "ID_TEXTURE_PURGE"],
   PatternEdit: ["ID_PATTERN_CUT", "ID_PATTERN_COPY", "ID_PATTERN_PASTE"],
   TextureFolder: ["ID_TFOLDER_DELETE", "ID_TFOLDER_RENAME"],
+  Walls: ["ID_WALL_NEW", "ID_WALL_INSERTPOINT", "ID_WALL_DELETEPOINT", "-", "ID_WALL_PROPERTIES", "ID_WALL_DELETE"],
 };
 
 /*

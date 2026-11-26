@@ -8,19 +8,42 @@
   software-renderer switch and vsync, and the registration name and key.
 */
 
-/** The five edit modes, numbered as Traxx's EDIT_* values (Traxx/Traxx.h). */
+/** The edit modes, numbered as Traxx's EDIT_* values (Traxx/Traxx.h); Traxx 1.8.2 adds EDIT_WALLS. */
 export const EDIT_TERRAIN = 0;
 export const EDIT_TEXTURES = 1;
 export const EDIT_COURSE = 2;
 export const EDIT_OBJECTS = 3;
 export const EDIT_BUILDINGS = 4;
-export type EditMode = 0 | 1 | 2 | 3 | 4;
+/** Traxx 1.8.2 (TraxxFrame.cpp OnEditmodeWalls): editmode 5, on a new-style drag or Parallel track only. */
+export const EDIT_WALLS = 5;
+export type EditMode = 0 | 1 | 2 | 3 | 4 | 5;
 
 /** View grid size, in cells (TRAXX_GRID_* in Traxx/Traxx.h). */
 export const GRID_DEFAULT = 64;
 export const GRID_MIN = 16;
 export const GRID_MAX = 256;
 export const GRID_STEP = 8;
+
+/** The View Controls grid radios (Traxx 1.8.2, IDC_GRIDMODE_SLIDER .. IDC_GRIDMODE_WORLD). */
+export const GRID_MODE_SLIDER = 0;
+export const GRID_MODE_256 = 1;
+export const GRID_MODE_WORLD = 2;
+
+/**
+  Traxx.h CTraxxReg::EffectiveGridMode: on a 256 world 256 x 256 and Whole world are the same
+  window, so a stored 1 is drawn, and shown, as 2 there.
+*/
+export function effectiveGridMode(gridMode: number, worldn: number): number {
+  return gridMode === GRID_MODE_256 && worldn <= 256 ? GRID_MODE_WORLD : gridMode;
+}
+
+/** Traxx.h CTraxxReg::WantedGridSize (the OpenGL branch): the grid size the view is given for a world of worldn cells. */
+export function wantedGridSize(s: { grid_mode: number; polysize: number }, worldn: number): number {
+  const mode = effectiveGridMode(s.grid_mode, worldn);
+  if (mode === GRID_MODE_256) return 256;
+  if (mode === GRID_MODE_WORLD) return worldn;
+  return s.polysize;
+}
 
 export const WATER_OPACITY_DEFAULT = 50;
 
@@ -62,11 +85,23 @@ export interface TraxxSettings {
   always_buildings: boolean;
   show_water: boolean;
   show_backdrop: boolean;
-  show_whole_grid: boolean;
+  /**
+    Traxx 1.8.2 (7469220, CTraxxReg grid_mode, registry "Grid Mode"): the View Controls render size,
+    GRID_MODE_SLIDER (the Grid size slider), GRID_MODE_256 (256 x 256) or GRID_MODE_WORLD (Whole
+    world). When absent it comes from the old Whole Grid setting (show_whole_grid true = Whole
+    world), as Traxx takes it from the old Flags bit 0x400.
+  */
+  grid_mode: number;
   display_fps: boolean;
   model_transparency: boolean;
   hide_colliders: boolean;
   water_opacity: number;
+  /**
+    Options > Advanced "Traditional Traxx clicking (pick the nearest object base)" (Traxx 1.8.2,
+    2031ec1, CTraxxReg traditional_clicking, registry "Traditional Clicking"): Objects mode picks
+    the nearest object base instead of the projected outline. Off by default.
+  */
+  traditional_clicking: boolean;
   /** Wire Frame: also draw each cell's diagonal (Traxx draws the cell edges only). */
   wire_diagonals: boolean;
   /** Wire Frame: line width in screen pixels, 1..4 (Traxx: about 1). */
@@ -90,6 +125,8 @@ export interface TraxxSettings {
   */
   show_sky: boolean;
   show_light_glows: boolean;
+  /** Traxx 1.8.2 View > Visual Helpers > Show Walls (CTraxxReg show_walls, "Show Walls"): on by default. */
+  show_walls: boolean;
   show_detail_maps: boolean;
   show_water_mask: boolean;
   draw_all_fog: boolean;
@@ -148,11 +185,12 @@ export function defaultSettings(): TraxxSettings {
     always_buildings: false,
     show_water: true,
     show_backdrop: true,
-    show_whole_grid: false,
+    grid_mode: 0,
     display_fps: false,
     model_transparency: false,
     hide_colliders: false,
     water_opacity: WATER_OPACITY_DEFAULT,
+    traditional_clicking: false,
     wire_diagonals: false,
     wire_width: 1,
     show_sit_units: false,
@@ -167,6 +205,7 @@ export function defaultSettings(): TraxxSettings {
     show_sun: true,
     show_sky: true,
     show_light_glows: true,
+    show_walls: true,
     show_detail_maps: true,
     show_water_mask: false,
     draw_all_fog: false,
@@ -237,12 +276,15 @@ export function mergeSettings(stored: unknown): TraxxSettings {
   out.gamma = clamp(s.gamma, 0.5, 2.0, d.gamma);
   out.polysize = Math.round(clamp(s.polysize, GRID_MIN, GRID_MAX, d.polysize) / GRID_STEP) * GRID_STEP;
   out.water_opacity = Math.round(clamp(s.water_opacity, 0, 100, d.water_opacity));
+  // CTraxxReg::Load: "Grid Mode" 0..2, else from the old Whole Grid flag.
+  out.grid_mode = typeof s.grid_mode === "number" && Number.isInteger(s.grid_mode) && s.grid_mode >= 0 && s.grid_mode <= 2
+    ? s.grid_mode : s.show_whole_grid === true ? GRID_MODE_WORLD : GRID_MODE_SLIDER;
   out.wire_width = Math.round(clamp(s.wire_width, 1, 4, d.wire_width));
   // CTraxxReg::Load: anything but 0 (Legacy), 50, 60, 70, 80 or 90 is 70.
   if (!FOV_CHOICES.includes(out.opengl_fov)) out.opengl_fov = d.opengl_fov;
   // CTraxxReg::Load: a Preview Weather outside 0..8 is 0 (Clear).
   if (!Number.isInteger(out.preview_weather) || out.preview_weather < 0 || out.preview_weather > 8) out.preview_weather = 0;
-  out.mode = Math.round(clamp(s.mode, 0, 4, d.mode)) as EditMode;
+  out.mode = Math.round(clamp(s.mode, 0, 5, d.mode)) as EditMode;
   const e = s.edit ?? {};
   out.edit = {
     wireframe: Math.round(clamp(e.wireframe, 0, 2, d.edit.wireframe)) as 0 | 1 | 2,
@@ -250,8 +292,10 @@ export function mergeSettings(stored: unknown): TraxxSettings {
     orientation: Math.round(clamp(e.orientation, 0, 7, d.edit.orientation)),
     curvature: Math.round(clamp(e.curvature, 0, 6, d.edit.curvature)),
     // Traxx 1.7: decimal steps on 16-bit tracks (kept in v, so a multiple of 1/256), and the
-    // brush up to 100 8 ft points on a Full Map (the edit bar clamps to 25 elsewhere).
-    altitude: Math.round(clamp(e.altitude, -255, 255, d.edit.altitude) * 256) / 256,
+    // brush up to 100 8 ft points on a Full Map (the edit bar clamps to 25 elsewhere). Traxx origin/main: a
+    // v6 track's Altitude runs to its height limit, 8,192 ft (4,096 steps) on Tall Heights; the edit bar
+    // brings it back inside 255 steps on another track (FollowAmplitudeKind).
+    altitude: Math.round(clamp(e.altitude, -4096, 4096, d.edit.altitude) * 256) / 256,
     terrainw: Math.round(clamp(e.terrainw, 1, 100, d.edit.terrainw)),
     terrainh: Math.round(clamp(e.terrainh, 1, 100, d.edit.terrainh)),
     paint: typeof e.paint === "boolean" ? e.paint : d.edit.paint,

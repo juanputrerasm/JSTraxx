@@ -15,6 +15,7 @@
   Also the lake guard every terrain edit passes (LakesRefuseTerrainEdit): an edit that gives a
   lake an error it did not have is put back, with Traxx's message.
 */
+import { heightsInFeet } from "../../core/traxx/height-units.ts";
 import { cellsOf } from "../../core/traxx/world.ts";
 import type { ModeContext } from "./context.ts";
 import type { MenuItem } from "../../ui/shell/commands.ts";
@@ -74,6 +75,7 @@ export function lakeCommands(ctx: ModeContext, tile: () => [number, number] | nu
       capacity: () => lakeHoldsUpTo(buildLakeGround(t), t.lakes, lakesNow(t), t.waterLevel4, idx),
       heightRange: () => { const g = buildLakeGround(t); return [lakeMinHeightFor(g), lakeMaxHeightFor(g)]; },
       cells: () => cellsOf(t),
+      feet: () => heightsInFeet(t),
     });
     if (!ok) {
       if (creating) t.lakes.splice(idx, 1);
@@ -202,7 +204,8 @@ export function lakeCommands(ctx: ModeContext, tile: () => [number, number] | nu
     if (t.lakes.length) {
       const sub: MenuItem[] = t.lakes.map((lake, l) => {
         const id = `ID_TERRAIN_ADDSEED_${l}`;
-        registry.register({ id, label: `Lake ${l + 1} - ${cG(lake.height / 4)}` });
+        // TraxxViewInteract.cpp (Traxx origin/main): "Lake %d - %.2f ft" on a v6 track.
+        registry.register({ id, label: heightsInFeet(t) ? `Lake ${l + 1} - ${(lake.height / 2).toFixed(2)} ft` : `Lake ${l + 1} - ${cG(lake.height / 4)}` });
         registry.bind(id, () => addSeed(l), { enabled: () => editable() && (track().lakes[l]?.seeds.length ?? LAKE_MAX_SEEDS) < LAKE_MAX_SEEDS });
         return id;
       });

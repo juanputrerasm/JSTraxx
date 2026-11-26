@@ -10,7 +10,7 @@ import {
   surfaceBorderTileRange, surfaceBoxWrapShifts, surfaceCornerInWrapBand, surfaceTileLod, surfaceTileLodsFor, SURFACE_LOD_8FT, SURFACE_LOD_32FT,
 } from "../src/core/view/surface-tiles.ts";
 import { pickTerrain } from "../src/core/view/pick.ts";
-import { MAX_Z_POSITION, TraxxCamera, terrainZRange } from "../src/core/view/camera.ts";
+import { MAX_Z_POSITION, TraxxCamera, cameraMaxZ, objectsHighZ, terrainZRange } from "../src/core/view/camera.ts";
 import { terrainMap } from "../src/core/traxx/map.ts";
 import { traxxSitToIpos } from "../src/core/traxx/sit.ts";
 import { boxGrids, groundBoxGeometry } from "../src/core/view/ground-box-geometry.ts";
@@ -96,4 +96,21 @@ test("v6 view: the overhead map covers a 512 world; ground boxes past cell 255",
   ], null, 512);
   const lone = groundBoxGeometry([{ x: 400, y: 300, w: 1, h: 1, lower: 0, upper: 20, faces }], null, 512);
   assert.ok(pair.faceOf.length < 2 * lone.faceOf.length, "the shared side of two boxes past cell 255 is hidden");
+});
+
+test("CameraMaxZ: 1,536 ft unless Tall Heights, then the height limit plus 1,024 ft", () => {
+  assert.equal(cameraMaxZ(false, 8192 * 128), MAX_Z_POSITION);
+  assert.equal(cameraMaxZ(true, 8192 * 128), (8192 + 1024) * 1.5);
+  const cam = new TraxxCamera();
+  cam.setWorld(512, 0, 0, cameraMaxZ(true, 8192 * 128));
+  assert.equal(cam.zMax, 13824);
+});
+
+test("objectsHighZ: objects far above the ground lift the camera ceiling with 1,024 ft of headroom", () => {
+  assert.equal(objectsHighZ([]), 0);
+  const hi = objectsHighZ([{ ipos: [0, 0, 100], fraction: [0, 0, 0] }, { ipos: [0, 0, 1435], fraction: [0, 0, 128] }]);
+  assert.equal(hi, 3 * 1435.5);
+  const cam = new TraxxCamera();
+  cam.setWorld(256, 0, hi, cameraMaxZ(false, 0));
+  assert.equal(cam.zMax, hi + MAX_Z_POSITION - 768);
 });

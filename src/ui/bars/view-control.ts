@@ -1,45 +1,69 @@
 /*
-  View Controls (IDD_VIEW_CONTROL): the terrain map, Gamma, Grid size, Whole Grid, Wire Frame
-  and (Traxx 1.8.0) Detail Strength, Water Mask, Veg. Mask Wash and Veg. Aids. The map is drawn by the renderer (Phase 3); here it is a canvas that shows
-  "No track" until then.
+  View Controls (IDD_VIEW_CONTROL): the terrain map, Gamma, Grid size, the grid radios (Traxx
+  1.8.2, 7469220: Grid size slider / 256 x 256 / Whole world, in place of Whole Grid), Wire Frame
+  and (Traxx 1.8.0) Detail Strength, Water Strength (Water Mask before 1.8.1), Veg. Mask Wash and
+  Veg. Aids. The map is drawn by the renderer (Phase 3); here it is a canvas that shows "No track"
+  until then.
 */
 import { el } from "../../shared/dom.ts";
 import type { AppState } from "../../app/state.ts";
-import { GRID_MAX, GRID_MIN, GRID_STEP } from "../../core/settings.ts";
-import { bar, check, slider, triCheck } from "./controls.ts";
+import { effectiveGridMode, GRID_MAX, GRID_MIN, GRID_MODE_256, GRID_MODE_SLIDER, GRID_STEP, wantedGridSize } from "../../core/settings.ts";
+import { bar, check, radioGroup, slider, triCheck } from "./controls.ts";
 
 export class ViewControlBar {
   readonly element: HTMLElement;
   readonly map: HTMLCanvasElement;
   private rendererChecks: { enable(on: boolean): void }[] = [];
+  /** The open track's world size in cells, 256 with no track (CTraxxFrame::ViewWorldN). */
+  private worldN = 256;
+  private syncGrid: () => void = () => {};
 
   constructor(app: AppState) {
     const s = app.settings;
     this.map = el("canvas", { class: "terrain-map", width: 256, height: 256, "aria-label": "Terrain map: click to move the view" });
     const gamma = slider((v) => `Gamma ${(v / 10).toFixed(1)}`, Math.round(s.gamma * 10), 5, 20, (v) => app.updateSettings((st) => { st.gamma = v / 10; }));
-    const grid = slider((v) => `Grid size ${v * GRID_STEP}`, s.polysize / GRID_STEP, GRID_MIN / GRID_STEP, GRID_MAX / GRID_STEP, (v) => app.updateSettings((st) => { st.polysize = v * GRID_STEP; }));
-    grid.enable(!s.show_whole_grid);
-    const whole = check("Whole Grid", s.show_whole_grid, (v) => { grid.enable(!v); app.updateSettings((st) => { st.show_whole_grid = v; }); });
+    // TraxxFrame.cpp OnUpdatePolysizeSlider: live only in the slider mode, its label the size actually drawn.
+    const grid = slider((v) => `Grid size ${app.settings.grid_mode === GRID_MODE_SLIDER ? v * GRID_STEP : wantedGridSize(app.settings, this.worldN)}`,
+      s.polysize / GRID_STEP, GRID_MIN / GRID_STEP, GRID_MAX / GRID_STEP, (v) => app.updateSettings((st) => { st.polysize = v * GRID_STEP; }));
+    // TraxxFrame.cpp OnGridMode / OnUpdateGridMode: the radios show the mode actually drawn; 256 x 256 is greyed on a 256 world.
+    const modes = radioGroup("grid-mode", ["Grid size slider", "256 x 256", "Whole world"], effectiveGridMode(s.grid_mode, this.worldN),
+      (v) => app.updateSettings((st) => { st.grid_mode = v; }));
+    const radio256 = modes.element.querySelectorAll("input")[GRID_MODE_256] as HTMLInputElement;
+    this.syncGrid = () => {
+      const st = app.settings, n = this.worldN;
+      modes.set(effectiveGridMode(st.grid_mode, n));
+      radio256.disabled = n <= 256;
+      radio256.parentElement?.classList.toggle("disabled", n <= 256);
+      grid.enable(effectiveGridMode(st.grid_mode, n) === GRID_MODE_SLIDER);
+      grid.set(st.polysize / GRID_STEP);
+    };
     const wire = triCheck("Wire Frame", s.edit.wireframe, (v) => app.updateSettings((st) => { st.edit.wireframe = v; }));
-    // Traxx 1.8.0 (4ebf477, 2e8a268): Detail Strength, Water Mask, Veg. Mask Wash and Veg. Aids,
+    // Traxx 1.8.0 (4ebf477, 2e8a268): Detail Strength, Water Strength, Veg. Mask Wash and Veg. Aids,
     // each in step with its View menu item both ways (the settings carry both).
     const mask = check("Detail Strength", s.show_mask_overlay, (v) => app.updateSettings((st) => { st.show_mask_overlay = v; }));
-    const waterMask = check("Water Mask", s.show_water_mask, (v) => app.updateSettings((st) => { st.show_water_mask = v; }));
+    const waterMask = check("Water Strength", s.show_water_mask, (v) => app.updateSettings((st) => { st.show_water_mask = v; }));
     const vegMask = check("Veg. Mask Wash", s.show_veg_mask, (v) => app.updateSettings((st) => { st.show_veg_mask = v; }));
     const vegAids = check("Veg. Aids", s.show_veg_aids, (v) => app.updateSettings((st) => { st.show_veg_aids = v; }));
     this.rendererChecks = [mask, waterMask, vegMask, vegAids];
-    this.element = bar("View Controls", el("div", { class: "terrain-map-frame" }, this.map), gamma.element, grid.element, whole.element, wire.element,
+    this.element = bar("View Controls", el("div", { class: "terrain-map-frame" }, this.map), gamma.element, grid.element, modes.element, wire.element,
       mask.element, waterMask.element, vegMask.element, vegAids.element);
     app.on("settings", (st) => {
-      whole.set(st.show_whole_grid);
-      grid.enable(!st.show_whole_grid);
+      this.syncGrid();
       wire.set(st.edit.wireframe);
       mask.set(st.show_mask_overlay);
       waterMask.set(st.show_water_mask);
       vegMask.set(st.show_veg_mask);
       vegAids.set(st.show_veg_aids);
     });
+    this.syncGrid();
     this.drawEmpty();
+  }
+
+  /** The open track's world size (Traxx follows it on idle; JSTraxx on each map or camera draw). */
+  setWorldCells(n: number): void {
+    if (n === this.worldN) return;
+    this.worldN = n;
+    this.syncGrid();
   }
 
   /** Traxx greys these out without its OpenGL renderer: JSTraxx without WebGL 2. */
@@ -64,6 +88,7 @@ export class ViewControlBar {
     with this one.
   */
   drawCamera(gridx: number, gridy: number, dvector: [number, number], cells = 256): void {
+    this.setWorldCells(cells);
     this.marker = { gridx, gridy, dvector, cells };
     this.redraw();
   }
@@ -106,6 +131,7 @@ export class ViewControlBar {
   }
 
   drawEmpty(): void {
+    this.setWorldCells(256);
     this.mapImage = null;
     this.marker = null;
     const g = this.map.getContext("2d");

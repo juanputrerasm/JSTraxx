@@ -31,6 +31,12 @@ export interface TextureAsset {
   legacyBuilt?: boolean;
   /** Not found anywhere: Traxx shows a blank 64x64 tile and lists the name as missing. */
   bad: boolean;
+  /**
+    ParseTEXFile (Traxx origin/main 122c43d): a stand-in for a listed terrain texture the pod could not supply (not
+    in the pod, a wrong length, or a name already listed): a blank 64x64 tile named as listed, so the positional .TEX
+    keeps every later tile id. Write POD lists its name and packs nothing for it.
+  */
+  placeholder?: boolean;
 }
 
 /** A model as loaded: the .BIN bytes and the names a loader needs from them. */
@@ -61,11 +67,6 @@ export interface PodCarryOver {
   txvText: string | null;
   /** The track came with a .SI2 situation file. Informational: export decides again. */
   situationIsSi2: boolean;
-  /**
-    The track came with a .SI3 situation file (track format version 6). Write POD keeps such a
-    track a .SI3: a .SIT or .SI2 is a different track (spec section 5.1), never a down-conversion.
-  */
-  situationIsSi3: boolean;
   /** FOG\<stem>.FOG, 4096 bytes (fogfog). */
   fogFog: Uint8Array | null;
   /** The LVL's line 21 (lvlval). */
@@ -108,11 +109,16 @@ export interface TrackDocument {
   missingModels: string[];
   /** Anything else worth telling the author on open. */
   warnings: string[];
+  /**
+    What Traxx says once in a message box after the track opens (CTraxxDoc's open reports), caption and text, in
+    order: the race rules note ("Race rules", a warning), the stored lake map ("Lakes"), the heights ("Terrain heights").
+  */
+  notices?: { caption: string; text: string }[];
 }
 
 export function emptyCarry(): PodCarryOver {
   return {
-    cylinderCount: 0, cylinderRaw: "", txvText: null, situationIsSi2: false, situationIsSi3: false, fogFog: null, levelValue: 255,
+    cylinderCount: 0, cylinderRaw: "", txvText: null, situationIsSi2: false, fogFog: null, levelValue: 255,
     detailFromPod: false, maskFromPod: false, waterDetailFromPod: false, waterMaskFromPod: false,
   };
 }

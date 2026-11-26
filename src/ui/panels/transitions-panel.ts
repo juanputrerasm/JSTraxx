@@ -15,6 +15,9 @@
   right, Apply, Close and the base tile to the bottom right, the threshold slider widens; any
   texture size is sampled down or up to 64 x 64 (DrawGridImage).
 */
+import { onFeetLimit } from "../../app/terrain-kind.ts";
+import { followTransitions, transitionFeet, transitionFeetStep } from "../../core/edit/feet-fields.ts";
+import { formatFeet } from "../../core/traxx/height-units.ts";
 import { el } from "../../shared/dom.ts";
 import type { AppState } from "../../app/state.ts";
 import type { Editor } from "../../app/editor.ts";
@@ -57,15 +60,70 @@ export function transitionsPanel(ctx: TransitionsPanelContext): void {
   const invert = el("input", { type: "checkbox" });
   const fillMax = el("input", { type: "checkbox", checked: true });
   const fillMin = el("input", { type: "checkbox", checked: true });
+  /*
+    Traxx origin/main (TraxxTransitionsDlg.cpp FollowTrack, ShowState): on a v6 track the two altitudes are feet
+    with 2 decimals (1 ft an arrow, StepFeetBox) and the slider runs 0..the terrain's ceiling in whole feet; the
+    values are held in v (thresholdv, minv, maxv) and carried over when the track's kind changes.
+  */
+  let limitv = 0;
+  let exact = { threshold: threshold * 256, min: 0, max: 255 * 256 };
   const spin = (value: number) => {
-    const i = el("input", { type: "number", min: 0, max: 255, step: 1, value, class: "spin" });
-    i.addEventListener("keydown", (e) => e.stopPropagation());
+    const i = el("input", { type: "number", min: 0, max: 255, step: 1, value, class: "spin" }) as HTMLInputElement;
+    i.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (limitv <= 0 || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+      e.preventDefault();
+      const key = i === minAlt ? "min" : "max";
+      exact[key] = transitionFeetStep(i.value, exact[key], e.key === "ArrowUp" ? 1 : -1, limitv);
+      i.value = formatFeet(exact[key]);
+    });
     return i;
   };
   const maxAlt = spin(255), minAlt = spin(0);
-  const slider = el("input", { type: "range", min: 0, max: 255, value: threshold, "aria-label": "Threshold Altitude" });
+  const slider = el("input", { type: "range", min: 0, max: 255, value: threshold, "aria-label": "Threshold Altitude" }) as HTMLInputElement;
   const thresholdText = el("span", { class: "trans-num" }, String(threshold));
-  slider.addEventListener("input", () => { threshold = Number(slider.value); thresholdText.textContent = String(threshold); });
+  slider.addEventListener("input", () => {
+    // OnHScroll: whole feet along the slider on a v6 track.
+    if (limitv > 0) { exact.threshold = Number(slider.value) * 128; thresholdText.textContent = formatFeet(exact.threshold); return; }
+    threshold = Number(slider.value);
+    thresholdText.textContent = String(threshold);
+  });
+  /* ReadFeetBoxes: the boxes' text to v, the last good value when it does not read. */
+  const readFeetBoxes = () => {
+    exact.min = transitionFeet(minAlt.value, exact.min, limitv);
+    exact.max = transitionFeet(maxAlt.value, exact.max, limitv);
+    minAlt.value = formatFeet(exact.min);
+    maxAlt.value = formatFeet(exact.max);
+  };
+  /* ShowState. */
+  const showState = () => {
+    const feet = limitv > 0;
+    for (const b of [minAlt, maxAlt]) { b.type = feet ? "text" : "number"; b.inputMode = feet ? "decimal" : ""; }
+    if (feet) {
+      slider.max = String(Math.trunc(limitv / 128));
+      slider.value = String(Math.trunc(exact.threshold / 128));
+      minAlt.value = formatFeet(exact.min);
+      maxAlt.value = formatFeet(exact.max);
+      thresholdText.textContent = formatFeet(exact.threshold);
+    } else {
+      slider.max = "255";
+      slider.value = String(threshold);
+      thresholdText.textContent = String(threshold);
+    }
+  };
+  onFeetLimit(app, (limit) => {
+    if (limit === limitv) return;
+    const wasFeet = limitv > 0;
+    // What is typed but not yet applied comes along.
+    const byte = (i: HTMLInputElement) => Math.min(255, Math.max(0, Math.trunc(Number(i.value)) || 0));
+    if (wasFeet) readFeetBoxes();
+    const from = wasFeet ? exact : { threshold, min: byte(minAlt), max: byte(maxAlt) };
+    const to = followTransitions(from, wasFeet, limit);
+    limitv = limit;
+    if (limit > 0) exact = to;
+    else { threshold = to.threshold; minAlt.value = String(to.min); maxAlt.value = String(to.max); }
+    showState();
+  });
 
   const gridCell = el("div", { class: "trans-grid-cell" }, gridCanvas);
   panel.body.replaceChildren(el("div", { class: "trans-window" },
@@ -156,7 +214,10 @@ export function transitionsPanel(ctx: TransitionsPanelContext): void {
     const b = index(base);
     if (b < 0 || g.some((row) => row.some((v) => v < 0))) { await alertDialog("Auto Texture Transitions", "One or more textures not specified!"); return; }
     const alt = (i: HTMLInputElement) => Math.max(0, Math.min(255, Math.trunc(Number(i.value)) || 0));
-    const t: TransitionSettings = { threshold, grid: g, base: b, invert: invert.checked, fillToMin: fillMin.checked, minAlt: alt(minAlt), fillToMax: fillMax.checked, maxAlt: alt(maxAlt) };
+    if (limitv > 0) readFeetBoxes();
+    const t: TransitionSettings = limitv > 0
+      ? { threshold: exact.threshold, grid: g, base: b, invert: invert.checked, fillToMin: fillMin.checked, minAlt: exact.min, fillToMax: fillMax.checked, maxAlt: exact.max, exact: true }
+      : { threshold, grid: g, base: b, invert: invert.checked, fillToMin: fillMin.checked, minAlt: alt(minAlt), fillToMax: fillMax.checked, maxAlt: alt(maxAlt) };
     const run = editor.actions.applyTransition as ((t: TransitionSettings) => void) | undefined;
     run?.(t);
   }

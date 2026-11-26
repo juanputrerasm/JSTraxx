@@ -10,6 +10,7 @@ import { ANIFRAMEPODNAMEMAX, frameNameTooLongForPod } from "../traxx/keyframe.ts
 import { pod1StemBudget } from "../traxx/pod-items.ts";
 import { POD1_TRACK_STEM_MAX } from "../traxx/terrain.ts";
 import { objectLimit } from "../traxx/v6.ts";
+import { isV6 } from "../traxx/track-kind.ts";
 
 const MAX_LINES = 32;
 const MAX_GROUND_BOXES = 2048;
@@ -49,7 +50,12 @@ export function checkIntegrity(doc: TrackDocument): string[] {
 
   if (doc.groundBoxOverflow > 0) add(`${doc.groundBoxOverflow} ground boxes were dropped when this track was opened - it contains more than the ${MAX_GROUND_BOXES} this version supports.`);
   if (doc.objectsShort > 0) add(`The situation file this track came from promised ${doc.objectsShort} more object${doc.objectsShort === 1 ? "" : "s"} than it held. Traxx kept the ones that were there; writing the track corrects the count.`);
-  if (doc.objectsDropped > 0) add(`${doc.objectsDropped} object${doc.objectsDropped === 1 ? " was" : "s were"} dropped when this track was opened - it holds more than the ${objectLimit(t, doc.carry.situationIsSi3)} this version supports.`);
+  if (doc.objectsDropped > 0) add(`${doc.objectsDropped} object${doc.objectsDropped === 1 ? " was" : "s were"} dropped when this track was opened - it holds more than the ${objectLimit(t)} this version supports.`);
+
+  // Traxx origin/main (1c882a4): a pod holding more objects than its kind allows (4,096 classic, 16,384 version 6).
+  if (t.boxes.length > objectLimit(t)) {
+    add(`This track holds ${t.boxes.length} objects; ${isV6(t) ? "a version 6 track" : "a classic track"} holds at most ${objectLimit(t)}.  Delete ${t.boxes.length - objectLimit(t)} before writing it.`);
+  }
 
   if (!t.music) add("Music MOD/WAV/MP3/OGG not specified."); // TXNOMUSIC, 1.7 (e4b4cd5)
   if (!t.logoBmp && !t.uiHd[0]) add("Thumbnail/browse bitmap not specified.");

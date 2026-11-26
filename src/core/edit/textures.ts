@@ -106,6 +106,11 @@ export interface TransitionSettings {
   minAlt: number;
   fillToMax: boolean;
   maxAlt: number;
+  /**
+    Traxx origin/main TransitionTexture: a v6 track compares the corners' own v (CornerV) against the window's
+    feet, held as v; otherwise the coarse 8-bit mirror against whole steps.
+  */
+  exact?: boolean;
 }
 
 /*
@@ -114,12 +119,14 @@ export interface TransitionSettings {
   on one side take the base or the middle texture when the matching "fill" is on and every
   corner is within its altitude.
 */
-export function transitionTextures(clr: Uint16Array, raw: Uint8Array, a: Area, t: TransitionSettings): void {
+export function transitionTextures(clr: Uint16Array, raw: Uint8Array, a: Area, t: TransitionSettings, corner?: (x: number, y: number) => number): void {
   const n = sideOf(clr.length), inMap = inMapOf(n);
   for (let j = a.y0; j <= a.y1; j++) {
     const jj = j * n, jn = ((j + 1) & (n - 1)) * n, m = n - 1;
     for (let i = a.x0; i <= a.x1; i++) {
-      const r = [raw[i + jj]!, raw[((i + 1) & m) + jj]!, raw[i + jn]!, raw[((i + 1) & m) + jn]!];
+      // The four corners' v when exact (CornerV wraps at N as the raw indexing does), else the raw bytes.
+      const r = t.exact && corner ? [corner(i, j), corner(i + 1, j), corner(i, j + 1), corner(i + 1, j + 1)]
+        : [raw[i + jj]!, raw[((i + 1) & m) + jj]!, raw[i + jn]!, raw[((i + 1) & m) + jn]!];
       let mask = 0;
       r.forEach((v, k) => { if (t.invert ? v <= t.threshold : v >= t.threshold) mask |= 1 << k; });
       let index = -1;

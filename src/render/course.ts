@@ -4,6 +4,10 @@
 
     - the main course in (255, 32, 32), unless an extended course is being edited and
       "Always show main" is off; the extended course being edited in magenta;
+    - Traxx 1.8.2, a lane track (a drag, or Parallel rules): Lane 1 (course 0) red and Lane 2
+      (course 1) in the track's own palette entry 253, both with "Always show lanes", else the
+      selected one; the selected line 2..4 green (0, 200, 0); Lane 2 has its joins too
+      (courseLines, DrawCourseMarkers);
     - trucks 1..8 as arrows: tip at the truck, base 40 units behind and 10 either side,
       white with a red edge, green when selected.
 
@@ -19,6 +23,7 @@ import type { TrackDocument } from "../core/doc/document.ts";
 import { ALTITUDE_SCALE } from "../core/view/camera.ts";
 import { courseJoinPieces } from "../core/traxx/course-wrap.ts";
 import { cellsOf, worldIposOf } from "../core/traxx/world.ts";
+import { COURSE_LANE2_INDEX, COURSE_LANE_SELECTED, courseLines } from "../core/edit/race-edit.ts";
 
 export interface CourseState { course: number; alwaysMain: boolean; selectedTruck: number }
 
@@ -29,6 +34,8 @@ export class CourseLayer {
   private truckMat = new THREE.MeshBasicMaterial({ vertexColors: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
   private joinMat = new THREE.LineBasicMaterial({ color: new THREE.Color(0, 1, 1), depthTest: false, depthWrite: false });
   private edgeMat = new THREE.LineBasicMaterial({ color: new THREE.Color(1, 0, 0), depthTest: false, depthWrite: false });
+  private lane2Mat = new THREE.LineBasicMaterial({ color: new THREE.Color(1, 0, 1), depthTest: false, depthWrite: false });
+  private laneSelMat = new THREE.LineBasicMaterial({ color: new THREE.Color(...COURSE_LANE_SELECTED.map((v) => v / 255) as [number, number, number]), depthTest: false, depthWrite: false });
 
   rebuild(doc: TrackDocument, state: CourseState, bounds: { minx: number; maxx: number; miny: number; maxy: number }): void {
     for (const c of [...this.group.children]) { this.group.remove(c); (c as THREE.Mesh).geometry?.dispose(); }
@@ -66,8 +73,16 @@ export class CourseLayer {
       }
       add(p, this.joinMat);
     };
-    if (state.course === 0 || state.alwaysMain) { lines(t.course, this.mainMat); joins(t.course); }
-    if (state.course > 0) lines(t.extendedCourses[state.course - 1] ?? [], this.extMat);
+    // CourseLane2Colour: the track's palette entry 253.
+    const pal = t.palette;
+    this.lane2Mat.color.setRGB((pal[COURSE_LANE2_INDEX * 3] ?? 255) / 255, (pal[COURSE_LANE2_INDEX * 3 + 1] ?? 0) / 255, (pal[COURSE_LANE2_INDEX * 3 + 2] ?? 255) / 255);
+    const mats = { main: this.mainMat, lane2: this.lane2Mat, selected: this.laneSelMat, magenta: this.extMat };
+    for (const line of courseLines(t.trackType, t.raceRules, state.course, state.alwaysMain)) {
+      const list = line.which === 0 ? t.course : t.extendedCourses[line.which - 1];
+      if (!list) continue;
+      lines(list, mats[line.colour]);
+      if (line.joins) joins(list);
+    }
 
     const tp: number[] = [], tc: number[] = [], ep: number[] = [];
     for (let v = 1; v < 9; v++) {

@@ -25,7 +25,7 @@
   version 6 world of N = 512 cells is the same rules over N tiles: the functions that take a grid
   take its side (default 256); ENGDET_MAP_TILES / ENGDET_MAP_FT stay Traxx's (use N * 32 ft).
 */
-import { engineApproxGroundNormal, engineGroundL0, type SunVector } from "../edit/engine-light.ts";
+import { engineApproxGroundNormal, engineGroundL0, engineLightCalcDiffuse, type SunVector } from "../edit/engine-light.ts";
 
 const f32 = Math.fround;
 
@@ -463,14 +463,27 @@ export interface EngineDetailLightInput {
   corner at groundAmbient. Spline / Full Map: the engine's 8 ft relight (engineDetailFineL0),
   4N x 4N, unshadowed. Upload as a one-channel (RedFormat / LUMINANCE) UnsignedByte texture, NEAREST,
   REPEAT, no mips, unpackAlignment 1, no flip; uLightN = n.
+
+  Traxx 1.8.1 (EnsureLightTex, "two bytes a texel"): `shadow` is the second byte, the .LTE shadow
+  bit as 255 or 0 (the ground boxes' walls and bottoms need the bit itself, handover 4.7); all 0
+  on Spline / Full Map (the engine's 8 ft shadow trace has no port). `rg` is the pair interleaved
+  (i, shadow), for a two-channel (RGFormat) upload the box shader reads as .r and .g.
 */
-export function engineDetailLightTexture(input: EngineDetailLightInput): { n: number; data: Uint8Array } {
+export function engineDetailLightTexture(input: EngineDetailLightInput): { n: number; data: Uint8Array; shadow: Uint8Array; rg: Uint8Array } {
   const N = input.n ?? 256;
   const { lte, sun, ambient } = input;
+  const pair = (data: Uint8Array, shadow: Uint8Array) => {
+    const rg = new Uint8Array(data.length * 2);
+    for (let k = 0; k < data.length; k++) { rg[k * 2] = data[k]!; rg[k * 2 + 1] = shadow[k]!; }
+    return rg;
+  };
   if (!input.surface || !input.y0) {
-    const data = new Uint8Array(N * N);
-    for (let k = 0; k < N * N; k++) data[k] = engineDetailVertexByte(lte[k * 7]!, lte[k * 7 + 1]! & 1, ambient);
-    return { n: N, data };
+    const data = new Uint8Array(N * N), shadow = new Uint8Array(N * N);
+    for (let k = 0; k < N * N; k++) {
+      data[k] = engineDetailVertexByte(lte[k * 7]!, lte[k * 7 + 1]! & 1, ambient);
+      shadow[k] = lte[k * 7 + 1]! & 1 ? 255 : 0;
+    }
+    return { n: N, data, shadow, rg: pair(data, shadow) };
   }
   const D = 4 * N;
   const surf = input.surface;
@@ -482,7 +495,8 @@ export function engineDetailLightTexture(input: EngineDetailLightInput): { n: nu
   for (let k = 0; k < N * N; k++) ltb[k] = lte[k * 7]!;
   const fine = engineDetailFineL0(fy0, input.y0, ltb, sun, ambient, N);
   for (let i = 0; i < D * D; i++) fine[i] = engineDetailVertexByte(fine[i]!, 0, ambient);
-  return { n: D, data: fine };
+  const shadow = new Uint8Array(D * D);   // unshadowed: the engine's 8 ft shadow trace has no port
+  return { n: D, data: fine, shadow, rg: pair(fine, shadow) };
 }
 
 /** The key EnsureLightTex rebuilds on: any change of it (or an invalidate) means a new light texture. */
@@ -559,4 +573,127 @@ export function engineDetailPaintMask(mask: Uint8Array, mw: number, mh: number, 
   if (w <= 0 || h <= 0) return null;
   for (let j = 0; j < h; j++) mask.set(red.subarray(src + j * stride, src + j * stride + w), (y + j) * mw + x);
   return { x0: x, y0: y, x1: x + w, y1: y + h };
+}
+
+// ---- Traxx 1.8.1: Show Water Strength and ground boxes (EngineDetail.h / EngineDetail.cpp tail) ----
+
+/**
+  The editor's WATER strength wash (View > Show Water Strength, EngineDetail.h ENGDET_WWASH_*), the
+  twin of the Detail Strength wash on the water: t = the water detail's strength / its strongest =
+  (1 + 4 mk) / 5, and the water's colour goes toward ORANGE by WWASH_K * t (orange because the water
+  and the Detail Strength wash are both blue). Editor-only colours (the old wash's 255, 140, 0).
+*/
+export const ENGDET_WWASH_R = 1.0;
+export const ENGDET_WWASH_G = 0.54901961;
+export const ENGDET_WWASH_B = 0.0;
+export const ENGDET_WWASH_K = 0.75;
+
+/**
+  EngineDetail.h ENGDET_UNTEX_S: the UNTEXTURED mark on a ground box face (an editor convention, not
+  the engine's). An untextured polygon gets this texcoord, which no textured polygon has, so the box
+  shader tells the two apart without trusting the colour. The shader tests s against half of it.
+*/
+export const ENGDET_UNTEX_S = -65536.0;
+
+/** EngineDetailWaterWashT: the wash value at a water mask (0..1), (1 + 4 mk) / 5: 0.2 unpainted, 1.0 white. */
+export function engineDetailWaterWashT(mask: number): number {
+  return f32(f32(1 + f32(f32(ENGDET_MASK_SPAN) * satF(f32(mask)))) / f32(1 + ENGDET_MASK_SPAN));
+}
+
+/** EngineDetailWaterWash: rgb (0..1) toward orange by WWASH_K * t(mask). */
+export function engineDetailWaterWash(rgb: readonly number[], mask: number): [number, number, number] {
+  const orange = [f32(ENGDET_WWASH_R), f32(ENGDET_WWASH_G), f32(ENGDET_WWASH_B)];
+  const w = f32(f32(ENGDET_WWASH_K) * engineDetailWaterWashT(mask));
+  const o = (k: number) => f32(f32(rgb[k]!) + f32(f32(orange[k]! - f32(rgb[k]!)) * w));
+  return [o(0), o(1), o(2)];
+}
+
+/*
+  GROUND BOXES (engine handover 4.7, core\Ground.cpp buildTerrainCache Pass 3; EngineDetail.h). A
+  ground box is drawn by the terrain shader: the SAME detail term, fed world X, Z on every face (Y
+  never enters: a wall reads one row of the map smeared vertically). What differs is the light, per
+  corner (tile x + CDX, z + CDZ), legacy rule: shadow bit -> groundAmbient; top -> l0 << 4; sides /
+  bottom -> lightCalcDiffuse(face normal) - 0x100; then i = clamp((li - 256) / 4080, 0, 1). Faces in
+  the engine's FACES order (normals in engine axes, Y up; Traxx grid y = engine Z).
+*/
+export const ENGDET_BOX_FRONT = 0;   // -Z, corners {0,1,5,4}
+export const ENGDET_BOX_BACK = 1;    // +Z, {2,3,7,6}
+export const ENGDET_BOX_RIGHT = 2;   // +X, {1,2,6,5}
+export const ENGDET_BOX_LEFT = 3;    // -X, {3,0,4,7}
+export const ENGDET_BOX_TOP = 4;     // +Y, {4,5,6,7}
+export const ENGDET_BOX_BOTTOM = 5;  // -Y, {0,1,2,3}
+
+/** EngineDetail.cpp g_BoxFaces / g_BoxCDX / g_BoxCDZ / g_BoxCTOP (Ground.cpp Pass 3 FACES, CDX, CDZ, CTOP). */
+const BOX_FACES: readonly { c: readonly number[]; n: readonly number[] }[] = [
+  { c: [0, 1, 5, 4], n: [0, 0, -65535] },
+  { c: [2, 3, 7, 6], n: [0, 0, 65535] },
+  { c: [1, 2, 6, 5], n: [65535, 0, 0] },
+  { c: [3, 0, 4, 7], n: [-65535, 0, 0] },
+  { c: [4, 5, 6, 7], n: [0, 65535, 0] },
+  { c: [0, 1, 2, 3], n: [0, -65535, 0] },
+];
+const BOX_CDX = [0, 1, 1, 0, 0, 1, 1, 0];
+const BOX_CDZ = [0, 0, 1, 1, 0, 0, 1, 1];
+const BOX_CTOP = [0, 0, 0, 0, 1, 1, 1, 1];
+
+/** EngineDetailBoxFaceI: a face's legacy side / bottom light as i, clamp((lightCalcDiffuse(n) - 0x100 - 256) / 4080). */
+export function engineDetailBoxFaceI(face: number, sun: SunVector, ambient: number): number {
+  if (face < 0 || face > 5) return 0;
+  const li = engineLightCalcDiffuse(sun, ambient, BOX_FACES[face]!.n) - 0x100;   // faceLit
+  return satF(f32(f32(li - ENGDET_LI_BIAS) / ENGDET_LI_SCALE));
+}
+
+/** One ground box corner (EngineDetailBoxCorner's outputs). */
+export interface EngineDetailBoxCornerInfo {
+  /** World position in engine units (1/256 ft): x * 8192. */
+  wx: number;
+  wz: number;
+  /** 1 on the box's top, 0 on its bottom. */
+  top: number;
+  /** The tile its light is read from, wrapped at cells. */
+  tx: number;
+  tz: number;
+  /** The detail uv, pos.xz / (rep * 256): no N in it. */
+  u: number;
+  v: number;
+}
+
+/**
+  EngineDetailBoxCorner: corner k (0..3) of face `face` of the box on tile (x, z): its world position
+  in engine units, whether it is on the top, the tile its light is read from (wrapped at cells = N),
+  and the detail uv pos.xz / (rep * 256) (the VS: detUV = pos.xz / (terrDetailRep * 256)).
+*/
+export function engineDetailBoxCorner(face: number, k: number, x: number, z: number, rep: number, cells: number): EngineDetailBoxCornerInfo {
+  const g = 32 * 256;
+  const ci = BOX_FACES[face]!.c[k & 3]!;
+  const X = (x + BOX_CDX[ci]!) * g, Z = (z + BOX_CDZ[ci]!) * g;
+  return {
+    wx: X, wz: Z, top: BOX_CTOP[ci]!,
+    tx: (x + BOX_CDX[ci]!) & (cells - 1), tz: (z + BOX_CDZ[ci]!) & (cells - 1),
+    u: X / (rep * 256), v: Z / (rep * 256),
+  };
+}
+
+/**
+  EngineDetailBoxI: the baked light at (fx, fz) (0..1 across the tile) on face `face`. ci = the four
+  cell corners' .LTE i as the ground has them ((0,0) (1,0) (1,1) (0,1); a shadow-bit corner already
+  holds groundAmbient's i), sh = their shadow bits, facei = engineDetailBoxFaceI(face). Top: the
+  corners over the (0,0)-(1,1) diagonal. Bottom: the same with facei on unshadowed corners. Walls:
+  linear along the wall between its two corners, each corner sh ? ci : facei. The shader's boxI is
+  the same code.
+*/
+export function engineDetailBoxI(face: number, ci: readonly number[], sh: readonly (number | boolean)[], facei: number, fx: number, fz: number): number {
+  fx = f32(fx); fz = f32(fz);
+  if (fx < 0) fx = 0; else if (fx > 1) fx = 1;
+  if (fz < 0) fz = 0; else if (fz > 1) fz = 1;
+  if (face === ENGDET_BOX_TOP) return engineDetailCellI(ci[0]!, ci[1]!, ci[2]!, ci[3]!, fx, fz, 0);
+  const v = [0, 1, 2, 3].map((k) => f32(sh[k] ? ci[k]! : facei));
+  switch (face) {
+    case ENGDET_BOX_BOTTOM: return engineDetailCellI(v[0]!, v[1]!, v[2]!, v[3]!, fx, fz, 0);
+    case ENGDET_BOX_FRONT: return f32(v[0]! + f32(f32(v[1]! - v[0]!) * fx));   // z = 0: corners (0,0) (1,0)
+    case ENGDET_BOX_BACK: return f32(v[3]! + f32(f32(v[2]! - v[3]!) * fx));    // z = 1: (0,1) (1,1)
+    case ENGDET_BOX_RIGHT: return f32(v[1]! + f32(f32(v[2]! - v[1]!) * fz));   // x = 1: (1,0) (1,1)
+    case ENGDET_BOX_LEFT: return f32(v[0]! + f32(f32(v[3]! - v[0]!) * fz));    // x = 0: (0,0) (0,1)
+  }
+  return 0;
 }

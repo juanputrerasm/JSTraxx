@@ -22,13 +22,14 @@ import type { ModeContext } from "./context.ts";
 import { ATXT_COL, AGRD_COL, EDIT_TERRAIN } from "../../core/settings.ts";
 import {
   adjustHeights, altitudeV, applyBrush, brushPreview, brushRect, copyArea as copyBlock, heightsToRgba, makeEditGrid, pasteArea as pasteBlock,
-  pasteBitmapHeights, pasteFits, previewLabel, rgbaToHeights, stampWindow, type BrushParams, type EditGrid, type TerrainBlock, type Placed,
+  pasteBitmapHeights, pasteBitmapRefusal, pasteFits, previewLabel, rgbaToHeights, stampWindow, type BrushParams, type EditGrid, type TerrainBlock, type Placed,
 } from "../../core/edit/terrain.ts";
 import { amplitudeFractional, amplitudeText, stepAmplitude } from "../../core/edit/amplitude.ts";
 import { recordFields, recordGrid, recordWindow } from "../../core/edit/record.ts";
 import { deriveBoxHeights } from "../../core/doc/load-pod.ts";
 import { CONTEXT_MENUS } from "../../ui/shell/commands.ts";
 import { adjustHeightsDialog } from "../../ui/dialogs/adjust-heights.ts";
+import type { AdjustFeet } from "../../core/edit/terrain.ts";
 import { alertDialog } from "../../ui/shell/dialog.ts";
 import { copyImage, pasteImage } from "../../shared/system-clipboard.ts";
 import { ALTITUDE_SCALE } from "../../core/view/camera.ts";
@@ -43,7 +44,10 @@ import { lakeHoldsUpTo, lakeMinHeight, lakeNearestLegalHeight, recomputeLakes, l
 import { trackNotches } from "../../core/traxx/falls.ts";
 import { fallCommands } from "./fall-commands.ts";
 import type { Recording } from "../../core/edit/record.ts";
-import { publishTerrainMode } from "../terrain-kind.ts";
+import { publishFeetLimit, publishTerrainMode, trackFeetLimit } from "../terrain-kind.ts";
+import { amplitudeFeetRange, amplitudeFeetText, stepAmplitudeFeet } from "../../core/edit/feet-fields.ts";
+import { heightsInFeet } from "../../core/traxx/height-units.ts";
+import { heightLimit } from "../../core/traxx/track-kind.ts";
 
 export function terrainMode(ctx: ModeContext): ModeHandler {
   const { app, editor, view, registry } = ctx;
@@ -79,6 +83,9 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
   const follow = () => {
     const mode = editor.doc?.track.terrainMode ?? null;
     if (mode !== lastMode) { lastMode = mode; vertex = fineVertex = null; }
+    // The kind's unit is published first: the Altitude box reads it when the mode arrives.
+    const t = editor.doc?.track;
+    publishFeetLimit(app, t && heightsInFeet(t) ? heightLimit(t) : 0);
     publishTerrainMode(app, mode);
   };
   app.on("commands", follow);
@@ -205,8 +212,18 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
     const h = doc.track.heights;
     let min = 255, max = 0;
     for (const v of h) { if (v < min) min = v; if (v > max) max = v; }
-    const r = await adjustHeightsDialog(min, max);
+    // Traxx origin/main OnTerrainRaiseLower: a v6 track's dialog works in feet (v inside), against the
+    // terrain's own height limit, from the exact lowest and highest of its grid.
+    const g16 = doc.track.fine ?? doc.track.h16;
+    let feet: AdjustFeet | null = null;
+    if (g16 && heightsInFeet(doc.track)) {
+      let lo = heightLimit(doc.track), hi = 0;
+      for (let i = 0; i < g16.length; i++) { const v = g16[i]!; if (v < lo) lo = v; if (v > hi) hi = v; }
+      feet = { minv: lo, maxv: hi, hmax: heightLimit(doc.track), liftv: 0 };
+    }
+    const r = await adjustHeightsDialog(min, max, feet);
     if (!r) return;
+    if (feet) feet.liftv = r.liftv;
     const t = doc.track;
     const before = lakeErrors(t);
     const recs: Recording[] = [
@@ -221,10 +238,10 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
     }
     // 16-bit tracks: the same factor and lift (taken from the 8-bit mirror) on h16 or the Full Map
     // grid, inc * 256 (AdjustHeights16 / AdjustHeightsFine), so fractions survive.
-    // The water keeps to Traxx's 0..510 ft, or a version 6 document's range (no 510 ft cap, spec section 10 item 7).
-    const waterRange = trackWaterRange(t, doc.carry.situationIsSi3);
+    // The water keeps to its kind's 0..WaterLevelMax4 (Traxx's 0..510 ft on a classic track).
+    const waterRange = trackWaterRange(t);
     const res = adjustHeights(h, r, placed, r.moveWater ? t.waterLevel4 : null,
-      t.fine || t.h16 ? (scale, inc, f) => adjustHeights16(t, scale, inc * 256, f) : undefined, t, waterRange);
+      t.fine || t.h16 ? (scale, liftv, f) => adjustHeights16(t, scale, liftv, f) : undefined, t, waterRange, feet ?? undefined);
     if (res.water4 !== null) t.waterLevel4 = res.water4;
     // The lakes are refitted whatever "move water" says: lifted 4N or scaled floor(H * f), then
     // moved to the nearest height the basin legally holds.
@@ -233,7 +250,7 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
       const range = buildLakeGround(t);
       const lo = lakeMinHeightFor(range), hi = lakeMaxHeightFor(range);
       for (const lake of t.lakes) {
-        const lh = r.scale ? Math.floor(lake.height * res.factor + 1e-9) : lake.height + 4 * res.inc;
+        const lh = r.scale ? Math.floor(lake.height * res.factor + 1e-9) : lake.height + res.dq;
         lake.height = Math.max(lo, Math.min(hi, lh));
       }
       // With the falls' notches (Traxx 1.7.1); the ceiling is what the lake holds (HoldsUpTo).
@@ -266,7 +283,8 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
     try { img = await pasteImage(); } catch { img = null; }
     const n = cells();
     const data = img ? rgbaToHeights(img.rgba, img.width, img.height, n) : null;
-    if (!data) { await alertDialog("Paste Terrain Bitmap", `Sorry, the bitmap must be ${n} x ${n} pixels. Copy a greyscale picture of that size first.`); return; }
+    // TraxxViewEdit.cpp OnTerrainPasteBitmap (Traxx 1.8.2): N x N, or 256 x 256 into a 512 world's corner.
+    if (!data) { await alertDialog("Paste Terrain Bitmap", pasteBitmapRefusal(img?.width ?? 0, img?.height ?? 0, n) ?? ""); return; }
     const t = editor.doc!.track;
     if (t.terrainMode === TERRAINMODE_FINE) return;
     syncFromRaw(t);
@@ -321,7 +339,13 @@ export function terrainMode(ctx: ModeContext): ModeHandler {
       const nudge = (sign: number) => {
         if (tool === 7) { direct(sign); return; }
         const mode = editor.doc?.track.terrainMode ?? null;
-        if (amplitudeFractional(mode)) {
+        const limit = trackFeetLimit(app);
+        if (limit > 0) {
+          // Traxx origin/main: a v6 track's StepAmplitude is 1 ft, from the box's feet, in the tool's range.
+          const range = amplitudeFeetRange(tool, limit);
+          const v = stepAmplitudeFeet(amplitudeFeetText(altitudeV(app.settings.edit.altitude), range), sign, range);
+          setEdit((s) => { s.altitude = v / 256; });
+        } else if (amplitudeFractional(mode)) {
           const v = stepAmplitude(amplitudeText(altitudeV(app.settings.edit.altitude), true), sign);
           setEdit((s) => { s.altitude = v / 256; });
         } else setEdit((s) => { s.altitude = Math.max(-255, Math.min(255, Math.round(s.altitude) + sign)); });

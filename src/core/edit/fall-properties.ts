@@ -34,28 +34,37 @@ export function spaced(v: number): string {
   return v < 0 ? `-${out}` : out;
 }
 
+/**
+  FeetText (Traxx origin/main WaterfallDlg.cpp): a height in water units (half feet) as feet, 2 decimals on a v6
+  track (`feet`), as the other boxes show them, else as it always was (%g).
+*/
+export function fallFeetText(units: number, feet = false): string {
+  return feet ? (units / 2.0).toFixed(2) : cG(units / 2.0);
+}
+
 /** The Source combo: None, every lake, and a missing source on its own line (OnInitDialog). */
-export function fallSourceOptions(lakes: readonly { height: number }[], w: TraxxFall): { label: string; value: number }[] {
+export function fallSourceOptions(lakes: readonly { height: number }[], w: TraxxFall, feet = false): { label: string; value: number }[] {
   const out = [{ label: "None (a spring)", value: 0 }];
-  lakes.forEach((l, i) => out.push({ label: `Lake ${i + 1} (${cG(l.height / 2.0)} ft)`, value: i + 1 }));
+  lakes.forEach((l, i) => out.push({ label: `Lake ${i + 1} (${fallFeetText(l.height, feet)} ft)`, value: i + 1 }));
   if (w.source > lakes.length) out.push({ label: `Lake ${w.source} (missing)`, value: w.source });
   return out;
 }
 
 /** The boxes as Refresh(TRUE) writes them. */
-export function fallBoxTexts(w: TraxxFall, eff: number): {
+export function fallBoxTexts(w: TraxxFall, eff: number, feet = false): {
   height: string; speed: string; opacity: string; mist: string; mistdepth: string; mistheight: string; volume: string; sound: string; texture: string;
 } {
   return {
-    height: cG(eff / 2.0), speed: cG(w.speed / 16.0),
+    height: fallFeetText(eff, feet), speed: cG(w.speed / 16.0),
     opacity: String(w.opacity), mist: String(w.mist), mistdepth: String(w.mistdepth || 100), mistheight: String(w.mistheight || 100),
     volume: String(w.volume), sound: w.sound, texture: w.texture,
   };
 }
 
 /** The read-out beside the height box. */
-export function fallHeightText(w: TraxxFall, eff: number): string {
-  return w.source === 0 ? `${cG(eff / 2.0)} ft (${eff} raw)` : `${cG(eff / 2.0)} ft (${eff} raw) - the lake's height`;
+export function fallHeightText(w: TraxxFall, eff: number, feet = false): string {
+  const ft = fallFeetText(eff, feet);
+  return w.source === 0 ? `${ft} ft (${eff} raw)` : `${ft} ft (${eff} raw) - the lake's height`;
 }
 
 /** The spring heights Traxx allows, raw; a version 6 track passes its own (falls.ts fallHeightBounds). */

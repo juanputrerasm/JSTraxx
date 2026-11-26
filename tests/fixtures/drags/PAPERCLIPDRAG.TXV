@@ -1,0 +1,8 @@
+# MTM2 track version record - written by Traxx
+formatVersion=6
+tool=Traxx
+toolVersion=1.8.2
+built=2026-11-21
+legacyFallback=0
+hdTextures=1
+raceRules=drag

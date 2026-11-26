@@ -9,11 +9,12 @@
       move Top (a top face selected) or Bottom;
     - right-click: Insert, Delete, Rotate, Mirror, Cut, Copy, Paste.
 */
+import { heightsInFeet } from "../../core/traxx/height-units.ts";
 import type { ModeHandler, ViewPoint } from "../editor.ts";
 import type { ModeContext } from "./context.ts";
 import { CONTEXT_MENUS } from "../../ui/shell/commands.ts";
 import { recordFields } from "../../core/edit/record.ts";
-import { clampBottom, clampTop, groundBoxesWide, copyGroundBox, insertGroundBox, mirrorFace, paintGroundBox, pasteGroundBox, rotateFace, type GroundBoxClip } from "../../core/edit/ground-boxes.ts";
+import { clampBottom, clampTop, BOX_KEY_STEP, copyGroundBox, insertGroundBox, mirrorFace, paintGroundBox, pasteGroundBox, rotateFace, type GroundBoxClip } from "../../core/edit/ground-boxes.ts";
 import { outlineCells } from "./textures-mode.ts";
 import { ALTITUDE_SCALE } from "../../core/view/camera.ts";
 import { EDIT_BUILDINGS } from "../../core/settings.ts";
@@ -28,8 +29,9 @@ export function groundBoxesMode(ctx: ModeContext): ModeHandler {
   let syncing = false;
 
   const track = () => editor.doc!.track;
-  /** Version 6 tracks keep box heights unclamped to a byte (spec section 8.3). */
-  const wideBoxes = () => (editor.doc ? groundBoxesWide(editor.doc.track) : false);
+  /** The track the Top and Bottom keys clamp for (its kind: track-kind.ts). */
+  const kindOf = () => (editor.doc ? editor.doc.track : {});
+  const keyStep = () => (heightsInFeet(kindOf()) ? 128 : BOX_KEY_STEP);
   const box = () => (selected ? track().groundBoxes[selected[0]] ?? null : null);
   const touch = { groundBoxes: true };
   const edit = (label: string, change: () => unknown) => {
@@ -56,7 +58,7 @@ export function groundBoxesMode(ctx: ModeContext): ModeHandler {
   /* SetBuildingAltitude: the bar's heights onto the selected box. */
   app.on("tools", (t) => {
     const b = box();
-    if (syncing || app.mode !== EDIT_BUILDINGS || !b || !editor.canEdit) return;
+    if (syncing || t.gbBarOnly || app.mode !== EDIT_BUILDINGS || !b || !editor.canEdit) return;
     if (b.upper === t.gbTop && b.lower === t.gbBottom) return;
     edit("Box Height", () => { b.upper = t.gbTop; b.lower = t.gbBottom; });
   });
@@ -99,7 +101,7 @@ export function groundBoxesMode(ctx: ModeContext): ModeHandler {
   const faceOutline = (g: CanvasRenderingContext2D, project: (x: number, y: number, z: number) => { x: number; y: number } | null, face: [number, number], colour: string) => {
     const b = track().groundBoxes[face[0]];
     if (!b) return;
-    const x0 = b.x * 64, y0 = b.y * 64, x1 = x0 + 64 * b.w, y1 = y0 + 64 * b.h, zl = ALTITUDE_SCALE * b.lower, zu = ALTITUDE_SCALE * b.upper;
+    const x0 = b.x * 64, y0 = b.y * 64, x1 = x0 + 64 * b.w, y1 = y0 + 64 * b.h, zl = (ALTITUDE_SCALE * b.lower) / 256, zu = (ALTITUDE_SCALE * b.upper) / 256;
     const quads: [number, number, number][][] = [
       [[x0, y0, zl], [x1, y0, zl], [x1, y0, zu], [x0, y0, zu]],
       [[x0, y1, zl], [x1, y1, zl], [x1, y1, zu], [x0, y1, zu]],
@@ -148,13 +150,14 @@ export function groundBoxesMode(ctx: ModeContext): ModeHandler {
       switch (e.code) {
         case "KeyR": registry.exec("ID_BUILDING_ROT90"); return true;
         case "KeyM": registry.exec("ID_BUILDING_MIRROR"); return true;
+        // Traxx origin/main: a v6 track's [ ] / S X step 1 ft (StepBuildingFeet), a classic one's a 2 ft step.
         case "KeyS": case "BracketRight":
-          if (topFace) app.setTools({ gbTop: clampTop(app.tools.gbTop + 1, app.tools.gbBottom, wideBoxes()) });
-          else if (selected) app.setTools({ gbBottom: clampBottom(app.tools.gbBottom + 1, app.tools.gbTop, wideBoxes()) });
+          if (topFace) app.setTools({ gbTop: clampTop(app.tools.gbTop + keyStep(), app.tools.gbBottom, kindOf()) });
+          else if (selected) app.setTools({ gbBottom: clampBottom(app.tools.gbBottom + keyStep(), app.tools.gbTop, kindOf()) });
           return true;
         case "KeyX": case "BracketLeft":
-          if (topFace) app.setTools({ gbTop: clampTop(app.tools.gbTop - 1, app.tools.gbBottom, wideBoxes()) });
-          else if (selected) app.setTools({ gbBottom: clampBottom(app.tools.gbBottom - 1, app.tools.gbTop, wideBoxes()) });
+          if (topFace) app.setTools({ gbTop: clampTop(app.tools.gbTop - keyStep(), app.tools.gbBottom, kindOf()) });
+          else if (selected) app.setTools({ gbBottom: clampBottom(app.tools.gbBottom - keyStep(), app.tools.gbTop, kindOf()) });
           return true;
       }
       return false;

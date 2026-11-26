@@ -47,7 +47,7 @@ export const LIGHTWARN_COLOUR = "#ffdc3c";
 
 type P3 = [number, number, number];
 
-/** A ground box's two heights per cell (TxxGroundBox lower / upper, bytes of 2 ft steps). */
+/** A ground box's two heights per cell (TxxGroundBox lower / upper, v: 1/128 ft). */
 export interface LightGroundBoxes { boxes: readonly { x: number; y: number; lower: number; upper: number }[]; cells: number }
 
 export interface LightPoolDrawing {
@@ -81,7 +81,8 @@ export function lightPoolDrawing(box: TraxxBox, light: TraxxLight, terrain: Grou
     const c = cellBoxes.get(((x >> 6) & m) + ((y >> 6) & m) * (m + 1));
     if (c && c.lower !== c.upper) {
       const bottom = Math.min(c.lower, c.upper), top = Math.max(c.lower, c.upper);
-      if (headZ > ALTITUDE_SCALE * bottom) return ALTITUDE_SCALE * top;
+      // In 2 ft steps (v / 256), as LightGroundZUnderHead reads the box layers.
+      if (headZ > (ALTITUDE_SCALE * bottom) / 256) return (ALTITUDE_SCALE * top) / 256;
     }
     return terrainZ(x, y);
   };

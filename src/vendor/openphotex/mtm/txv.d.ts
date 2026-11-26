@@ -73,3 +73,21 @@ export interface TxvV6 {
 export declare function readTxvV6(input: Uint8Array | string | readonly TxvLine[] | null): TxvV6;
 /** True when a .TXV uses a key of section 6 other than formatVersion: such a track must be a .SI3. */
 export declare function txvUsesV6Keys(input: Uint8Array | string | readonly TxvLine[]): boolean;
+export declare const TXV_AMBIENCE_KEYS: readonly ["skyTopColor", "skyBottomColor", "skyHorizon", "skyImage", "fogColor", "fogStartFt", "fogEndFt", "lightTint"];
+export interface TxvAmbience {
+    skyTop: [number, number, number] | null;
+    skyBottom: [number, number, number] | null;
+    /** 0.01 to 1. */
+    skyHorizon: number;
+    /** The picture's entry as written (`ART\X.PNG`), or null. */
+    skyImage: string | null;
+    fogColor: [number, number, number] | null;
+    fogStartFt: number | null;
+    fogEndFt: number | null;
+    /** Scaled to a mean of 1, or null. */
+    lightTint: [number, number, number] | null;
+    /** Whether the track gives a sky of its own (a colour or a picture). */
+    sky: boolean;
+}
+/** The ambience keys of a .TXV, or null when it has none of them. */
+export declare function readTxvAmbience(input: Uint8Array | string | readonly TxvLine[] | null): TxvAmbience | null;

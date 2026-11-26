@@ -107,7 +107,7 @@ test("Smooth Full Map rebuilds from the 32 ft points; Import of a coarse file in
 
 test("Terrain Grid message names both modes and ends with the undo line", () => {
   const m = terrainConvertMessage(TERRAINMODE_CLASSIC8, TERRAINMODE_SPLINE);
-  assert.match(m, /^Convert this track's terrain from Classic 8-bit to 16-bit Spline\?\n\n8-bit heights become 16-bit exactly\./);
+  assert.match(m, /^Convert this track's terrain from Traditional 8-bit to Finer Heights 16-bit Spline\?\n\n8-bit heights become 16-bit exactly\./);
   assert.match(m, /The terrain undo is cleared by this\.$/);
 });
 

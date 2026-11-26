@@ -10,12 +10,14 @@
 import * as THREE from "three";
 import type { TrackDocument } from "../core/doc/document.ts";
 import type { AppState } from "../app/state.ts";
-import { TraxxCamera, terrainZRange } from "../core/view/camera.ts";
+import { TraxxCamera, cameraMaxZ, objectsHighZ, terrainZRange } from "../core/view/camera.ts";
+import { heightLimit, tallHeights } from "../core/traxx/track-kind.ts";
 import { cellsOf, isWideGrid, worldFtOf } from "../core/traxx/world.ts";
 import { fallWorldOf } from "../core/traxx/v6.ts";
 import { buildTileSet, gammaMap, type RgbaImage, type TileSet } from "../core/view/tiles.ts";
 import { cameraGround } from "../core/traxx/box-ground.ts";
-import { BG_COL, EDIT_BUILDINGS, EDIT_OBJECTS, GRID_MAX, WIRE_COL, WIREO_COL, type TraxxSettings } from "../core/settings.ts";
+import { checkpointLabelEnds, checkpointLabelPx, checkpointLabelText, CP_LABEL_PX } from "../core/view/checkpoint-label.ts";
+import { BG_COL, EDIT_BUILDINGS, EDIT_OBJECTS, GRID_MAX, WIRE_COL, WIREO_COL, wantedGridSize, type TraxxSettings } from "../core/settings.ts";
 import { TerrainMesh } from "./terrain.ts";
 import { Viewport } from "./viewport.ts";
 import { decodeHd } from "./hd-decode.ts";
@@ -37,12 +39,17 @@ import { TERRAINMODE_CLASSIC8 } from "../core/traxx/terrain16.ts";
 import { trackLakes, lakeNotchEdgesOf } from "../core/traxx/lakes.ts";
 import { BackdropLayer } from "./backdrop.ts";
 import { WaterfallsLayer } from "./waterfalls.ts";
+import { WallsLayer } from "./walls.ts";
+import { wallDrawList } from "../core/view/wall-draw.ts";
+import { exportWallGround } from "../core/traxx/pod-writer.ts";
+import { EDIT_WALLS } from "../core/settings.ts";
 import { FallShapeCache, fallPreviewList, fallViewShift } from "../core/view/fall-shapes.ts";
 import { fallGroundFor, fallNameInPod } from "../core/traxx/falls.ts";
 import { buildLakeGround } from "../core/traxx/surface.ts";
 import { CourseLayer } from "./course.ts";
 import { Overlay2D } from "./overlay.ts";
-import { arrowSegments, checkpointArrow, checkpointWantsArrow } from "../core/view/arrows.ts";
+import { arrowSegments, checkpointArrow } from "../core/view/arrows.ts";
+import { checkpointRaceLabels, checkpointShowsArrow, courseLines } from "../core/edit/race-edit.ts";
 import { objectMatrix } from "../core/view/model-geometry.ts";
 import { pickSurface, pickTerrain, type TerrainHit } from "../core/view/pick.ts";
 import { drivableMeshes, pickMesh, type DrivableMesh } from "../core/view/mesh-pick.ts";
@@ -79,6 +86,9 @@ export class TrackView {
   private fogBoxes = new FogBoxLayer();
   private vegetation = new VegetationLayer();
   private waterfalls = new WaterfallsLayer();
+  /** Traxx 1.8.2: the walls (DrawWallsOpenGL), and the Walls mode's hover and capture (wallhw, wallhp, wallcappt). */
+  private walls = new WallsLayer();
+  private wallState: { hotWall: number; hotPoint: number; capture: [number, number][] | null } = { hotWall: -1, hotPoint: -1, capture: null };
   /** The falls' shapes and errors (FallShapesEnsure), shared with the Waterfall window. */
   readonly fallShapes = new FallShapeCache();
   /** The fall whose window is open (fallhighlight) and the crest being captured, in 1/16 ft. */
@@ -122,7 +132,7 @@ export class TrackView {
     this.viewport.onBeforeRender(() => this.step());
     // The fog pass for the camera as placed: order, the nearest 16, the slices (DrawFogVolumes).
     this.viewport.onBeforeRender(() => this.fogBoxes.update(this.viewport.camera));
-    this.viewport.scene.add(this.water.group, this.lakes.mesh, this.lakes.walls, this.lakes.marks, this.backdrop.arena, this.course.group, this.fogBoxes.group, this.vegetation.group, this.waterfalls.group);
+    this.viewport.scene.add(this.water.group, this.lakes.mesh, this.lakes.walls, this.lakes.marks, this.backdrop.arena, this.course.group, this.fogBoxes.group, this.vegetation.group, this.waterfalls.group, this.walls.group);
     this.overlay = new Overlay2D(host, this.viewport.camera);
     // Traxx 1.8.0: every light's glow and cone after the fog volumes, not over a wireframe.
     this.lightGlows.onLoaded = () => this.viewport.requestRender();
@@ -190,12 +200,13 @@ export class TrackView {
   }
 
   /*
-    The grid window's size: the Grid size setting, or the whole map with Whole Grid. A track
-    format version 6 world of 512 cells is 512 cells whole (spec section 8.1); the Grid size
-    setting keeps its 256 cap, and the object window its own (OBJECT_CULL_GRID).
+    The grid window's size (Traxx 1.8.2 CTraxxReg::WantedGridSize): the Grid size slider, 256 x 256,
+    or the whole world (256 with no track, ViewWorldN). A track format version 6 world of 512
+    cells is 512 cells whole (spec section 8.1); the slider keeps its 256 cap, and the object
+    window its own (OBJECT_CULL_GRID).
   */
   private gridSizeOf(s: TraxxSettings): number {
-    return s.show_whole_grid ? Math.max(GRID_MAX, this.doc ? cellsOf(this.doc.track) : GRID_MAX) : s.polysize;
+    return wantedGridSize(s, this.doc ? cellsOf(this.doc.track) : GRID_MAX);
   }
 
   /* The camera's world and z range (TraxxCamera.setWorld) for the track as it is. */
@@ -205,7 +216,9 @@ export class TrackView {
     // Only a version 6 32-bit store can hold ground beyond 0..512 ft; a 16-bit or 8-bit track
     // is always inside Traxx's range, so its grid is not scanned on every edit.
     const [lo, hi] = isWideGrid(t.h16) || isWideGrid(t.fine) ? terrainZRange(t) : [0, 0];
-    this.camera.setWorld(cellsOf(t), lo, hi);
+    // JSTraxx (not Traxx): the headroom also counts the highest object, so a track built of objects
+    // high above its ground (a sky track on flat terrain) can be reached and looked down on.
+    this.camera.setWorld(cellsOf(t), lo, Math.max(hi, objectsHighZ(t.boxes)), cameraMaxZ(tallHeights(t), heightLimit(t)));
     this.viewport.setFarFor(cellsOf(t) << 6, this.camera.zMax - this.camera.zMin);
   }
 
@@ -227,6 +240,7 @@ export class TrackView {
     this.fallState = { highlight: -1, capture: null };
     this.fallShapes.invalidate();
     this.rebuildFalls();
+    this.rebuildWalls();
     this.buildModels();
     this.rebuildTiles();
     this.applySettings(this.app.settings);
@@ -259,6 +273,8 @@ export class TrackView {
     this.water.rebuild(new Uint8Array(65536), 0);
     this.lakes.rebuild(null, [], []);
     this.waterfalls.rebuild([], 0, 0);
+    this.walls.rebuild([], 0, 0);
+    this.wallState = { hotWall: -1, hotPoint: -1, capture: null };
     this.vegetation.build(null, null);
     this.backdrop.scene.clear();
     this.backdrop.arena.clear();
@@ -325,12 +341,18 @@ export class TrackView {
     const inside = (x: number, y: number) => Math.abs((x >> 6) - this.camera.gridx) <= half && Math.abs((y >> 6) - this.camera.gridy) <= half;
     if (mode === EDIT_COURSE || s.always_course) {
       const { course, alwaysMain } = this.app.tools;
-      const lists = [...(course === 0 || alwaysMain ? [t.course] : []), ...(course > 0 ? [t.extendedCourses[course - 1] ?? []] : [])];
-      for (const list of lists) list.forEach((seg, i) => {
-        if (!inside(seg.cstart[0], seg.cstart[1])) return;
-        const p = project(seg.cstart[0], seg.cstart[1], ALTITUDE_SCALE * seg.cstart[2]);
-        if (p) g.fillText(String(i), p.x, p.y + 5);
-      });
+      // Traxx 1.8.2 (OverlayCourse): the passes follow the lanes; a line's name ("Lane 1", "Lane 2",
+      // "Lead-in -> Lane N") sits 21 pixels under its first segment's start, under the index.
+      for (const line of courseLines(t.trackType, t.raceRules, course, alwaysMain)) {
+        const list = line.which === 0 ? t.course : t.extendedCourses[line.which - 1] ?? [];
+        list.forEach((seg, i) => {
+          if (!inside(seg.cstart[0], seg.cstart[1])) return;
+          const p = project(seg.cstart[0], seg.cstart[1], ALTITUDE_SCALE * seg.cstart[2]);
+          if (!p) return;
+          g.fillText(String(i), p.x, p.y + 5);
+          if (i === 0 && line.label) g.fillText(line.label, p.x, p.y + 21);
+        });
+      }
     }
     // OverlayFogDrift: every fog's wisp drift arrow while the fog volumes are drawn.
     if (mode === EDIT_OBJECTS || s.always_objects) {
@@ -348,12 +370,15 @@ export class TrackView {
     }
     if (mode === EDIT_OBJECTS) {
       let cp = 0;
+      // Traxx 1.8.2: with race rules the label is CpxFormatLabel of the slot ("*" on the main copy) and every gate has its arrow.
+      const raceLabels = checkpointRaceLabels(t.boxes, t.raceRules.mode);
+      const labelRules = raceLabels ? { label: (k: number) => raceLabels[k] ?? null } : null;
       for (const box of t.boxes) {
         if (box.type !== 6) continue;
         const n = cp++;
         if (!inside(box.ipos[0], box.ipos[1])) continue;
         // The arrow through a gate without a model first, so the number reads over it.
-        if (!box.modelName && checkpointWantsArrow(t.trackType, n)) {
+        if (!box.modelName && checkpointShowsArrow(t.trackType, t.raceRules.mode, n)) {
           g.save();
           g.strokeStyle = "#00ff00";
           for (const [a, b] of arrowSegments(checkpointArrow(box), objectMatrix(box))) {
@@ -363,7 +388,20 @@ export class TrackView {
           g.restore();
         }
         const p = project(box.ipos[0] + box.fraction[0] / 256, box.ipos[1] + box.fraction[1] / 256, 3 * (box.ipos[2] + box.fraction[2] / 256));
-        if (p) g.fillText(`CP ${String(n).padStart(2, "0")}`, p.x, p.y);
+        if (!p) continue;
+        // Traxx 1.8.2 (94ebfe5, OverlayCheckpoints): a model-less gate's label shrinks with its on-screen width.
+        const label = checkpointLabelText(n, labelRules);
+        let ends: [{ x: number; y: number }, { x: number; y: number }] | null = null;
+        if (!box.modelName) {
+          const m = objectMatrix(box);
+          const [e0, e1] = checkpointLabelEnds(box).map(([x, y, z]) => project(
+            m[0]! * x + m[4]! * y + m[8]! * z + m[12]!, m[1]! * x + m[5]! * y + m[9]! * z + m[13]!, m[2]! * x + m[6]! * y + m[10]! * z + m[14]!));
+          if (e0 && e1) ends = [e0, e1];
+        }
+        const px = checkpointLabelPx(ends, (size) => { g.font = `${size}px Arial, sans-serif`; return g.measureText(label).width; });
+        if (px === null) continue;
+        g.font = px === CP_LABEL_PX ? "12px system-ui, sans-serif" : `${px}px Arial, sans-serif`;
+        g.fillText(label, p.x, p.y);
       }
     }
   }
@@ -395,6 +433,7 @@ export class TrackView {
       void this.models?.loadHd().then((any) => { if (any && this.doc === doc) { this.buildModels(); this.viewport.requestRender(); } });
     }
     if (touch.heights) { this.terrain?.updateLevels(); this.placeWorld(); this.detail.heightsChanged(); }
+    else if (touch.objects) this.placeWorld();
     // Track Components may have replaced a map; the lighting may have changed (the light texture's key).
     if (touch.track) this.detail.refresh();
     this.applyDetail();
@@ -404,6 +443,8 @@ export class TrackView {
     if (touch.heights || touch.water || touch.falls) this.fallShapes.invalidate();
     if (touch.textures || touch.track) this.fallShapes.rejudge();
     if (touch.heights || touch.water || touch.falls || touch.textures || touch.track) this.rebuildFalls();
+    // The walls stand on the ground under each point (TraxxViewWalls.cpp: no cache, every frame).
+    if (touch.walls || touch.heights || touch.track) this.rebuildWalls();
     if (touch.heights) { this.vegetation.invalidate(); this.updateVegetation(); }
     if (touch.objects || touch.groundBoxes || touch.heights) this.objectsChanged();
     if (touch.course || touch.trucks) this.rebuildCourse();
@@ -417,6 +458,22 @@ export class TrackView {
     if (v.z > 1 || v.z < -1) return null;
     const r = this.viewport.canvas;
     return { x: ((v.x + 1) / 2) * r.clientWidth, y: ((1 - v.y) / 2) * r.clientHeight };
+  }
+
+  /**
+    InputToScreenPoint with its depth (Traxx 1.8.2's outline pick): the point on screen in CSS
+    pixels and its camera depth in scene units (64 a 32 ft cell; Traxx's are 64 times finer), or
+    null behind the camera.
+  */
+  projectDepth(x: number, y: number, z: number): { x: number; y: number; depth: number } | null {
+    const cam = this.viewport.camera;
+    cam.updateMatrixWorld();
+    const v = new THREE.Vector3(x, y, z).applyMatrix4(cam.matrixWorldInverse);
+    const depth = -v.z;
+    if (!(depth > 0)) return null;
+    v.applyMatrix4(cam.projectionMatrix);
+    const r = this.viewport.canvas;
+    return { x: ((v.x + 1) / 2) * r.clientWidth, y: ((1 - v.y) / 2) * r.clientHeight, depth };
   }
 
   /** The view's size in CSS pixels. */
@@ -485,7 +542,7 @@ export class TrackView {
     if (!t.falls.length && !capture) { this.waterfalls.rebuild([], 0, 0); this.mistPlan = { plans: [], draw: [], shift: [] }; this.rebuildFog(); return; }
     // Track format version 6 (spec 9.3): the falls are judged and walked in the track's N world.
     this.fallShapes.ensure(t, () => (t.lakes.length ? trackLakes(t) : null), fallNameInPod(t.sounds, doc.textures, doc.modelTextures), () => buildLakeGround(t),
-      () => fallWorldOf(t, doc.carry.situationIsSi3));
+      () => fallWorldOf(t));
     const g = fallGroundFor(t, null, this.fallShapes.world);
     const list = fallPreviewList(t, this.fallShapes, g, this.fallState.highlight, capture);
     const mistDim = this.planMist(list, g);
@@ -601,6 +658,29 @@ export class TrackView {
     }
     this.fogBoxes.setVolumes(out, s.draw_all_fog);
     this.viewport.requestRender();
+  }
+
+  /*
+    DrawWallsOpenGL (Traxx 1.8.2, TraxxViewWalls.cpp): every wall exported as Write POD exports it
+    (ground under every point), the ribbons under View > Show Walls in every mode, the points and
+    the capture in Walls mode only; each at the world copy nearest the grid centre.
+  */
+  rebuildWalls(): void {
+    const doc = this.doc;
+    if (!doc) { this.walls.rebuild([], 0, 0); return; }
+    const t = doc.track, s = this.app.settings;
+    const list = wallDrawList({
+      walls: t.raceRules.walls, ground: exportWallGround(t), mode: this.app.mode === EDIT_WALLS, ribbons: s.show_walls,
+      hotWall: this.wallState.hotWall, hotPoint: this.wallState.hotPoint, capture: this.wallState.capture,
+    });
+    this.walls.rebuild(list, this.camera.gridx, this.camera.gridy, worldFtOf(cellsOf(t)));
+    this.viewport.requestRender();
+  }
+
+  /** The walls were edited, or the hover or the capture changed (the view's ReDisplay in TraxxViewWalls.cpp). */
+  wallsChanged(state?: { hotWall?: number; hotPoint?: number; capture?: [number, number][] | null }): void {
+    if (state) this.wallState = { ...this.wallState, ...state };
+    this.rebuildWalls();
   }
 
   /** A fall was edited or its window opened or closed (FallChanged): the shapes follow when `shape`, then the view. */
@@ -725,7 +805,7 @@ export class TrackView {
   /*
     Traxx 1.8.0 (b6d56f2, 2e8a268): View > Show Detail Maps and Show Detail Strength through the
     engine's detail term when the track has its own _MASK (the per-cell wash otherwise), and View >
-    Show Water Mask's tint.
+    Show Water Strength's tint (Show Water Mask before 1.8.1).
   */
   private applyDetail(): void {
     const s = this.app.settings, doc = this.doc;
@@ -733,10 +813,15 @@ export class TrackView {
     const d = s.show_detail_maps || s.show_mask_overlay ? this.detail.terrain() : null;
     this.terrain.setDetail(d ? { ...d, look: s.show_detail_maps, wash: s.show_mask_overlay } : null);
     this.terrain.setMask(this.mask, s.show_mask_overlay && !d);
-    this.terrain.setWaterMask(s.show_water_mask ? this.detail.waterMaskCells() : null);
-    const w = s.show_detail_maps ? this.detail.water() : null, mapFt = cellsOf(doc.track) * 32;
-    this.water.setDetail(w, mapFt);
-    this.lakes.setDetail(w, mapFt);
+    // Traxx 1.8.1 Show Water Strength (DrawWaterMaskWash, GLDetailBeginWater): the exact wash per
+    // texel on the water fill and the lakes; the ground's per-tile wash goes faint while the water
+    // carries it (water shown, opacity > 0, the track has its _WMSK), full otherwise.
+    const wmaps = this.detail.water();
+    const waterWash = s.show_water_mask && wmaps !== null && s.show_water && s.water_opacity > 0;
+    this.terrain.setWaterMask(s.show_water_mask ? this.detail.waterMaskCells() : null, waterWash);
+    const w = s.show_detail_maps || s.show_water_mask ? wmaps : null, mapFt = cellsOf(doc.track) * 32;
+    this.water.setDetail(w, mapFt, s.show_detail_maps, s.show_water_mask);
+    this.lakes.setDetail(w, mapFt, s.show_detail_maps, s.show_water_mask);
     this.viewport.requestRender();
   }
 
@@ -796,6 +881,9 @@ export class TrackView {
     this.lakes.walls.visible = s.show_water && s.show_lake_walls;
     this.lakes.marks.visible = s.show_water;
     this.waterfalls.group.visible = s.edit.wireframe !== 1;
+    // CTraxxView::Display: DrawWallsOpenGL is not called over a wireframe.
+    this.walls.group.visible = s.edit.wireframe !== 1;
+    this.rebuildWalls();
     this.updateVegetation();
     // Traxx 1.8.0: with the sky on, no backdrop in Snow and the fogs (the engine draws only the fog colour).
     const skyOn = Boolean(this.doc) && s.show_sky && s.edit.wireframe !== 1;
@@ -815,12 +903,12 @@ export class TrackView {
     if (!this.vegetation.active) return;
     const s = this.app.settings;
     const solid = s.edit.wireframe !== 1;
-    const gridsize = this.gridSizeOf(s);
+    const gridsize = this.gridSizeOf(s), worldn = this.doc ? cellsOf(this.doc.track) : 256;
     const cam = this.viewport.camera;
     cam.updateMatrixWorld();
     const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
     this.vegetation.lodCentre = [this.camera.gridx, this.camera.gridy];
-    this.vegetation.update(cam.position, right, vegWindow(this.camera.gridx, this.camera.gridy, gridsize, s.show_whole_grid), {
+    this.vegetation.update(cam.position, right, vegWindow(this.camera.gridx, this.camera.gridy, gridsize, gridsize >= worldn, worldn), {
       trees: solid && s.show_vegetation, grass: solid && s.show_grass, aids: solid && s.show_veg_aids, wash: solid && s.show_veg_mask,
     });
   }
@@ -849,6 +937,7 @@ export class TrackView {
       this.rebuildCourse();
       // Each fall sits at the copy nearest the grid centre, which just moved.
       if (this.doc?.track.falls.length) this.rebuildFalls();
+      if (this.doc?.track.raceRules.walls.length) this.rebuildWalls();
     }
   }
 

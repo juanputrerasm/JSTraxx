@@ -13,14 +13,13 @@ import { sideOf } from "./world.ts";
 /** LAKE_MAX_HEIGHT (water units). */
 export const LAKE_MAX_HEIGHT = 4 * 255 + 3;
 /*
-  Track format version 6 (track-format-v6.md 7.3, 9.1): heights may be negative or far above
-  512 ft, and a version 2 .WTR holds an i32 height in half-feet (water units) anywhere in the
-  terrain's range. The widest range the 32-bit height store holds (world.ts V6_V_MIN..V6_V_MAX,
-  -32768 to 98302 ft) in water units. A ground whose points all fit 0..512 ft keeps Traxx's
-  LAKE_MAX_HEIGHT, so nothing changes for a track CP4 can hold.
+  A version 6 track (Traxx origin/main, Include/TrackPODLakes.h LAKE_MAX_HEIGHT_V6, LakeGround::maxheight): a tall
+  track's ground reaches 8,192 ft, and its lakes 16384 water units (the terrain ceiling / 64). No lake is ever
+  below 0. A ground whose points all fit 0..512 ft keeps Traxx's LAKE_MAX_HEIGHT, so nothing changes for a
+  track that is not tall. The kind's own cap for what an author may type is track-kind.ts lakeMaxHeight.
 */
-export const LAKE_V6_MIN_HEIGHT = -2 * 32768;
-export const LAKE_V6_MAX_HEIGHT = 2 * (32767 + 65535);
+export const LAKE_V6_MIN_HEIGHT = 0;
+export const LAKE_V6_MAX_HEIGHT = 16384;
 /** u (1/64 ft) a 16-bit 0..512 ft ground spans: Traxx's 32768 surface buckets. */
 const CLASSIC_U_SPAN = 32768;
 
@@ -51,14 +50,14 @@ export function groundSurfaceRange(g: LakeGround): { base: number; count: number
   return r;
 }
 
-/** The highest lake height (water units) on this ground: Traxx's LAKE_MAX_HEIGHT, or the version 6 range. */
+/** The highest lake height (water units) on this ground: Traxx's LAKE_MAX_HEIGHT, or LAKE_MAX_HEIGHT_V6 on a tall ground. */
 export function lakeMaxHeightFor(g: LakeGround | null | undefined): number {
   return g && groundSurfaceRange(g).wide ? LAKE_V6_MAX_HEIGHT : LAKE_MAX_HEIGHT;
 }
 
-/** The lowest lake height (water units) a dialog offers on this ground: 0, or the version 6 range. */
-export function lakeMinHeightFor(g: LakeGround | null | undefined): number {
-  return g && groundSurfaceRange(g).wide ? LAKE_V6_MIN_HEIGHT : 0;
+/** The lowest lake height (water units) a dialog offers on this ground: 0 (no lake is below 0). */
+export function lakeMinHeightFor(_g: LakeGround | null | undefined): number {
+  return 0;
 }
 
 /** Lip edges of a notch tile, one bit per tile edge (SetNotches' lipedges). */

@@ -37,3 +37,36 @@ export function onTerrainMode(app: AppState, listener: (mode: number | null) => 
   c.listeners.add(listener);
   if (c.known) listener(c.mode);
 }
+
+/*
+  Traxx origin/main CTraxxFrame::FollowTrackKinds: the Altitude box, the Groundbox bar and the Transitions
+  window also follow the track's kind. Published the same way: the height limit (v) of a track whose
+  heights are in feet (a v6 track, HeightsInFeet), 0 for a classic track or none.
+*/
+const feetChannels = new WeakMap<AppState, { limit: number; known: boolean; listeners: Set<(limit: number) => void> }>();
+
+function feetChannel(app: AppState) {
+  let c = feetChannels.get(app);
+  if (!c) { c = { limit: 0, known: false, listeners: new Set() }; feetChannels.set(app, c); }
+  return c;
+}
+
+/** The open track's feet limit: its height limit when its heights are in feet, else 0. */
+export function trackFeetLimit(app: AppState): number {
+  return feetChannel(app).limit;
+}
+
+export function publishFeetLimit(app: AppState, limit: number): void {
+  const c = feetChannel(app);
+  if (c.known && c.limit === limit) return;
+  c.known = true;
+  c.limit = limit;
+  for (const l of c.listeners) l(limit);
+}
+
+/** Listen; a listener added after the first publish hears the current limit at once. */
+export function onFeetLimit(app: AppState, listener: (limit: number) => void): void {
+  const c = feetChannel(app);
+  c.listeners.add(listener);
+  if (c.known) listener(c.limit);
+}

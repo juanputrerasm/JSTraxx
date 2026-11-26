@@ -186,6 +186,10 @@ export interface TraxxBox {
   fog: TraxxFog;
   /** Pass order among the checkpoints (type 6); 0 on every other box, as Traxx leaves it. */
   checkpointSeq: number;
+  /** Traxx 1.8.2 (.TXX V21 cp_split): the checkpoint's split, CPX_SPLIT_NONE / ANY / LANE (race-types.ts); 0 on other boxes. */
+  cpSplit: number;
+  /** .TXX V21 cp_lane: 1 or 2 for a per-lane copy, else 0. */
+  cpLane: number;
   /** height_above_gnd: kept in the .TXX, re-derived from the terrain when a track is opened. */
   heightAboveGround: number;
 }
@@ -196,7 +200,7 @@ export function traxxBoxDefaults(): TraxxBox {
     theta: 0, phi: 0, psi: 0, length: 64, width: 64, height: 20, mass: 0,
     bvel: [0, 0, 0], p: 0, q: 0, r: 0, modelName: "", crushName: "", crush: [0, 0, 0],
     soundImpact: "NULL.WAV", soundCont: "NULL.WAV", light: traxxLightDefaults(), fog: traxxFogDefaults(), checkpointSeq: 0,
-    heightAboveGround: 0,
+    cpSplit: 0, cpLane: 0, heightAboveGround: 0,
   };
 }
 

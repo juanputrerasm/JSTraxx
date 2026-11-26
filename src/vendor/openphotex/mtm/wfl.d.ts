@@ -1,3 +1,4 @@
+import { type V6HeightWindow } from "./wtr.ts";
 export declare const WFL_MAGIC = "MWFL";
 export declare const WFL_HEADER = 32;
 export declare const WFL_DIRENTRY = 16;
@@ -92,9 +93,10 @@ export interface WflWriteFall {
 }
 /**
  * Whether a fall's height fits version 1, the 256-cell world's file: 0..4096 half-feet (the engine accepts 1..4096;
- * 0 is left to its record check, as Traxx writes it).
+ * 0 is left to its record check, as Traxx writes it). With `heightWindow` (a 256-cell .SI3's step and base) a height in
+ * the track's window 2 * base + 1 .. 2 * (base + 65536 / step) fits too, as with the lakes (wtrV1HeightOk).
  */
-export declare function wflFallFitsV1(f: Pick<WflWriteFall, "height">): boolean;
+export declare function wflFallFitsV1(f: Pick<WflWriteFall, "height">, heightWindow?: V6HeightWindow): boolean;
 /**
  * Write a .WFL exactly as Traxx 1.7.3 lays one out: v1.0 (128-byte records) unless some fall's mist
  * depth or height is neither 0 nor 100, or its rough from is not 0, then v1.1 (132). Fall i gets id i + 1. Validation of the
@@ -102,10 +104,12 @@ export declare function wflFallFitsV1(f: Pick<WflWriteFall, "height">): boolean;
  * the file cannot hold.
  *
  * `cells` is the world's size (track format version 6), and it picks the version (section 9.3):
- * 256 writes version 1 (a fall above 4096 half-feet throws), 512 version 2.
+ * 256 writes version 1 (a fall above 4096 half-feet throws, unless it is in `heightWindow`, the 256-cell .SI3's height
+ * window), 512 version 2.
  */
 export declare function writeWfl(falls: readonly WflWriteFall[], opts?: {
     cells?: number;
+    heightWindow?: V6HeightWindow;
 }): Uint8Array;
 /** A fall's crest points in feet (a point is stored in 1/16 ft). */
 export declare function wflPointsFt(fall: Pick<WflFall, "points">): Array<[number, number]>;

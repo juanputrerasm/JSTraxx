@@ -54,18 +54,18 @@ test("a track whose lights all have allWx clear keeps its old generation and byt
   assert.deepEqual(readTxx(writeTxx(on.track)).boxes.map((b) => b.light.allWx), [0, 1, 0]);
 });
 
-test("V99 always carries allWx, 0 for a box that is not a light", () => {
+test("V24 carries allWx on every box as held, as V20 does (CTrackPODBox::Save)", () => {
   const doc = newTrackDocument(512);
   const lamp = traxxBoxDefaults();
   lamp.type = TRAXX_BOX_LIGHT; lamp.light.allWx = 1;
   const plain = traxxBoxDefaults();
-  plain.light.allWx = 1; // not a light: written as 0
+  plain.light.allWx = 1; // not a light: written as held, as Traxx writes the int
   doc.track.boxes = [lamp, plain];
   const txx = writeTxx(doc.track);
-  assert.equal(header(txx), "TRAXXV99");
+  assert.equal(header(txx), "TRAXXV24");
   const back = readTxx(txx);
-  assert.deepEqual(back.boxes.map((b) => b.light.allWx), [1, 0]);
-  // Without any flag set V99 still carries the field (its length does not change with the flag).
+  assert.deepEqual(back.boxes.map((b) => b.light.allWx), [1, 1]);
+  // Without any flag set V24 still carries the field (every block below it is written).
   lamp.light.allWx = 0;
   assert.equal(writeTxx(doc.track).length, txx.length);
 });

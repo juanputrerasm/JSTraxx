@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { parseWtr } from "../src/vendor/openphotex/mtm/wtr.js";
 import type { LakeGround } from "../src/core/traxx/surface.ts";
 import {
-  buildWtr, buildWtrV6, lakeMaxHeightFor, lakeMinHeight, lakeSpill, parseWtrLakes, recomputeLakes, seedIndex,
+  buildWtr, buildWtrV6, lakeMaxHeightFor, lakeMinHeightFor, lakeMinHeight, lakeSpill, parseWtrLakes, recomputeLakes, seedIndex,
   LAKE_MAX_HEIGHT, LAKE_NO_BASIN, LAKEERR_HEIGHT,
 } from "../src/core/traxx/lakes.ts";
 import { buildVeg, emptyVegetation, vegBoundsProblem, vegDefaultColour, vegDefaultEntry, vegParseImage, VEG_KIND_PLACED, VEG_LAYER_TREES } from "../src/core/traxx/veg.ts";
@@ -57,7 +57,7 @@ test("a version 2 .WTR: written for a 512 world, read back only with cells, refu
   const g: LakeGround = { raw: basin8(n, 300, 300), tilemin: null, groundAtLevel: null, step: 0, pointU: null };
   const lakes = [{ height: 399, flags: 1, seeds: [[300, 300]] as [number, number][] }];
   const st = recomputeLakes(g, lakes, 0);
-  const wtr = buildWtrV6(lakes, st)!;
+  const wtr = buildWtrV6(lakes, st, 128, 0)!;
   assert.ok(wtr);
   const parsed = parseWtr(wtr, { cells: n });
   assert.equal(parsed.major, 2);
@@ -70,8 +70,12 @@ test("a version 2 .WTR: written for a 512 world, read back only with cells, refu
   const l256 = [{ height: 399, flags: 1, seeds: [[100, 100]] as [number, number][] }];
   const s256 = recomputeLakes(g256, l256, 0);
   assert.equal(parseWtr(buildWtr(l256, s256)!).major, 1);
-  // A 256 map with a height version 1 cannot hold writes nothing (never a 256-cell version 2).
+  // A 256 map with a height version 1 cannot hold writes nothing (never a 256-cell version 2)...
   assert.equal(buildWtr([{ ...l256[0]!, height: 5000 }], s256), null);
+  // ...unless it is in a 256 .SI3's own window (LakeHeightWindowFor): step 8 base 0 takes 1..16384, still version 1.
+  const v1 = buildWtrV6([{ ...l256[0]!, height: 5000 }], s256, 8, 0)!;
+  assert.equal(parseWtr(v1).major, 1);
+  assert.equal(parseWtr(v1).lakes[0]!.height, 5000);
 });
 
 /*
@@ -109,28 +113,18 @@ test("lakes on a version 6 ground above 512 ft: heights are not capped at Traxx'
   assert.equal(st.lakes[0]!.tilecount, 12 * 12);
   // 2800 is the basin floor's own level (CORNER_AT_H), so one water unit above it.
   assert.equal(lakeMinHeight(g, 0, lake), 2801);
-  const wtr = buildWtrV6([lake], st)!;
+  const wtr = buildWtrV6([lake], st, 8, 0)!;
   // 1450 ft is inside version 1's 0.5..2048 ft, so a 256 world keeps version 1.
   assert.equal(parseWtr(wtr, { cells: 256 }).major, 1);
   assert.equal(parseWtrLakes(wtr, 256)!.lakes[0]!.height, 2900);
 });
 
-test("lakes on a version 6 ground below 0 ft: held at 512 cells, an error at 256 (.WTR version 1)", () => {
-  const g = tallGround(256, -100 * 64, -200 * 64);
-  const spill = lakeSpill(g, null, 0, 100, 100, -1);
-  assert.equal(spill, -201);
-  const lake = { height: -300, flags: 1, seeds: [[100, 100]] as [number, number][] };
-  const st = recomputeLakes(g, [lake], 0);
-  // Below 0.5 ft on a 256-cell world: version 1 cannot hold it, so it is LAKEERR_HEIGHT only.
-  assert.equal(st.lakes[0]!.errors, LAKEERR_HEIGHT);
-  assert.equal(st.lakes[0]!.tilecount, 12 * 12);
-  assert.equal(buildWtr([lake], st), null);
-  assert.notEqual(lakeSpill(g, null, 0, 100, 100, -1), LAKE_NO_BASIN);
-  // The same basin in a 512-cell world is a version 2 lake, no error.
-  const g512 = tallGround(512, -100 * 64, -200 * 64);
-  const s512 = recomputeLakes(g512, [lake], 0);
-  assert.equal(s512.lakes[0]!.errors, 0);
-  assert.equal(parseWtr(buildWtr([lake], s512)!, { cells: 512 }).major, 2);
+test("no lake is below 0 and a tall ground caps the lakes at LAKE_MAX_HEIGHT_V6 (16384, 8,192 ft)", () => {
+  const g = tallGround(256, 1500 * 64, 1400 * 64);
+  assert.equal(lakeMaxHeightFor(g), 16384);
+  assert.equal(lakeMinHeightFor(g), 0);
+  assert.equal(lakeMinHeightFor(null), 0);
+  assert.equal(lakeMaxHeightFor(null), LAKE_MAX_HEIGHT);
 });
 
 function vegWithTree(xFt: number, zFt: number) {
@@ -261,32 +255,39 @@ import { readPodEntry } from "../src/vendor/openphotex/pod/lookup.js";
 import { newTrackDocument } from "../src/core/doc/new-track.ts";
 import { buildTrackPod } from "../src/core/traxx/pod-writer.ts";
 import { loadPodTrack } from "../src/core/doc/load-pod.ts";
-import { LAKES_MISMATCH, storedLakesOf, trackLakes } from "../src/core/traxx/lakes.ts";
+import { storedLakeMapOf, storedLakeMapShown, trackLakes } from "../src/core/traxx/lakes.ts";
 
-test("a pod whose lake map is not Traxx's fill keeps its map and file until a lake changes", async () => {
+test("a pod whose lake map is not Traxx's fill keeps it as the stored map; Write POD writes it only when asked to", async () => {
   // A pod with one lake of three tiles on ground Traxx's fill would flood: another tool's map.
   const out = buildTrackPod(newTrackDocument(), { date: new Date(2026, 10, 16) });
   const stem = out.entries.find((e) => /^WORLD\\.*\.SIT$/i.test(e.name))!.name.slice(6, -4);
   const tmap = new Uint8Array(256 * 256);
   for (const x of [100, 101, 102]) tmap[x + 100 * 256] = 1;
-  const wtr = writeWtr([{ height: 200, flags: 1, seeds: [{ x: 101, z: 100 }], box: { minX: 100, minZ: 100, maxX: 102, maxZ: 100 }, tileCount: 3 }], tmap);
+  const wtr = writeWtr([{ height: 200, flags: 1, seeds: [{ x: 101, z: 100 }], box: { minX: 100, minZ: 100, maxX: 102, maxZ: 100 }, tileCount: 3 }], tmap, { edgeRule: true });
   const bytes = writePod1(out.comment, [...out.entries, { name: `WORLD\\${stem}.WTR`, data: wtr }]);
   const doc = await loadPodTrack({ archive: parsePod(bytes), read: async (e: { offset: number; length: number }) => readPodEntry(bytes, e) }, 0, "lake.pod");
-  assert.ok(doc.warnings.includes(LAKES_MISMATCH));
+  // ApplyStoredLakes and ReportStoredLakes.
+  const note = doc.notices!.find((n) => n.caption === "Lakes")!;
+  assert.match(note.text, /^These lakes were not filled from their seeds the way Traxx fills them \(\d+ tiles differ\)\. Traxx shows them as stored/);
   const t = doc.track;
-  assert.ok(storedLakesOf(t), "the pod's map is kept");
+  assert.ok(storedLakeMapShown(t), "the pod's map is kept and shown");
   const st = trackLakes(t);
   assert.deepEqual(Array.from(st.tmap), Array.from(tmap), "the lakes are the pod's tiles");
   assert.deepEqual([st.lakes[0]!.tilecount, st.lakes[0]!.errors, st.lakes[0]!.minx, st.lakes[0]!.maxx, st.lakes[0]!.minz, st.lakes[0]!.maxz], [3, 0, 100, 102, 100, 100]);
   doc.viewOnly = false;
-  const wtrOf = () => buildTrackPod(doc, { date: new Date(2026, 10, 16) }).entries.find((e) => /\.WTR$/i.test(e.name))?.data;
-  assert.deepEqual(wtrOf(), wtr, "Write POD writes the pod's .WTR back unchanged");
-  // A lake edit: Traxx's fill from then on; putting it back (an undo) brings the stored map back.
+  const wtrOf = (lakeWrite: "stored" | "computed") => buildTrackPod(doc, { date: new Date(2026, 10, 16), lakeWrite }).entries.find((e) => /\.WTR$/i.test(e.name))?.data;
+  // AskStoredLakes' Yes: BuildWTRStored, exactly the stored map (the same image the pod carried).
+  assert.deepEqual(wtrOf("stored"), wtr, "Write POD writes the stored map back unchanged");
+  // No (or no prompt): Traxx's fill.
+  assert.notDeepEqual(wtrOf("computed"), wtr);
+  // A lake edit shows the fill; the stored map stays held, and an undo shows it again.
   t.lakes[0]!.height = 201;
-  assert.equal(storedLakesOf(t), null);
+  assert.equal(storedLakeMapShown(t), null);
+  assert.ok(storedLakeMapOf(t));
   assert.notDeepEqual(Array.from(trackLakes(t).tmap), Array.from(tmap));
-  assert.notDeepEqual(wtrOf(), wtr);
   t.lakes[0]!.height = 200;
-  assert.ok(storedLakesOf(t));
-  assert.deepEqual(wtrOf(), wtr);
+  assert.ok(storedLakeMapShown(t));
+  // A lake added: the map names other lakes and is not the track's any more.
+  t.lakes.push({ height: 300, flags: 1, seeds: [[10, 10]] });
+  assert.equal(storedLakeMapOf(t), null);
 });

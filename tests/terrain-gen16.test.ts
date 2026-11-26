@@ -100,7 +100,9 @@ test("TerrainGenV(1024): deterministic, in range, seeded, sizes checked", () => 
     if (mode === 0 && p.ground >= 1) assert.ok(lo >= 256);
   }
   for (let mode = 0; mode < 2; mode++) assert.notDeepEqual(terrainGenV(params(mode, 3, SLIDERS[0]!), 1024), terrainGenV(params(mode, 4, SLIDERS[0]!), 1024));
-  assert.equal(terrainGenV(params(0, 1, SLIDERS[0]!), 512), null);
+  // Traxx origin/main: 512 (a 512 world's coarse grid) and 2048 (its Full Map) are made too; any other size is refused.
+  assert.equal(terrainGenV(params(0, 1, SLIDERS[0]!), 512)?.length, 512 * 512);
+  assert.equal(terrainGenV(params(0, 1, SLIDERS[0]!), 300), null);
   assert.equal(terrainGenV(params(0, 1, SLIDERS[0]!), 0), null);
 });
 
@@ -124,9 +126,13 @@ test("TerrainGenV(1024) has the 256 grid's spread of heights", () => {
 });
 
 test("the dialog set-up per terrain mode, and the preview", () => {
-  assert.deepEqual(terrainGenTarget(0), { gridSize: 256, precise: false, forText: "For: Classic 8-bit" });
+  // Traxx origin/main OnEditGenTerrain's "For:" lines, on a 256 and a 512 world.
+  assert.deepEqual(terrainGenTarget(0), { gridSize: 256, precise: false, forText: "For: Traditional 8-bit" });
   assert.deepEqual(terrainGenTarget(1), { gridSize: 256, precise: true, forText: "For: 16-bit Classic (256 × 32 ft)" });
-  assert.deepEqual(terrainGenTarget(2), { gridSize: 256, precise: true, forText: "For: 16-bit Spline (256 × 32 ft)" });
-  assert.deepEqual(terrainGenTarget(3), { gridSize: 1024, precise: true, forText: "For: 16-bit Full Map (1024 × 8 ft)" });
+  assert.deepEqual(terrainGenTarget(2), { gridSize: 256, precise: true, forText: "For: Finer Heights 16-bit Spline (256 × 32 ft)" });
+  assert.deepEqual(terrainGenTarget(3), { gridSize: 1024, precise: true, forText: "For: Precision 8 ft grid and 16-bit Heights Full Map (1024 × 8 ft)" });
+  assert.deepEqual(terrainGenTarget(1, 512), { gridSize: 512, precise: true, forText: "For: 16-bit Classic (512 × 32 ft)" });
+  assert.deepEqual(terrainGenTarget(2, 512), { gridSize: 512, precise: true, forText: "For: Finer Heights 16-bit Spline (512 × 32 ft)" });
+  assert.deepEqual(terrainGenTarget(3, 512), { gridSize: 2048, precise: true, forText: "For: Precision 8 ft grid and 16-bit Heights Full Map (2048 × 8 ft)" });
   assert.deepEqual([...terrainGenPreview(new Uint16Array([0, 255, 256, 65535]))], [0, 0, 1, 255]);
 });

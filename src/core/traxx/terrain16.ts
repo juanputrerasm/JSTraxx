@@ -41,8 +41,8 @@ export interface Terrain16 {
 }
 
 /**
-  MirrorOf: a 16-bit height rounded to the nearest 8-bit step, capped at 255. A version 6 height
-  below 0 ft (spec section 7.3) mirrors as 0.
+  MirrorOf: a 16-bit height rounded to the nearest 8-bit step, capped at 255 (and at 0 for a value
+  below 0, which no track holds).
 */
 export function mirrorOf(v: number): number {
   const m = (v + 128) >> 8;
@@ -228,12 +228,12 @@ export function setModeOnLoad(t: Terrain16, mode: number): boolean {
   return true;
 }
 
-/** "Classic 8-bit", "16-bit", "16-bit Spline", "16-bit Full Map" (TerrainModeName). */
+/** TerrainModeName (Traxx origin/main, TrackPODTerrain.cpp): the grids by File > New's and Terrain Grid's names. */
 export function terrainModeName(mode: number): string {
-  if (mode === TERRAINMODE_CLASSIC16) return "16-bit";
-  if (mode === TERRAINMODE_SPLINE) return "16-bit Spline";
-  if (mode === TERRAINMODE_FINE) return "16-bit Full Map";
-  return "Classic 8-bit";
+  if (mode === TERRAINMODE_CLASSIC16) return "Finer Heights 16-bit";
+  if (mode === TERRAINMODE_SPLINE) return "Finer Heights 16-bit Spline";
+  if (mode === TERRAINMODE_FINE) return "Precision 8 ft grid and 16-bit Heights Full Map";
+  return "Traditional 8-bit";
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

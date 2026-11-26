@@ -12,6 +12,8 @@ import { applyMtm2Palette, emptyPalette } from "../traxx/palette.ts";
 import { FLAT_LTE, flatLte } from "../traxx/terrain.ts";
 import { WORLD_CELLS_CLASSIC } from "../traxx/world.ts";
 import { TERRAINMODE_CLASSIC8 } from "../traxx/terrain16.ts";
+import { kindAllowed, setTrackKind, type TrackKind } from "../traxx/track-kind.ts";
+import { raceRulesDefaults } from "../traxx/race-types.ts";
 import { emptyCarry, MTM2_ONLY, type TrackDocument } from "./document.ts";
 
 export const TRACKTYPE_DRAG = 1;
@@ -22,9 +24,14 @@ export const TRACKTYPE_RUMBLE = 4;
 /** CTrackPOD::CTrackPOD truck names. */
 const TRUCK_NAMES = ["powerbig.trk", "bigfoot.trk", "grave.trk", "boogey.trk", "wildfoot.trk", "bearfoot.trk", "snakebit.trk", "rampage.trk", "overkill.trk"];
 
-/** The track record of CTrackPOD after its constructor and Reset. */
-export function resetTrack(cells: number = WORLD_CELLS_CLASSIC): TxxTrack {
-  return {
+/**
+  The track record of CTrackPOD after its constructor and Reset, then SetTrackKind(kind, cells) (a classic track
+  is (FALSE, 256, FALSE); 512 is v6 only, so a 512 world without a v6 kind is Standard V6).
+*/
+export function resetTrack(cells: number = WORLD_CELLS_CLASSIC, kind?: TrackKind): TxxTrack {
+  const n = cells === 512 ? 512 : WORLD_CELLS_CLASSIC;
+  const k: TrackKind = kind ?? (n === 512 ? "standard" : "classic");
+  const t: TxxTrack = {
     version: 0,
     comment: "",
     prefix: "TRAXX",
@@ -48,9 +55,9 @@ export function resetTrack(cells: number = WORLD_CELLS_CLASSIC): TxxTrack {
     boxes: [],
     course: [],
     extendedCourses: [null, null, null, null],
-    heights: new Uint8Array(cells * cells).fill(100),
-    clr: new Uint16Array(cells * cells),
-    lte: flatLte(FLAT_LTE, cells),
+    heights: new Uint8Array(WORLD_CELLS_CLASSIC * WORLD_CELLS_CLASSIC).fill(100),
+    clr: new Uint16Array(WORLD_CELLS_CLASSIC * WORLD_CELLS_CLASSIC),
+    lte: flatLte(FLAT_LTE, WORLD_CELLS_CLASSIC),
     trucks: TRUCK_NAMES.map((name) => ({ ...traxxTruckDefaults(), name })),
     backdropName: "",
     extraBackdrops: [],
@@ -65,22 +72,27 @@ export function resetTrack(cells: number = WORLD_CELLS_CLASSIC): TxxTrack {
     h16: null,
     fine: null,
     rawShadow: null,
-    worldCells: cells,
+    trackKind: "classic",
+    worldCells: WORLD_CELLS_CLASSIC,
     heightStep: null,
     heightBase: null,
+    raceRules: raceRulesDefaults(),
     pngHeights: false,
     vegetation: null,
     lakes: [],
     falls: [],
+    storedLakeMap: null,
   };
+  if (k !== "classic" || n !== WORLD_CELLS_CLASSIC) setTrackKind(t, kindAllowed(k, n) ? k : "standard", n);
+  return t;
 }
 
 /**
-  A new track. `cells` is the world size (track format version 6, spec section 6): 256, as every
-  Traxx track, or 512, a world 16,384 ft a side that Write POD saves as a .SI3 track.
+  A new track (File > New: Classic, or World Size 256 / 512 then Standard V6 or Tall Heights V6). `cells` is the
+  world size, `kind` the track kind (track-kind.ts); 512 is v6 only, so 512 without a v6 kind is Standard V6.
 */
-export function newTrackDocument(cells: number = WORLD_CELLS_CLASSIC): TrackDocument {
-  const track = resetTrack(cells === 512 ? 512 : WORLD_CELLS_CLASSIC);
+export function newTrackDocument(cells: number = WORLD_CELLS_CLASSIC, kind?: TrackKind): TrackDocument {
+  const track = resetTrack(cells === 512 ? 512 : WORLD_CELLS_CLASSIC, kind);
   track.versionFlags = MTM2_ONLY;
   const p = applyMtm2Palette({ palette: track.palette, fogMap: track.fogMap, logoBmp: null, mapBmp: null, logoHd: false, mapHd: false });
   track.palette = p.palette;

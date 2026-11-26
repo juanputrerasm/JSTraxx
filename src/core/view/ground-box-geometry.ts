@@ -1,6 +1,6 @@
 /*
   Ground boxes as Traxx builds them (CTraxxView::BuildBuildingPolyobj): a box over its cell
-  from ALTITUDESCALE * lower to ALTITUDESCALE * upper, eight corners (0..3 the bottom, 4..7 the
+  from ALTITUDESCALE * lower to ALTITUDESCALE * upper (lower and upper in v, 1/128 ft: / 256 for 2 ft steps), eight corners (0..3 the bottom, 4..7 the
   top, each x0y0, x1y0, x1y1, x0y1), two triangles a face.
 
   A side is hidden when the neighbouring cell's box covers it (its lower <= this lower and its
@@ -30,8 +30,8 @@ export interface GroundBoxGeometry {
 
 /**
   The RA0 / RA1 grids for a set of boxes (what neighbour tests read), N x N (N = 256, or a track
-  format version 6 world's worldCells, spec section 8.2). Kept as numbers, not bytes: a version 6
-  box's heights may lie outside 0..255 steps (16-bit boxes, a terrain below 0 ft, section 8.3).
+  format version 6 world's worldCells, spec section 8.2). Kept as the boxes' v, not bytes: a version 6
+  box's heights may lie past 255 steps or between them.
 */
 export function boxGrids(boxes: readonly TxxGroundBox[], cells = 256): { ra0: Float64Array; ra1: Float64Array } {
   const m = cells - 1;
@@ -52,7 +52,7 @@ export function groundBoxGeometry(boxes: readonly TxxGroundBox[], tiles: TileSet
   const p: number[] = [], uv: number[] = [], tl: number[] = [], cell: number[] = [], faceOf: number[] = [];
   boxes.forEach((b, bi) => {
     const x0 = b.x * 64, y0 = b.y * 64, x1 = x0 + b.w * 64, y1 = y0 + b.h * 64;
-    const zl = ALTITUDE_SCALE * b.lower, zu = ALTITUDE_SCALE * b.upper;
+    const zl = (ALTITUDE_SCALE * b.lower) / 256, zu = (ALTITUDE_SCALE * b.upper) / 256;
     const corner = [[x0, y0, zl], [x1, y0, zl], [x1, y1, zl], [x0, y1, zl], [x0, y0, zu], [x1, y0, zu], [x1, y1, zu], [x0, y1, zu]];
     const covered = (nx: number, ny: number) => ra0[nx + ny * cells] <= b.lower && ra1[nx + ny * cells] >= b.upper;
     const add = (face: number, tri: [number, number, number], corners: [number, number, number]) => {

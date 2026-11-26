@@ -288,14 +288,14 @@ export function smoothFineFromCoarse(t: Terrain16): boolean {
   return true;
 }
 
-/** TerrainConvertMessage: the Terrain Grid question, word for word. */
+/** TerrainConvertMessage: the Terrain Grid question, word for word (Traxx origin/main's grid names). */
 export function terrainConvertMessage(from: number, to: number): string {
   let text = `Convert this track's terrain from ${terrainModeName(from)} to ${terrainModeName(to)}?\n`;
   if (from === TERRAINMODE_CLASSIC8) text += "\n8-bit heights become 16-bit exactly.";
-  if (to === TERRAINMODE_FINE) text += "\n16-bit Full Map is filled from the current surface. Spline keeps the smoothed surface, the others keep the 32 ft triangles.";
-  if (to === TERRAINMODE_SPLINE) text += "\n16-bit Spline: the game rounds the whole map, jump lips included - a lip becomes a rounded edge about one 32 ft tile wide.";
-  if (to === TERRAINMODE_FINE) text += "\n16-bit Full Map: you set every 8 ft point. It is the only way to get crisp lips, sharp ramp edges or ruts on smooth terrain.";
-  if (to === TERRAINMODE_CLASSIC8 && from !== TERRAINMODE_CLASSIC8) text += "\n16-bit -> Classic 8-bit rounds to 2 ft steps.";
+  if (to === TERRAINMODE_FINE) text += "\nPrecision 8 ft grid and 16-bit Heights Full Map is filled from the current surface. Spline keeps the smoothed surface, the others keep the 32 ft triangles.";
+  if (to === TERRAINMODE_SPLINE) text += "\nFiner Heights 16-bit Spline: the game rounds the whole map, jump lips included - a lip becomes a rounded edge about one 32 ft tile wide.";
+  if (to === TERRAINMODE_FINE) text += "\nPrecision 8 ft grid and 16-bit Heights Full Map: you set every 8 ft point. It is the only way to get crisp lips, sharp ramp edges or ruts on smooth terrain.";
+  if (to === TERRAINMODE_CLASSIC8 && from !== TERRAINMODE_CLASSIC8) text += "\nFiner Heights 16-bit -> Traditional 8-bit rounds to 2 ft steps.";
   if (from === TERRAINMODE_FINE && to !== TERRAINMODE_FINE) text += "\nFull Map -> 32 ft keeps every 4th point.";
   if (to === TERRAINMODE_SPLINE || to === TERRAINMODE_FINE) {
     text += "\n\nAI trucks are not tuned for Spline / Full Map tracks yet. To check the terrain in game, set terrainLog=1 under [Graphics] in system\\monster.ini; the game then writes terrain.txt.";
@@ -390,8 +390,8 @@ function stampAxis(g: number, size: number, wrapmask: number, wrap: boolean): nu
   (amount), 7 Manual (signed step, saturating), others add the stamp and clamp to 2 << 8 .. 65535.
   Fine-grid callers pass size 4N, wrapmask 4N - 1, wrap true.
 
-  Track format version 6 (spec section 7.3): on a 32-bit grid the clamps are the store's range
-  (heightLimits) instead of 0 / 2 << 8 .. 65535, so negative and tall heights can be made.
+  A Tall Heights V6 track (its 32-bit grid): the clamps are the store's range (heightLimits,
+  0..TERRAIN_H_TALL_MAX) instead of 2 << 8 .. 65535, so tall heights can be made.
 */
 export function applyStamp16(grid: HeightGrid, size: number, wrapmask: number, stamp: ArrayLike<number>, sw: number, sh: number, cx: number, cy: number,
   mode: number, amount: number, undo: HeightGrid | null, wrap: boolean): void {

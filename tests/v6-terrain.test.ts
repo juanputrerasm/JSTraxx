@@ -71,14 +71,18 @@ test("planarExpand of a 512 grid wraps at 512", () => {
   assert.ok(f[2047]! > 0);
 });
 
-test("the brush on a 32-bit grid is not held to 0..65535", () => {
+test("the brush on a tall (32-bit) grid is held to 0..8,192 ft, not 0..65535", () => {
   const t = wide512(() => 65000);
   const p = { tool: 0, width: 3, height: 3, orientation: 0, curvature: 3, altitude: 10 };
   applyBrush(t, makeEditGrid(p), p, 500, 500);
   assert.equal(t.h16![500 + 500 * N], 65000 + 2560);
+  // No height is below 0 (TERRAIN_H_TALL_MAX's range starts at 0).
   const plane = { ...p, tool: 6, altitude: -20 };
   applyBrush(t, makeEditGrid(plane), plane, 10, 10);
-  assert.equal(t.h16![10 + 10 * N], -5120);
+  assert.equal(t.h16![10 + 10 * N], 0);
+  const top = { ...p, tool: 6, altitude: 9000 * 64 };
+  applyBrush(t, makeEditGrid(top), top, 20, 20);
+  assert.equal(t.h16![20 + 20 * N], 8192 * 128);
   // A 16-bit grid keeps Traxx's clamps.
   const g = new Uint16Array(256 * 256).fill(65000);
   applyStamp16(g, 256, 255, [2560], 1, 1, 5, 5, 0, 0, null, false);

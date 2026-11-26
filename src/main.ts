@@ -24,6 +24,8 @@ import { TrackView } from "./render/track-view.ts";
 import { createGamePods } from "./core/view/game-pods.ts";
 import { attachViewInput } from "./ui/input/view-input.ts";
 import { terrainMap } from "./core/traxx/map.ts";
+import { courseLaneTrack } from "./core/edit/race-edit.ts";
+import type { TxxTrack } from "./core/traxx/txx.ts";
 import type { AppShell as Shell } from "./ui/shell/app-shell.ts";
 import type { DocumentService as Docs } from "./app/document-service.ts";
 import { Editor } from "./app/editor.ts";
@@ -39,7 +41,14 @@ import { startAutosave } from "./app/autosave.ts";
 import { bindSpecial } from "./app/special-commands.ts";
 import { bindTerrainCommands } from "./app/terrain-commands.ts";
 import { keyboardSummary } from "./ui/dialogs/keyboard-summary.ts";
+import { zIndicatorText } from "./core/edit/feet-fields.ts";
+import { heightsInFeet } from "./core/traxx/height-units.ts";
 
+/** UpdateMapBuffer: the main course's starts, and (Traxx 1.8.2) Lane 2's on a drag or Parallel track. */
+function trackMap(t: TxxTrack) {
+  const starts = (list: TxxTrack["course"] | null | undefined) => (list ?? []).map((s) => [s.cstart[0], s.cstart[1]] as [number, number]);
+  return terrainMap(t.heights, t.palette, starts(t.course), courseLaneTrack(t.trackType, t.raceRules.mode) ? starts(t.extendedCourses[0]) : []);
+}
 
 async function start(): Promise<void> {
   const app = new AppState(await loadSettings());
@@ -140,7 +149,8 @@ async function start(): Promise<void> {
   document.addEventListener("keydown", (e) => {
     if (e.defaultPrevented || shell.menu.isOpen) return;
     const target = e.target as HTMLElement;
-    if (target.closest("input, textarea, select, dialog, [contenteditable]")) return;
+    // A modeless window (Object Properties) passes the frame's shortcuts on from its buttons and lists.
+    if (target.closest("input, textarea, select, dialog:modal, [contenteditable]")) return;
     const id = ACCELERATORS[keyName(e)];
     if (!id) return;
     e.preventDefault();
@@ -167,8 +177,9 @@ let rendererReady = false;
   (CTraxxView::OnEditCopy, OnEditPaste). Cut does nothing in Traxx, and stays greyed.
 */
 function bindEditCommands(app: AppState, registry: CommandRegistry, docs: Docs, editor: Editor): void {
-  registry.bind("ID_EDIT_UNDO", () => editor.undo(), { enabled: () => editor.canEdit && editor.history.canUndo });
-  registry.bind("ID_EDIT_REDO", () => editor.redo(), { enabled: () => editor.canEdit && editor.history.canRedo });
+  // Traxx 1.8.2: Edit > Undo is greyed while the modeless Object Properties window is up.
+  registry.bind("ID_EDIT_UNDO", () => editor.undo(), { enabled: () => editor.canEdit && !editor.modeless && editor.history.canUndo });
+  registry.bind("ID_EDIT_REDO", () => editor.redo(), { enabled: () => editor.canEdit && !editor.modeless && editor.history.canRedo });
   registry.bind("ID_EDIT_COPY", () => editor.handler?.copy?.(), { enabled: () => editor.canEdit && Boolean(editor.handler?.copy) && (editor.handler?.canCopy?.() ?? true) });
   registry.bind("ID_EDIT_PASTE", () => editor.handler?.paste?.(editor.lastPoint), { enabled: () => editor.canEdit && Boolean(editor.handler?.paste) && (editor.handler?.canPaste?.() ?? true) });
   // The Undo item names what it undoes.
@@ -191,7 +202,7 @@ function bindView(app: AppState, registry: CommandRegistry, shell: Shell, docs: 
     console.error(err);
     empty.replaceChildren(el("p", {}, "The 3D view needs WebGL 2, which this browser could not start. Check that hardware acceleration is on."));
     docs.on("opened", (doc) => {
-      if (doc) shell.viewControl.drawMap(terrainMap(doc.track.heights, doc.track.palette, doc.track.course.map((s) => [s.cstart[0], s.cstart[1]])));
+      if (doc) shell.viewControl.drawMap(trackMap(doc.track));
       else shell.viewControl.drawEmpty();
     });
     return;
@@ -212,20 +223,25 @@ function bindView(app: AppState, registry: CommandRegistry, shell: Shell, docs: 
   editor.on("selection", () => view.requestRender());
   const redrawMap = () => {
     const doc = docs.doc;
-    if (doc) shell.viewControl.drawMap(terrainMap(doc.track.heights, doc.track.palette, doc.track.course.map((s) => [s.cstart[0], s.cstart[1]])));
+    if (doc) shell.viewControl.drawMap(trackMap(doc.track));
   };
   editor.on("changed", (touch) => {
     view.refresh(touch);
     if (touch.heights || touch.course || touch.palette) redrawMap();
   });
+  // Traxx origin/main: the Z pane is feet with 2 decimals on a v6 track (ZIndicatorCode); it follows the kind too.
+  const indicate = () => {
+    app.setIndicators({ ...view.camera.indicators(), z: zIndicatorText(view.camera.z, docs.doc ? heightsInFeet(docs.doc.track) : false) });
+  };
   view.onCameraChange(() => {
-    app.setIndicators(view.camera.indicators());
+    indicate();
     shell.viewControl.drawCamera(view.camera.gridx, view.camera.gridy, view.camera.dvector, view.camera.cells);
   });
+  docs.on("title", () => { if (docs.doc) indicate(); });
   shell.viewControl.onMapClick((fx, fy) => { view.camera.mapClick(fx, fy); view.changed(); });
   docs.on("opened", (doc) => {
     empty.hidden = Boolean(doc);
-    if (doc) shell.viewControl.drawMap(terrainMap(doc.track.heights, doc.track.palette, doc.track.course.map((s) => [s.cstart[0], s.cstart[1]])));
+    if (doc) shell.viewControl.drawMap(trackMap(doc.track));
     else { shell.viewControl.drawEmpty(); app.setIndicators({ x: "", y: "", z: "" }); }
     void view.open(doc);
     if (doc) shell.viewport.focus();
@@ -251,7 +267,7 @@ function bindView(app: AppState, registry: CommandRegistry, shell: Shell, docs: 
 
   // The Models window draws with the view's models, so it listens after the view does.
   modelsPanel({ app, editor, docs, registry, panel: shell.panels.models, worker: assetWorker(), view });
-  bindSpecial(app, registry, editor, view);
+  bindSpecial(app, registry, editor, view, docs);
   bindTerrainCommands(app, registry, editor, view);
 }
 

@@ -24,7 +24,7 @@ import { hdGetInfoMem } from "../image/hd-texture.ts";
 import { decodeTga } from "../image/image-format.ts";
 import { decodePngSamples } from "../../vendor/openphotex/texture/png.js";
 import { TERRAINMODE_CLASSIC8 } from "../traxx/terrain16.ts";
-import { musicKind } from "../traxx/pod-writer.ts";
+import { maxTextureIndex, musicKind } from "../traxx/pod-writer.ts";
 import { buildLakeGround } from "../traxx/surface.ts";
 import { recomputeLakes, withStoredLakes, LAKE_RULE_EDGE } from "../traxx/lakes.ts";
 import {
@@ -32,6 +32,10 @@ import {
   FALL_MAX_FALLS, FALL_SHAPE_ERRORS, type FallShape,
 } from "../traxx/falls.ts";
 import { fallWorldOf } from "../traxx/v6.ts";
+import { isV6, type TrackKind } from "../traxx/track-kind.ts";
+import { TrackWalls, WALL_MAX_EXPORT_POINTS, WALL_UNIT, exportWall } from "../traxx/walls.ts";
+import { cellsOf } from "../traxx/world.ts";
+import type { PfWall } from "../traxx/preflight.ts";
 
 const shortName = (name: string) => {
   const s = name.lastIndexOf("\\");
@@ -49,9 +53,9 @@ function hdDecodes(data: Uint8Array): boolean {
   }
 }
 
-/** ExportOmitsRawFallback: the author's setting, or forced on by any terrain mode but Classic 8-bit. */
-export function exportOmitsRawFallback(t: { omitRawFallback: boolean; terrainMode: number }): boolean {
-  return t.omitRawFallback || t.terrainMode !== TERRAINMODE_CLASSIC8;
+/** ExportOmitsRawFallback: the author's setting, or forced on by a v6 track or any terrain mode but Classic 8-bit. */
+export function exportOmitsRawFallback(t: { omitRawFallback: boolean; terrainMode: number; trackKind?: TrackKind }): boolean {
+  return t.omitRawFallback || isV6(t) || t.terrainMode !== TERRAINMODE_CLASSIC8;
 }
 
 /** GatherTexture. */
@@ -93,7 +97,7 @@ export function trackMistLandings(doc: TrackDocument): number[] | null {
   const notches = trackNotches({ falls, worldCells: t.worldCells, lakeRule: LAKE_RULE_EDGE });
   const lg = buildLakeGround(t);
   const st = t.lakes.length && lg ? withStoredLakes(t, recomputeLakes(lg, t.lakes, t.waterLevel4, notches)) : null;
-  const world = fallWorldOf(t, doc.carry.situationIsSi3);
+  const world = fallWorldOf(t);
   const lakes = { lakes: t.lakes, tmap: st?.tmap ?? null, world, rule: LAKE_RULE_EDGE };
   const names = fallNameInPod(t.sounds, doc.textures, doc.modelTextures);
   const g = fallGroundFor(t, lakes.tmap, world);
@@ -110,7 +114,28 @@ export function gatherPreflight(doc: TrackDocument, extras?: ReadonlyMap<string,
   const box: PfBox[] = t.boxes.map((b, i) => ({
     index: i + 1, type: b.type, model: b.modelName ? shortName(b.modelName) : null,
     sndImpact: b.soundImpact, sndCont: b.soundCont, lightRad: b.light.radius,
+    seq: b.checkpointSeq, split: b.cpSplit, lane: b.cpLane, hasModel: Boolean(b.modelName),
+    // WriteSITFile prints (float)box->height, unscaled: feet.
+    heightFt: Math.fround(b.height),
   }));
+  // Walls: the counts the export would make (a flat ground: only the heights differ), and the longest stretch.
+  const rules = t.raceRules;
+  const tw = new TrackWalls(rules.walls, cellsOf(t));
+  const wall: PfWall[] = rules.walls.slice(0, 64).map((wl, i) => {
+    const np = wl.points.length, nst = wl.closed ? np : np - 1;
+    let maxStretchFt = 0;
+    for (let k = 0; k < nst; k++) {
+      const a = wl.points[k]!, b = wl.points[(k + 1) % np]!;
+      const dx = (b.x - a.x) / WALL_UNIT, dz = (b.z - a.z) / WALL_UNIT;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      if (d > maxStretchFt) maxStretchFt = d;
+    }
+    return {
+      name: wl.name, npoints: np, closed: Boolean(wl.closed), thickness: wl.thickness, height: wl.height,
+      exportCount: exportWall(wl, null, WALL_MAX_EXPORT_POINTS).count, maxStretchFt, outOfWorld: tw.exportOutOfWorld(i),
+    };
+  });
+  const leadinLane = [0, 1, 2, 3, 4].map((c) => (c >= 2 && rules.leadinThen[c]! >= 0 ? rules.leadinThen[c]! + 1 : 0));
   const nCourseSeg = [t.course.length, ...[0, 1, 2, 3].map((i) => t.extendedCourses[i]?.length ?? 0)];
   const falls = t.falls ?? [];
   const nFallSounds = falls.filter((f) => podPreflightFallHasSound(f.flags, f.sound)).length;
@@ -124,9 +149,7 @@ export function gatherPreflight(doc: TrackDocument, extras?: ReadonlyMap<string,
   const omit = exportOmitsRawFallback(t);
   const cache = new Map<Uint8Array, boolean>();
   const tex: PfTex[] = [];
-  let maxIndex = -1;
   doc.textures.forEach((x, i) => {
-    if (x) maxIndex = i;
     if (x && x.indices && x.side) tex.push(gatherTexture(x, t.textures[i]?.type ?? 0, omit, false, extras, cache));
   });
   for (const x of doc.modelTextures) if (x.indices && x.side) tex.push(gatherTexture(x, 0, omit, true, extras, cache));
@@ -147,9 +170,10 @@ export function gatherPreflight(doc: TrackDocument, extras?: ReadonlyMap<string,
   if (t.waterDetailMap) map.push(gatherMap(t.waterDetailMap, t.waterDetailExt, "_WDTL"));
   if (t.waterMaskMap) map.push(gatherMap(t.waterMaskMap, t.waterMaskExt, "_WMSK"));
   return {
-    stem: t.prefix, trackName: t.trackName, box, nCourseSeg, nFallSounds, stadium: Boolean(t.arena && t.backdropName),
+    stem: t.prefix, trackName: t.trackName, box, raceRules: rules.mode, wall, worldCells: cellsOf(t), isV6: isV6(t), leadinLane, nCourseSeg, nFallSounds, stadium: Boolean(t.arena && t.backdropName),
     mistLandings: trackMistLandings(doc), weatherWritten, weatherMask: t.weatherMask,
-    bgmChecked: weatherWritten, stockBgm, texCount: maxIndex + 1, tex, ani, map,
+    // GetMaxTextureIndex() + 1: the .TEX count Write POD writes.
+    bgmChecked: weatherWritten, stockBgm, texCount: maxTextureIndex(t) + 1, tex, ani, map,
   };
 }
 

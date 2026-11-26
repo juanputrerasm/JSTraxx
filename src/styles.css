@@ -122,6 +122,12 @@ a { color: var(--accent); }
 .bar-group { border: 1px solid var(--line); border-radius: 3px; margin: 0; padding: 2px 6px 4px; }
 .bar-group legend { padding: 0 3px; }
 .bar-radios { display: flex; flex-direction: column; gap: 2px; }
+/* Traxx 1.8.2 Course Tools "Lead-in, then:" (IDC_LEADIN_LABEL, IDC_LEADIN). */
+.bar-leadin { display: flex; flex-direction: column; gap: 2px; }
+.bar-leadin.disabled { opacity: 0.5; }
+/* Traxx 1.8.2 Object Properties race rows (IDC_CPSPLIT .. IDC_CPMAIN). */
+.obj-race-rows .opt-row.disabled, .opt-check.disabled { opacity: 0.5; }
+.obj-role { min-width: 16em; }
 .terrain-map-frame { border: 1px solid var(--line-strong); background: #000; line-height: 0; }
 .terrain-map { width: 100%; aspect-ratio: 1; image-rendering: pixelated; cursor: crosshair; }
 .tool-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 2px; }
@@ -371,6 +377,17 @@ a { color: var(--accent); }
 .fall-spin .mini { padding: 0 3px; font-size: 8px; line-height: 9px; }
 .fall-stem { width: 10em; }
 .fall-problems { height: 6.5em; overflow: auto; white-space: nowrap; border: 1px solid var(--line-strong); background: var(--face-2); padding: 2px 4px; font-size: 11px; }
+/* The Wall window (Traxx 1.8.2 IDD_WALL, modeless). */
+.wall-body { display: flex; flex-direction: column; gap: 4px; width: 32em; max-width: calc(100vw - 48px); }
+.wall-body .spin { width: 5.5em; }
+.wall-body .spin.wall-short { width: 3.5em; }
+.wall-field { display: inline-flex; align-items: center; gap: 2px; }
+.wall-box { display: inline-flex; align-items: center; }
+.wall-name { width: 14em; }
+.wall-points-head { justify-content: space-between; }
+.wall-list { width: 100%; font: 11px var(--font); }
+.wall-note { min-height: 1.3em; font-size: 11px; }
+.wall-problems { width: 100%; box-sizing: border-box; resize: vertical; font-size: 11px; }
 
 /* Special > Lighting (lighting-dialog.ts): pad 30%, previews 35% each of the width, all of the height. */
 .light-dialog.modal { max-width: calc(100vw - 16px); }
@@ -392,3 +409,8 @@ a { color: var(--accent); }
 .light-pct { min-width: 3.5em; text-align: right; }
 .light-presets { display: flex; gap: 10px; flex-wrap: wrap; }
 .stats-group { margin: 6px 0; padding: 2px 8px 4px; border: 1px solid var(--border, #888); }
+/* Traxx 1.8.2's modeless Object Properties (openModeless): beside the view at the main window's right edge. */
+.modal.modeless { position: fixed; inset: 48px 24px auto auto; margin: 0; z-index: 1000; }
+.modal.modeless .modal-title { display: flex; align-items: center; justify-content: space-between; }
+.modal.modeless .modeless-close { min-width: 0; padding: 0 6px; border: none; background: transparent; }
+.gen-feet { width: 6em; }

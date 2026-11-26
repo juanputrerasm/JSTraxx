@@ -26,6 +26,13 @@ import { alertDialog } from "../ui/shell/dialog.ts";
 import { engineFogSlotOverflow } from "../core/traxx/preflight.ts";
 import { trackMistLandings } from "../core/doc/preflight-gather.ts";
 import { objectLimit } from "../core/traxx/v6.ts";
+import { heightsInFeet } from "../core/traxx/height-units.ts";
+import { heightLimit, setTrackKind, trackKindOf, trackTypeQuestion, TRACK_TYPE_NO_MEMORY, TRACK_TYPE_QUESTION } from "../core/traxx/track-kind.ts";
+import { enlargeWorldQuestion, enlargeWorldReport, ENLARGE_NO_MEMORY } from "../core/traxx/track-kind-ui.ts";
+import { enlargeWorld512 } from "../core/edit/enlarge-world.ts";
+import { fallNameInPod } from "../core/traxx/falls.ts";
+import { messageDialog, trackTypeDialog, yesNoDialog } from "../ui/dialogs/track-type-dialog.ts";
+import { isAllocationFailure, type DocumentService } from "./document-service.ts";
 
 /*
   View > Statistics' fog slots (Traxx 1.8.0, 35b087b OnViewStats): the fog boxes first, then one mist
@@ -37,32 +44,82 @@ function fogSlotStats(doc: NonNullable<Editor["doc"]>, nfogs: number): { mist: n
   return { mist: r.totalMist, fogSlots: nfogs + r.totalMist, fogDropped: r.dropped };
 }
 
-export function bindSpecial(app: AppState, registry: CommandRegistry, editor: Editor, view: TrackView): void {
+export function bindSpecial(app: AppState, registry: CommandRegistry, editor: Editor, view: TrackView, docs: DocumentService): void {
   const can = () => editor.canEdit;
 
   /*
-    Random Terrain is Traxx's generator, made for the 256-cell world (its rand() draws and fractal
-    grid are 256 or 1024 wide). A 512-cell track (track format version 6) has it greyed out, and
-    refused here, rather than filled at the wrong size.
+    Special > Track Type... (TraxxViewEdit.cpp CTraxxView::OnSpecialTrackType): the dialog, then the refusal
+    (more objects than a classic track holds) or the question (trackTypeQuestion's lines and "Change the
+    track type?"; Classic to v6 asks with the kind's note), SetTrackKind, the terrain undo cleared, the lakes
+    judged again (TerrainChanged) and the title's kind refreshed.
   */
-  const genFits = () => cellsOf(editor.doc?.track) === 256;
+  registry.bind("ID_SPECIAL_TRACKTYPE", async () => {
+    const doc = editor.doc;
+    if (!doc || !editor.canEdit) return;
+    const t = doc.track;
+    const from = trackKindOf(t);
+    const to = await trackTypeDialog(from, cellsOf(t));
+    if (to === null || to === from || editor.doc !== doc || !editor.canEdit) return;
+    const q = trackTypeQuestion(t, to);
+    if (q.refusal) { await messageDialog("Track Type", q.refusal); return; }
+    if (q.message && !(await yesNoDialog("Track Type", q.message + TRACK_TYPE_QUESTION))) return;
+    if (editor.doc !== doc) return;
+    const before = lakeErrors(t);
+    let ok: boolean;
+    try { ok = setTrackKind(t, to, cellsOf(t)); } catch (err) { if (!isAllocationFailure(err)) throw err; ok = false; }
+    if (!ok) { await messageDialog("Track Type", TRACK_TYPE_NO_MEMORY); return; }
+    editor.changedWithoutUndo({ heights: { minX: 0, minY: 0, maxX: cellsOf(t) - 1, maxY: cellsOf(t) - 1 }, groundBoxes: true, objects: true, water: true, falls: true, track: true });
+    docs.refreshTitle();
+    if (lakeErrors(t).some((e, l) => (e & ~(before[l] ?? 0)) !== 0)) {
+      await messageDialog("Track Type", "The new heights leave one or more lakes in error; check them in the lake list.");
+    }
+  }, { enabled: can });
+
+  /*
+    Special > Enlarge World to 512 x 512... (TraxxViewEdit.cpp CTraxxView::OnSpecialEnlargeWorld): the
+    Object Properties window has closed as OK first (its guard, objects-mode.ts), then the question
+    (default No), EnlargeWorld512 all or nothing, undo cleared, the camera kept where it was, and the report
+    of the lakes and waterfalls that changed. Enabled on a 256 world that is not only being viewed.
+  */
+  registry.bind("ID_SPECIAL_ENLARGEWORLD", async () => {
+    const doc = editor.doc;
+    if (!doc || !editor.canEdit || cellsOf(doc.track) !== 256) return;
+    if (!(await yesNoDialog("Enlarge World", enlargeWorldQuestion(doc.track), true))) return;
+    if (editor.doc !== doc) return;
+    let r: ReturnType<typeof enlargeWorld512>;
+    try { r = enlargeWorld512(doc.track, fallNameInPod(doc.track.sounds, doc.textures, doc.modelTextures)); }
+    catch (err) { if (!isAllocationFailure(err)) throw err; r = { ok: false, report: { lakes: [], falls: [], reason: "" } }; }
+    if (!r.ok) { await messageDialog("Enlarge World", r.report.reason || ENLARGE_NO_MEMORY); return; }
+    // The camera stays where it is: it is in the old quarter, which is where the track is.
+    const keep = view.camera.place;
+    docs.reopen();
+    view.camera.setPlace(keep);
+    view.changed();
+    const text = enlargeWorldReport(r.report);
+    if (text) await messageDialog("Enlarge World", text);
+  }, { enabled: () => can() && cellsOf(editor.doc?.track) === 256 });
+
+  /*
+    Random Terrain (OnEditGenTerrain). Traxx origin/main: every grid of a 256 or 512 world (512, and the Full
+    Map's 2048), and on a v6 track the dialog in feet against the terrain's height limit.
+  */
   registry.bind("ID_EDIT_GENTERRAIN", async () => {
     const doc = editor.doc;
     if (!doc) return;
-    if (!genFits()) { await alertDialog("Generate Terrain", "Random Terrain makes 256 x 256 cell terrain only; this track has a 512-cell world."); return; }
     const seed = app.settings.randseed;
     const a = app.settings.autoterrain;
     const t = doc.track;
-    const target = terrainGenTarget(t.terrainMode);
-    const out = await terrainGenDialog({ mode: ((seed >> 8) & 255) > 1 ? 0 : (seed >> 8) & 255, seed: seed & 255, ground: a.left, hillHeight: a.right, valleyDepth: a.top, smoothness: a.bottom }, target, app);
+    const target = terrainGenTarget(t.terrainMode, cellsOf(t));
+    const hmax = heightsInFeet(t) ? heightLimit(t) : 0;
+    const out = await terrainGenDialog({ mode: ((seed >> 8) & 255) > 1 ? 0 : (seed >> 8) & 255, seed: seed & 255, ground: a.left, hillHeight: a.right, valleyDepth: a.top, smoothness: a.bottom }, target, app, hmax);
     if (!out || editor.doc !== doc || !editor.canEdit) return;
     const s = out.settings;
     app.updateSettings((st) => { st.randseed = (s.seed & 255) | (s.mode << 8); st.autoterrain = { left: s.ground, right: s.hillHeight, top: s.valleyDepth, bottom: s.smoothness }; });
     // A 16-bit result goes into the real grid (h16, or the Full Map's 1024), then the mirror follows.
     // Only the grid the dialog made is written, settled before the undo record (OnEditGenTerrain's
     // GEN_FINE / GEN_H16 / GEN_RAW, review fix 78d7b93): a mismatch leaves the track and undo alone.
-    const gen = t.fine && target.gridSize === 1024 && out.v ? "fine"
-      : t.h16 && target.gridSize === 256 && out.v ? "h16"
+    const gen = t.fine && target.gridSize === 4 * cellsOf(t) && out.v?.length === t.fine.length ? "fine"
+      : t.h16 && target.gridSize === cellsOf(t) && out.v?.length === t.h16.length ? "h16"
       : t.terrainMode === TERRAINMODE_CLASSIC8 && !target.precise ? "raw" : null;
     if (!gen) return;
     const before = lakeErrors(t);
@@ -74,7 +131,7 @@ export function bindSpecial(app: AppState, registry: CommandRegistry, editor: Ed
     const refusal = lakeRefusal(t, before, "Generate Terrain");
     const change = editor.commit(rec);
     if (refusal && change) { editor.undo(); await alertDialog("Generate Terrain", refusal); }
-  }, { enabled: () => can() && genFits() });
+  }, { enabled: can });
 
   /*
     OnEditLighting (Traxx 1.7.2): the track's LVL sun and ambient in, exactly; on OK they are
@@ -131,7 +188,7 @@ export function bindSpecial(app: AppState, registry: CommandRegistry, editor: Ed
       segments: t.course.length,
       groundBoxes: t.groundBoxes.length,
       objects: t.boxes.length,
-      objectsMax: objectLimit(t, doc.carry.situationIsSi3),
+      objectsMax: objectLimit(t),
       ramps: t.boxes.filter((b) => b.type === TRAXX_BOX_RAMP).length,
       moving: t.boxes.filter((b) => b.type === 10 || b.type === 13).length,
       lights: t.boxes.filter((b) => b.type === TRAXX_BOX_LIGHT).length,

@@ -10,6 +10,7 @@
   R and M turn and mirror the selected area, Ctrl+R and Ctrl+M each cell in place. Right-click:
   the Texture menu, enabled as Traxx enables it (OnContextMenu).
 */
+import { cornerV } from "../../core/traxx/surface.ts";
 import type { ModeHandler, ViewPoint } from "../editor.ts";
 import { cellsOf, sideOf } from "../../core/traxx/world.ts";
 import type { ModeContext } from "./context.ts";
@@ -107,7 +108,8 @@ export function texturesMode(ctx: ModeContext): ModeHandler {
     if (!editor.canEdit) return;
     const many = area && !paintMode() && (area.x1 > area.x0 || area.y1 > area.y0);
     const a: Area = many ? { ...area! } : { x0: 0, y0: 0, x1: last(), y1: last() };
-    edit("Texture Transitions", a, () => transitionTextures(clr(), editor.doc!.track.heights, a, t));
+    const track = editor.doc!.track;
+    edit("Texture Transitions", a, () => transitionTextures(clr(), track.heights, a, t, (x, y) => cornerV(track, x, y)));
   }) as never;
 
   const paste = () => {

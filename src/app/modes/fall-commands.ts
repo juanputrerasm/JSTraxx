@@ -21,6 +21,7 @@
   Track format version 6 (spec 9.3): picks, wraps and tiles use the track's N world (W = 32 N ft,
   points mod 16 W), and a spring's height the range a version 6 track's .WFL can hold.
 */
+import { heightsInFeet } from "../../core/traxx/height-units.ts";
 import type { ModeContext } from "./context.ts";
 import type { MenuItem } from "../../ui/shell/commands.ts";
 import type { ViewPoint } from "../editor.ts";
@@ -55,7 +56,7 @@ export function fallCommands(ctx: ModeContext) {
   let menuFall = -1;
 
   /** The track's world (version 6: N and the step and base; FALL_WORLD_CLASSIC otherwise). */
-  const worldOf = (t: TxxTrack): FallWorld => fallWorldOf(t, editor.doc?.carry.situationIsSi3 ?? false);
+  const worldOf = (t: TxxTrack): FallWorld => fallWorldOf(t);
   // The lakes as the falls read them, under the track's lake rule (Traxx 1.7.3: the notch codes follow it).
   const lakesOf = (t: TxxTrack, world: FallWorld = worldOf(t)): FallLakes => ({
     lakes: t.lakes, tmap: t.lakes.length ? trackLakes(t).tmap : null, world, rule: trackLakeRule(t),
@@ -172,6 +173,7 @@ export function fallCommands(ctx: ModeContext) {
       effectiveHeight: () => fallEffectiveHeight(t.falls, idx, t.lakes),
       lakes: () => t.lakes,
       heightBounds: () => fallHeightBounds(view.fallShapes.world),
+      feet: () => heightsInFeet(t),
       changed: (shape) => preview({}, shape),
       fit: () => { fit(t, idx); },
       readouts: () => {

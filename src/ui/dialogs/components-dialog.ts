@@ -1,7 +1,7 @@
 /*
   Track Components (IDD_COMPONENTS, Traxx/TraxxComponentsDlg.cpp): the track's name and World
   Name, comment, icon and browse pictures, backdrop, sound theme, palette, water level, music,
-  type, terrain detail normal and mask, water detail normal and mask (Traxx 1.7.2), info photo
+  type (Traxx 1.8.2: Circuit, Rally, Rumble, Drag, Parallel, and the race-rules tickboxes), terrain detail normal and mask, water detail normal and mask (Traxx 1.7.2), info photo
   and description.
 
   The three pictures take a right-click menu (Copy, Paste, Load, Stock for the MTM2 icon, Save
@@ -14,6 +14,7 @@
   Additions: View shows a picture at its own size and Play plays a WAV, MP3 or OGG (Traxx says "not yet
   implemented" for both). The backdrop list is the MODELS folder and the game library.
 */
+import { waterFeetText, waterFromFeet, waterUnitsStep } from "../../core/edit/feet-fields.ts";
 import { el } from "../../shared/dom.ts";
 import type { AppState } from "../../app/state.ts";
 import type { CommandRegistry } from "../shell/commands.ts";
@@ -23,7 +24,8 @@ import { decodeImage, tryDecodeImage } from "../../shared/image-decode.ts";
 import { copyImage, pasteImage } from "../../shared/system-clipboard.ts";
 import { rgbaToRgb } from "../../core/image/image-format.ts";
 import { bmpInfo, makeBmp8, stockIcon, stockIconCell } from "../../core/image/bmp.ts";
-import { bitmapRefusal, clampArena, cleanStem, hdArtRefusal, INFO_TEXT_MAX, MAX_BACKDROPS, PALETTE_NAMES, slotSpec, slotWhat, SLOT_BROWSE, SLOT_ICON, SLOT_INFO, SOUND_THEMES, STOCK_MUSIC, musicAccept, musicLoadRefusal, musicLoadTitle, musicMime, musicSaveAs, stockMusicPick, stockMusicSelName, type Components } from "../../core/doc/components.ts";
+import { componentsRaceRows } from "../../core/edit/race-edit.ts";
+import { bitmapRefusal, clampArena, cleanStem, hdArtRefusal, INFO_TEXT_MAX, MAX_BACKDROPS, PALETTE_NAMES, slotSpec, slotWhat, SLOT_BROWSE, SLOT_ICON, SLOT_INFO, SOUND_THEMES, STOCK_MUSIC, TRACK_TYPE_NAMES, musicAccept, musicLoadRefusal, musicLoadTitle, musicMime, musicSaveAs, stockMusicPick, stockMusicSelName, type Components } from "../../core/doc/components.ts";
 import type { RgbaImage } from "../../core/view/tiles.ts";
 import type { TxxHdArt } from "../../core/traxx/txx.ts";
 import type { TraxxArena } from "../../core/traxx/sit.ts";
@@ -45,10 +47,15 @@ export interface ComponentsContext {
   waterDetailFromPod: boolean;
   waterMaskFromPod: boolean;
   /**
-    The track water's range, half feet: Traxx's 0..1020 (0 to 510 ft) when absent, or a version 6 document's
-    (v6.ts trackWaterRange: no 510 ft cap).
+    The track water's range, half feet: Traxx's 0..1020 (0 to 510 ft) when absent, or a version 6 track's
+    (v6.ts trackWaterRange: 0..WaterLevelMax4 of its kind).
   */
   waterRange?: readonly [number, number];
+  /**
+    Traxx origin/main (m_v6water): a v6 track's water box is "Water (ft)", feet with 2 decimals, 0.5 ft (one
+    water unit) an arrow, up to the track's ceiling.
+  */
+  waterFeet?: boolean;
   /** Load a backdrop: the MODELS folder and library list, or a file; resolves with the load. */
   chooseBackdrop: () => Promise<{ load: ModelLoad; isArena: boolean } | null>;
 }
@@ -340,7 +347,16 @@ export async function componentsDialog(start: Components, ctx: ComponentsContext
   const palette = stop(el("select", { disabled: !c.mtm2Only }, ...PALETTE_NAMES.slice(0, c.paletteIndex === 16 ? 17 : 16).map((n, i) => el("option", { value: i }, n)))) as HTMLSelectElement;
   palette.value = String(c.paletteIndex);
   const [waterLo4, waterHi4] = ctx.waterRange ?? [0, 4 * 255];
-  const water = stop(el("input", { type: "number", min: waterLo4 / 4, max: waterHi4 / 4, step: 0.25, value: c.water4 / 4, class: "spin", disabled: !c.mtm2Only })) as HTMLInputElement;
+  const water = stop(ctx.waterFeet
+    ? el("input", { type: "text", inputmode: "decimal", value: waterFeetText(c.water4), class: "spin", disabled: !c.mtm2Only })
+    : el("input", { type: "number", min: waterLo4 / 4, max: waterHi4 / 4, step: 0.25, value: c.water4 / 4, class: "spin", disabled: !c.mtm2Only })) as HTMLInputElement;
+  // OnDeltaposWaterLevel on a v6 track: one water unit (0.5 ft) an arrow, from the feet as they read.
+  if (ctx.waterFeet) water.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const q = Math.max(waterLo4, Math.min(waterHi4, waterUnitsStep(water.value, e.key === "ArrowUp" ? 1 : -1, waterHi4)));
+    water.value = waterFeetText(q);
+  });
   const musicIcon = el("img", { alt: "", width: 24, height: 12, class: "cmp-music" }) as HTMLImageElement;
   // OnMusicLoad / OnMusicSel / OnMusicSaveAs (Traxx 1.7 e4b4cd5): the kind comes from the bytes (MusicKindOf).
   const musicName = () => {
@@ -392,7 +408,31 @@ export async function componentsDialog(start: Components, ctx: ComponentsContext
     ] } });
   });
   showMusic();
-  const types = ["Circuit", "Rally", "Rumble", "Drag"].map((_, i) => el("input", { type: "radio", name: "cmp-type", value: i, checked: c.typeIndex === i, disabled: i === 2 && !c.mtm2Only }) as HTMLInputElement);
+  const types = TRACK_TYPE_NAMES.map((_, i) => el("input", { type: "radio", name: "cmp-type", value: i, checked: c.typeIndex === i, disabled: i === 2 && !c.mtm2Only }) as HTMLInputElement);
+  /*
+    Traxx 1.8.2 (IDC_RACERULES, IDC_SPLITCP, IDC_LOOPED): "New-style drag (race rules)" and "Split
+    checkpoints (new builds only)" share one place, swapped by the Type; "Looped course" under them.
+    UpdateRaceRows (componentsRaceRows) on every Type or tickbox click.
+  */
+  const newDrag = el("input", { type: "checkbox", checked: c.newDrag }) as HTMLInputElement;
+  const splitCp = el("input", { type: "checkbox", checked: c.splitCp }) as HTMLInputElement;
+  const looped = el("input", { type: "checkbox", checked: c.looped }) as HTMLInputElement;
+  const newDragRow = el("label", { class: "opt-check" }, newDrag, "New-style drag (race rules)");
+  const splitCpRow = el("label", { class: "opt-check" }, splitCp, "Split checkpoints (new builds only)");
+  const loopedRow = el("label", { class: "opt-check" }, looped, "Looped course (laps chosen in the game menu)");
+  const typeIndexNow = () => Math.max(0, types.findIndex((t) => t.checked));
+  const updateRaceRows = () => {
+    const r = componentsRaceRows(typeIndexNow(), newDrag.checked, ro);
+    splitCpRow.hidden = !r.splitShown;
+    splitCp.disabled = !r.splitEnabled;
+    newDragRow.hidden = !r.dragShown;
+    newDrag.disabled = !r.dragEnabled;
+    looped.disabled = !r.loopedEnabled;
+    loopedRow.classList.toggle("disabled", !r.loopedEnabled);
+    newDragRow.classList.toggle("disabled", !r.dragEnabled);
+  };
+  for (const i of [...types, newDrag, splitCp]) i.addEventListener("change", updateRaceRows);
+  updateRaceRows();
 
   /*
     ---- The terrain and water detail normals and masks, carried byte for byte (LoadTerrainMap,
@@ -492,9 +532,10 @@ export async function componentsDialog(start: Components, ctx: ComponentsContext
         row("Backdrops", backdrop, el("button", { type: "button", class: "mini", title: "Backdrops", onclick: () => void editBackdrops() }, "...")),
         row("Sound Theme", ambient),
         row("Color Palette", palette),
-        row("Water Level", water),
+        row(ctx.waterFeet ? "Water (ft)" : "Water Level", water),
         row("Music", musicIcon, musicSel, musicButton, musicText)),
-      el("fieldset", { class: "opt-group" }, el("legend", {}, "Type"), ...types.map((r, i) => el("label", { class: "opt-check" }, r, ["Circuit", "Rally", "Rumble", "Drag"][i]!)))),
+      el("fieldset", { class: "opt-group" }, el("legend", {}, "Type"), ...types.map((r, i) => el("label", { class: "opt-check" }, r, TRACK_TYPE_NAMES[i]!)))),
+    newDragRow, splitCpRow, loopedRow,
     mapRow("Detail Normal", "detail"),
     mapRow("Terrain Mask", "mask"),
     mapRow("Water Normal", "waterDetail"),
@@ -513,6 +554,12 @@ export async function componentsDialog(start: Components, ctx: ComponentsContext
     buttons: [{ label: "OK", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }],
     beforeClose: async (v) => {
       if (v !== "ok") return true;
+      // DoDataExchange (m_v6water): feet, or the box is refused.
+      if (ctx.waterFeet && c.mtm2Only && waterFromFeet(water.value, waterHi4) === null) {
+        await alertDialog("JSTraxx", "The water level must be a number of feet.");
+        water.focus();
+        return false;
+      }
       let worldName = stem.value;
       if (!stemAuto.checked) {
         worldName = cleanStem(stem.value);
@@ -543,8 +590,12 @@ export async function componentsDialog(start: Components, ctx: ComponentsContext
         stem: worldName,
         stemAuto: stemAuto.checked,
         comment: comment.value,
-        typeIndex: Math.max(0, types.findIndex((t) => t.checked)),
-        water4: Math.max(waterLo4, Math.min(waterHi4, Math.floor((Number(water.value) || 0) * 4 + 0.5))),
+        typeIndex: typeIndexNow(),
+        newDrag: newDrag.checked,
+        splitCp: splitCp.checked,
+        looped: looped.checked,
+        water4: ctx.waterFeet ? Math.max(waterLo4, Math.min(waterHi4, waterFromFeet(water.value, waterHi4) ?? c.water4))
+          : Math.max(waterLo4, Math.min(waterHi4, Math.floor((Number(water.value) || 0) * 4 + 0.5))),
         ambient: Number(ambient.value),
         paletteIndex: Number(palette.value),
         infoText: info.value,

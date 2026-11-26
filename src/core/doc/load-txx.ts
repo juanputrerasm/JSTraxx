@@ -19,6 +19,13 @@ import { emptyCarry, MTM2_ONLY, type ModelAsset, type TextureAsset, type TrackDo
 import { deriveBoxHeights, findModelTexture, modelAsset } from "./load-pod.ts";
 import { findAsset } from "./names.ts";
 import { frameNameTooLongForPod } from "../traxx/keyframe.ts";
+import { lakesSignature, trackLakes } from "../traxx/lakes.ts";
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
 
 /** Where a .TXX's art and models come from. Each returns the file's bytes, or null. */
 export interface AssetSource {
@@ -49,16 +56,23 @@ export async function openTxx(bytes: Uint8Array, fileName: string, assets: Asset
   const track = readTxx(bytes);
   // CTrackPODPalette::Create writes the system colours over 246..255.
   track.palette = withSysColors(track.palette);
-  // Reset leaves the flat light plane when the file carries none (N x N: a TRAXXV99 file's world).
+  // Reset leaves the flat light plane when the file carries none (N x N: a V24 file's world).
   track.lte ??= flatLte(undefined, track.worldCells);
   const doc: TrackDocument = {
     track, textures: [], modelTextures: [], models: [], carry: emptyCarry(), prefixAuto: true, viewOnly: false,
     source: { kind: "txx", fileName, project: options.project ?? null },
     objectsShort: 0, objectsDropped: 0, groundBoxOverflow: 0, missingTextures: [], missingModels: [], warnings: [],
   };
-  // TRAXXV99 (JSTraxx's track format version 6 generation): the track came from a .SI3, so Write POD keeps it one.
-  if (track.txxFromSi3) doc.carry.situationIsSi3 = true;
-  delete track.txxFromSi3;
+  // LoadBinary's sit_objects_dropped: the records past the generation's object limit.
+  doc.objectsDropped = track.objectsDroppedOnRead ?? 0;
+  delete track.objectsDroppedOnRead;
+  // A stored lake map (V24 v6 block 3) that the fill now gives is nothing to keep (LoadBinary, after the Recompute).
+  if (track.storedLakeMap) {
+    const held = track.storedLakeMap;
+    track.storedLakeMap = null;
+    const fill = trackLakes(track).tmap;
+    track.storedLakeMap = sameBytes(fill, held.tmap) ? null : held.shown ? { ...held, sig: lakesSignature(track) } : held;
+  }
   deriveBoxHeights(track);
   doc.prefixAuto = inferPrefixAuto(track.trackName, track.prefix);
 

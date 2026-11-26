@@ -19,9 +19,14 @@ export interface ToolState {
   alwaysMain: boolean;
   /** Ground-box paint: 0 off, 1 face, 2 sides, 3 top and bottom, 4 all faces (TX_BUILDINGPAINT). */
   gbPaint: 0 | 1 | 2 | 3 | 4;
-  /** Ground-box top and bottom, 1..255 and 0..254. */
+  /** Ground-box top and bottom in v (1/128 ft, as the boxes hold them): whole 2 ft steps on a classic track. */
   gbTop: number;
   gbBottom: number;
+  /**
+    Traxx origin/main TX_GBUPPERSET / TX_GBLOWERSET: this change of gbTop / gbBottom is for the next box only
+    (the bar following the track's kind), not for the selected one. Set for one "tools" event.
+  */
+  gbBarOnly?: boolean;
 }
 
 export interface AppEvents extends Record<string, unknown> {
@@ -38,7 +43,7 @@ export class AppState extends Emitter<AppEvents> {
   settings: TraxxSettings;
   mode: EditMode;
   indicators: Indicators = { sel: "", x: "", y: "", z: "" };
-  tools: ToolState = { course: 0, alwaysMain: true, gbPaint: 0, gbTop: 128, gbBottom: 64 };
+  tools: ToolState = { course: 0, alwaysMain: true, gbPaint: 0, gbTop: 128 << 8, gbBottom: 64 << 8 };
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(settings: TraxxSettings) {

@@ -278,10 +278,10 @@ test("object edits follow Traxx", async () => {
   O.tiltObjects([t.boxes[a]], -100, 0);
   assert.ok(Math.abs(t.boxes[a].phi - (359 * Math.PI) / 180) < 1e-5);
 
-  for (let i = 0; i < 21; i++) O.insertObject(t, [i * 100, 0, 0]);
-  const r = O.setTypeOfObjects(t, Array.from({ length: 21 }, (_, i) => i + 1), 6);
-  assert.equal(r.refused, 1, "20 checkpoints at most");
-  assert.deepEqual(t.boxes.filter((b) => b.type === 6).map((b) => b.checkpointSeq), Array.from({ length: 20 }, (_, i) => i));
+  for (let i = 0; i < 101; i++) O.insertObject(t, [i * 10, 0, 0]);
+  const r = O.setTypeOfObjects(t, Array.from({ length: 101 }, (_, i) => i + 1), 6);
+  assert.equal(r.refused, 1, "100 checkpoints at most (Traxx 1.8.2, CPX_MAX_SLOTS)");
+  assert.deepEqual(t.boxes.filter((b) => b.type === 6).map((b) => b.checkpointSeq), Array.from({ length: 100 }, (_, i) => i));
   const ramp = O.setTypeOfObjects(t, [a], O.TYPEIDX_RAMP);
   assert.equal(t.boxes[ramp.selection[0]].type, 99);
 
@@ -293,7 +293,7 @@ test("object edits follow Traxx", async () => {
   assert.deepEqual([box.heightAboveGround, box.fraction[2]], [1, 75], "basez -331: one step and 75 / 256 up");
 
   const map = O.deleteObjects(t, [0, 2]);
-  assert.equal(t.boxes.length, 20);
+  assert.equal(t.boxes.length, 100);
   assert.equal(map(1), 0);
   assert.equal(map(2), -1);
 
@@ -324,5 +324,10 @@ test("ground-box edits follow Traxx", async () => {
   const clip = G.copyGroundBox(boxes[0]);
   assert.equal(G.pasteGroundBox(boxes, clip, 6, 6), 1);
   assert.deepEqual([boxes[1].lower, boxes[1].upper, boxes[1].faces], [10, 40, boxes[0].faces]);
-  assert.deepEqual([G.clampTop(30, 40), G.clampTop(300, 4), G.clampBottom(50, 40), G.clampBottom(-1, 9)], [41, 255, 39, 0]);
+  // Heights in v (1/128 ft): a classic track keeps whole 2 ft steps (256 v), at most 255 of them.
+  const s = (n: number) => n << 8;
+  assert.deepEqual([G.clampTop(s(30), s(40)), G.clampTop(s(300), s(4)), G.clampBottom(s(50), s(40)), G.clampBottom(-256, s(9))], [s(41), s(255), s(39), 0]);
+  // A v6 track: the top in (bottom, the kind's ceiling], the bottom in [0, top), 1/128 ft apart (HeightUnits.cpp).
+  const std = { trackKind: "standard" as const }, tall = { trackKind: "tall" as const };
+  assert.deepEqual([G.clampTop(100, 100, std), G.clampTop(70000, 0, std), G.clampTop(2000000, 0, tall), G.clampBottom(500, 100, std), G.clampBottom(-5, 100, tall)], [101, 65535, 1048576, 99, 0]);
 });

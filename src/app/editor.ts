@@ -87,6 +87,12 @@ export class Editor extends Emitter<EditorEvents> {
   selectedTexture = -1;
   /** The last pointer position in the view, for pasting where the mouse is. */
   lastPoint: ViewPoint | null = null;
+  /**
+    Traxx 1.8.2: the open modeless window that holds an edit (Object Properties, the Wall window), or null. Undo and
+    Redo are off while it is up; close(true) is OK (false when its Apply was refused), close(false)
+    is Cancel; modeSwitch adds "The edit to this object is being cancelled." to a refusal.
+  */
+  modeless: { close(ok: boolean, modeSwitch?: boolean): Promise<boolean> } | null = null;
 
   constructor(app: AppState, docs: DocumentService) {
     super();
@@ -144,6 +150,20 @@ export class Editor extends Emitter<EditorEvents> {
     const changes = recordings.map((r) => (r && "finish" in r ? r.finish() : r)).filter((c): c is Change => c !== null);
     if (!changes.length) return null;
     return this.commit(changes.length === 1 ? { ...changes[0], label } : group(label, changes));
+  }
+
+  /*
+    A change Traxx cannot undo, made on the track in place (Special > Track Type, OnSpecialTrackType's
+    ClearTerrainUndo): the history is cleared, the track marked modified, and what it touched refreshed.
+    JSTraxx keeps one history for every kind of edit, so all of it goes.
+  */
+  changedWithoutUndo(touch: Touch): void {
+    this.history.clear();
+    this.heightsMoved(touch);
+    this.docs.markModified();
+    this.emit("changed", touch);
+    this.emit("selection", undefined);
+    this.app.emit("commands", undefined);
   }
 
   undo(): void {

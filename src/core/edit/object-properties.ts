@@ -1,10 +1,11 @@
 /*
   Object Properties (Traxx/ObjectPropertiesDlg.cpp and CTraxxView::OnObjectProperties):
 
-    objectFields       what the dialog shows for a box (OnInitDialog)
+    objectFields       what the dialog shows for a box (OnInitDialog, LoadFromBox)
     previewObject      ApplySettings: the place, height, angles and size, live while editing
-    applyObjectFields  OnObjectProperties on OK: every field, the 500 height cap, the sounds,
-                       the checkpoint sequence and the caps on ramps, top-crush, movers, lights, fogs
+    applyObjectFields  OnObjectProperties on OK: every field, the height cap (ObjectHeightCap), the sounds,
+                       the checkpoint sequence with the race rules' split, lane and main route (Traxx 1.8.2),
+                       and the caps on checkpoints, ramps, top-crush, movers, lights, fogs
     setObjectSound     SetObjectSound: a stock sound, one the track holds, or a WAV added
 */
 import type { TxxTrack } from "../traxx/txx.ts";
@@ -13,14 +14,15 @@ import { boxHeightPairStore, boxHeightShown, surfaceTrack, type Ground } from ".
 import { POD1_NAME_MAX } from "../traxx/pod-items.ts";
 import { STOCK_CONT_SOUNDS, STOCK_SOUNDS } from "../traxx/stock-data.ts";
 import { findAsset } from "../doc/names.ts";
-import { applyTypeIndex, CHECKPOINT, typeToIndex } from "./objects.ts";
+import { applyTypeIndex, CHECKPOINT, objectHeightCap, typeToIndex } from "./objects.ts";
+import { applyCheckpointRace } from "./race-edit.ts";
+import { CPX_SPLIT_ANY, CPX_SPLIT_LANE, CPX_SPLIT_NONE, RACERULES_NONE, RACERULES_RACE } from "../traxx/race-types.ts";
 
 export const SOUND_CONTINUOUS = 1;
 /** MAXNPODSOUNDS. */
 export const MAX_SOUNDS = 512;
 /** The caps OnObjectProperties checks after OK. */
-const MAX_RAMPS = 100, MAX_TOP_CRUSH = 100, MAX_MOVERS = 100, MAX_LIGHTS = 100, MAX_CHECKPOINTS = 20;
-const HAG_MAX = 500;
+const MAX_RAMPS = 100, MAX_TOP_CRUSH = 100, MAX_MOVERS = 100, MAX_LIGHTS = 100;
 
 export interface ObjectFields {
   /** The Type list's index (ObjectPropertiesDlg.h: Fog 14, Ramp 15, Top-Crush 16). */
@@ -50,6 +52,12 @@ export interface ObjectFields {
   light: TraxxLight;
   /** The Fog Properties working copy (m_fog): carried for every type, only a Fog writes it. */
   fog: TraxxFog;
+  /** Traxx 1.8.2 race rows: IDC_CPSPLIT's index (CPX_SPLIT_*), IDC_CPLANE's (0 lane 1, 1 lane 2). */
+  cpSplit: number;
+  cpLane: number;
+  /** "Main route (AI follows this one)" (m_cpmain, set by ObjectDialogContext) and whether it was clicked (m_cpmainedit). */
+  cpMain: boolean;
+  cpMainEdit: boolean;
 }
 
 const f32 = Math.fround;
@@ -72,9 +80,14 @@ const stripExt = (name: string) => { const dot = name.lastIndexOf("."); return d
 
 /**
   OnInitDialog. `ground`: the track, so that on a 16-bit, Spline or Full Map track the height
-  shown is Z less the ground (BoxHeightPairOf, e4e034d); omitted, the stored pair.
+  shown is Z less the ground (BoxHeightPairOf, e4e034d); omitted, the stored pair. `raceRules`: the
+  track's mode, for LoadFromBox's split (a per-lane split reads Any copy in RACE, whose list has
+  no Per lane).
 */
-export function objectFields(box: TraxxBox, ground: Ground | null = null): ObjectFields {
+export function objectFields(box: TraxxBox, ground: Ground | null = null, raceRules = RACERULES_NONE): ObjectFields {
+  let cpSplit = box.cpSplit;
+  if (cpSplit < CPX_SPLIT_NONE || cpSplit > CPX_SPLIT_LANE) cpSplit = CPX_SPLIT_NONE;
+  if (raceRules === RACERULES_RACE && cpSplit === CPX_SPLIT_LANE) cpSplit = CPX_SPLIT_ANY;
   return {
     typeIndex: typeToIndex(box.type),
     checkpoint: box.checkpointSeq,
@@ -96,6 +109,10 @@ export function objectFields(box: TraxxBox, ground: Ground | null = null): Objec
     soundImpact: stripExt(box.soundImpact),
     light: { ...box.light },
     fog: { ...box.fog },
+    cpSplit,
+    cpLane: box.cpLane === 2 ? 1 : 0,
+    cpMain: false,
+    cpMainEdit: false,
   };
 }
 
@@ -158,6 +175,9 @@ export function setObjectSound(track: TxxTrack, box: TraxxBox, continuous: boole
 export function applyObjectFields(track: TxxTrack, index: number, f: ObjectFields, ground: Ground, wavs: { cont: Uint8Array | null; impact: Uint8Array | null }, oldHag: number): string[] {
   const box = track.boxes[index]!;
   const messages: string[] = [];
+  // Was it a checkpoint, and on which number: a box moving INTO a slot is told from one staying in it.
+  const wascp = box.type === CHECKPOINT;
+  const oldseq = box.checkpointSeq;
   applyTypeIndex(box, f.typeIndex);
   box.light = { ...f.light };
   // And the 'F' block (CTraxxView::OnObjectProperties): carried for every type, only a Fog writes it.
@@ -171,7 +191,9 @@ export function applyObjectFields(track: TxxTrack, index: number, f: ObjectField
   if (f.fy >= 0) [box.ipos[1], box.fraction[1]] = traxxSignedSplit(f.fy);
   box.mass = f.mass;
   [box.heightAboveGround, box.fraction[2]] = traxxSignedSplit(f.fz);
-  if (box.heightAboveGround >= HAG_MAX) { box.heightAboveGround = HAG_MAX; box.fraction[2] = 0; }
+  // ObjectHeightCap: 500 steps, or the ceiling on a Tall Heights V6 track.
+  const cap = objectHeightCap(track);
+  if (box.heightAboveGround >= cap) { box.heightAboveGround = cap; box.fraction[2] = 0; }
   // Traxx 1.7 (e4e034d): a non-classic track always re-grounds, the typed fraction being a height
   // fraction until it is folded into the absolute one; Classic 8-bit only when the height changed.
   if (surfaceTrack(ground)) boxHeightPairStore(ground, box);
@@ -186,32 +208,15 @@ export function applyObjectFields(track: TxxTrack, index: number, f: ObjectField
     if (m) messages.push(m);
   }
 
-  // The checkpoint sequence: this one takes its number, the rest at or above it move up, and
-  // all of them are put back in order across the checkpoint slots, numbered from 0.
-  if (box.type === CHECKPOINT) {
-    box.checkpointSeq = f.checkpoint;
-    const list: TraxxBox[] = [box];
-    track.boxes.forEach((b, i) => {
-      if (i === index || b.type !== CHECKPOINT) return;
-      if (b.checkpointSeq >= box.checkpointSeq) b.checkpointSeq++;
-      list.push(b);
-    });
-    if (list.length > MAX_CHECKPOINTS) {
-      box.type = 0;
-      messages.push("Max. 20 Checkpoints!");
-    }
-    const kept = list.slice(0, MAX_CHECKPOINTS);
-    if (kept.length > 1) {
-      const sorted = [...kept].sort((a, b) => a.checkpointSeq - b.checkpointSeq);
-      let seq = 0;
-      for (let b = 0; b < track.boxes.length && seq < sorted.length; b++) {
-        if (track.boxes[b]!.type !== CHECKPOINT) continue;
-        track.boxes[b] = sorted[seq]!;
-        sorted[seq]!.checkpointSeq = seq;
-        seq++;
-      }
-    }
+  // A box that is not a checkpoint carries no split or lane.
+  if (box.type !== CHECKPOINT) {
+    box.cpSplit = CPX_SPLIT_NONE;
+    box.cpLane = 0;
   }
+  // The checkpoint sequence (ApplyObjectProperties, Traxx 1.8.2): rules off, this one takes its number,
+  // the rest at or above it move up, and they are numbered one each (at most 100); with race rules a
+  // split may join another checkpoint's slot, and the main route is kept or moved (race-edit.ts).
+  if (box.type === CHECKPOINT) messages.push(...applyCheckpointRace(track.boxes, track.raceRules?.mode ?? RACERULES_NONE, box, f, wascp, oldseq));
 
   const count = (test: (b: TraxxBox) => boolean) => track.boxes.filter(test).length;
   if (box.type === TRAXX_BOX_RAMP && count((b) => b.type === TRAXX_BOX_RAMP) > MAX_RAMPS) { messages.push("Max. 100 Ramps!"); box.type = 0; }

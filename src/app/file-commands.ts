@@ -4,15 +4,17 @@
   (ReportSITCounts, the missing art and models lists, the POD's stem warning).
 */
 import type { CommandRegistry } from "../ui/shell/commands.ts";
-import type { DocumentService } from "./document-service.ts";
+import { EditThisTrackError, type DocumentService } from "./document-service.ts";
+import { extractConflictMessage, extractReportText } from "../core/doc/extract-art.ts";
+import { editThisTrackDone, editThisTrackQuestion } from "../core/doc/edit-this-track.ts";
 import type { TrackDocument } from "../core/doc/document.ts";
 import { alertDialog, confirmDialog, openDialog } from "../ui/shell/dialog.ts";
 import { el } from "../shared/dom.ts";
 import { askSaveChanges, listMessage, openTrack, pickFiles, saveAs, selectSit, selectTrack } from "../ui/dialogs/file-dialogs.ts";
 import type { AppState } from "./state.ts";
 import { TERRAINMODE_CLASSIC16 } from "../core/traxx/terrain16.ts";
-import { LAKES_MISMATCH } from "../core/traxx/lakes.ts";
 import { objectLimit } from "../core/traxx/v6.ts";
+import { decodeFileNewV6, FILE_NEW_V6_IDS, NEW_512_NO_MEMORY } from "../core/traxx/track-kind-ui.ts";
 
 export function bindFileCommands(registry: CommandRegistry, docs: DocumentService, app: AppState): { openRecent: (path: string) => Promise<void> } {
   const hasDoc = () => docs.doc !== null;
@@ -53,7 +55,7 @@ export function bindFileCommands(registry: CommandRegistry, docs: DocumentServic
       if (doc.objectsShort > 0) {
         parts.push(`The track's situation file (.SIT / .SI2) says it holds ${doc.objectsShort} more object${doc.objectsShort === 1 ? "" : "s"} than it actually does - the file was written wrong, by whatever made it. JSTraxx has kept every object that is really there. The game reads that file strictly in order and trusts the count, so in game the sections after the objects - the courses, and with them the AI routes - are likely misread. Writing the track from JSTraxx writes the correct count.`);
       }
-      if (doc.objectsDropped > 0) parts.push(`${doc.objectsDropped} object${doc.objectsDropped === 1 ? "" : "s"} could not be kept: the track holds more than the ${objectLimit(doc.track, doc.carry.situationIsSi3)} this editor supports.`);
+      if (doc.objectsDropped > 0) parts.push(`${doc.objectsDropped} object${doc.objectsDropped === 1 ? "" : "s"} could not be kept: the track holds more than the ${objectLimit(doc.track)} this editor supports.`);
       await alertDialog("Situation file problem", parts.join("\n\n"));
     }
     if (doc.groundBoxOverflow > 0) {
@@ -61,7 +63,9 @@ export function bindFileCommands(registry: CommandRegistry, docs: DocumentServic
     }
     if (doc.missingTextures.length) await listMessage("Error loading texture(s)", "These textures were not found in the ART folder or the game library:", doc.missingTextures);
     if (doc.missingModels.length) await listMessage("Error loading model(s)", "These models were not found in the MODELS folder or the game library:", doc.missingModels);
-    if (doc.warnings.includes(LAKES_MISMATCH)) await alertDialog("Lakes", LAKES_MISMATCH);
+    // Traxx's open reports, once each: the heights ("Terrain heights"), the race rules note ("Race rules"), a stored lake map ("Lakes").
+    for (const n of doc.notices ?? []) await alertDialog(n.caption, n.text);
+    doc.notices = [];
     for (const w of doc.warnings.filter((x) => !/count \d+ and real/.test(x))) app.status(w);
   }
 
@@ -75,7 +79,7 @@ export function bindFileCommands(registry: CommandRegistry, docs: DocumentServic
     app.status("New track");
   }));
   /*
-    File > New > 16-bit / 16-bit Spline / 16-bit Full Map (CTraxxApp::OnFileNewGrid): File > New,
+    File > New > Classic > Finer Heights 16-bit / Spline / Full Map (CTraxxApp::OnFileNewGrid): File > New,
     then the fresh track's terrain switched to that mode without a word and without marking it modified.
   */
   (["ID_FILE_NEW_CLASSIC16", "ID_FILE_NEW_SPLINE", "ID_FILE_NEW_FINE"] as const).forEach((id, i) => registry.bind(id, run(async () => {
@@ -85,27 +89,19 @@ export function bindFileCommands(registry: CommandRegistry, docs: DocumentServic
   })));
 
   /*
-    File > New > World Size... (JSTraxx, track format version 6, spec sections 6 and 11): the world
-    is 256 cells a side (8,192 ft, every Traxx track) or 512 (16,384 ft). A 512-cell track is
-    written by Write POD as WORLD\<stem>.SI3 with formatVersion=6, and saved as JSTraxx's TRAXXV99 .TXX.
+    File > New > World Size 256 / 512 > Standard V6 / Tall Heights V6 > grid (CTraxxApp::OnFileNewV6): File >
+    New again, the grid, the kind and the world named up front, so no question follows. A 512 world that
+    cannot be had leaves a 256 one of the same kind, and says so (CTraxxDoc::OnNewDocument).
   */
-  registry.bind("ID_FILE_NEW_WORLD", run(async () => {
-    const size = el("select", {},
-      el("option", { value: "256", selected: true }, "256 x 256 cells (8,192 ft), as every MTM2 track"),
-      el("option", { value: "512" }, "512 x 512 cells (16,384 ft), track format version 6 (.SI3)")) as HTMLSelectElement;
-    const grid = el("select", {},
-      ...["Classic 8-bit", "16-bit", "16-bit Spline", "16-bit Full Map"].map((label, i) => el("option", { value: i, selected: i === 0 }, label))) as HTMLSelectElement;
-    const note = el("p", { class: "modal-text" }, "A 512-cell world holds four times the area; a cell is still 32 ft. Use it only when the map does not fit in 7,936 ft at its true scale. Only a version 6 game build lists it. Its .TXX is JSTraxx's own TRAXXV99, which Traxx cannot open.");
-    const r = await openDialog({
-      title: "New Track",
-      body: el("div", { class: "opt-page" }, el("label", {}, "World size: ", size), el("label", {}, "Terrain grid: ", grid), note),
-      buttons: [{ label: "OK", value: "ok", primary: true }, { label: "Cancel", value: "cancel" }],
-    });
-    if (r !== "ok" || !(await saveModified())) return;
-    const cells = Number(size.value) === 512 ? 512 : 256;
-    await docs.newTrack(Number(grid.value), cells);
-    app.status(cells === 512 ? "New track, 512-cell world (track format version 6)" : "New track");
-  }));
+  for (const id of FILE_NEW_V6_IDS) {
+    const d = decodeFileNewV6(id)!;
+    registry.bind(id, run(async () => {
+      if (!(await saveModified())) return;
+      const { shrunk } = await docs.newTrack(d.mode, d.cells, d.kind);
+      if (shrunk) await alertDialog("JSTraxx", NEW_512_NO_MEMORY);
+      app.status("New track");
+    }));
+  }
 
   registry.bind("ID_FILE_OPEN", run(async () => {
     if (!(await saveModified())) return;
@@ -157,20 +153,31 @@ export function bindFileCommands(registry: CommandRegistry, docs: DocumentServic
     await report(await docs.clone(files, sit));
   }));
 
+  // OnEditExtract (Traxx origin/main): the copy never replaces a file; what differs is listed.
   registry.bind("ID_EDIT_EXTRACT", run(async () => {
-    if (!(await confirmDialog("Extract Components", "This will dump all models and textures from the current file into the JSTraxx Art/Models folders. Proceed?", "Yes"))) return;
-    const { written, skipped } = await docs.extract();
-    app.status(`Extracted ${written} file${written === 1 ? "" : "s"}${skipped ? `; ${skipped} already there were left alone` : ""}.`);
+    if (!(await confirmDialog("Extract Components", "This will dump all models and textures from the\ncurrent file into the JSTraxx Art/Models folders.\nProceed?", "Yes"))) return;
+    let r;
+    try { r = await docs.extract(); } catch { await alertDialog("JSTraxx", "Cant access source POD file, or the Art or Models folder is missing!"); return; }
+    app.status(`Extracted ${r.written} file${r.written === 1 ? "" : "s"}.`);
+    const text = extractReportText(r.report);
+    if (text) await alertDialog("Extract Components", text);
   }), { enabled: viewing });
 
-  registry.bind("ID_FILE_IMPORT", run(async () => {
-    if (!docs.doc) return;
-    const existing = (await docs.listTracks()).map((t) => t.name);
-    const name = await saveAs(docs.doc.track.trackName, existing);
-    if (!name) return;
-    const { written } = await docs.importViewed(name);
-    app.status(`Imported as ${name}.txx (${written} art and model files extracted).`);
-    if (docs.doc) await report(docs.doc);
+  /*
+    File > Edit This Track (Traxx origin/main CTraxxDoc::OnFileEditTrack, replacing JSTraxx's
+    Import Viewed POD as Track). "Set your Art and Models folders first" does not arise: the
+    browser's ART and MODELS folders always exist.
+  */
+  registry.bind("ID_FILE_EDITTRACK", run(async () => {
+    const doc = docs.doc;
+    if (!doc?.viewOnly) return;
+    if (!(await confirmDialog("Edit This Track", editThisTrackQuestion(doc.track.trackName), "Yes"))) return;
+    let r;
+    try { r = await docs.editThisTrack(); } catch (err) {
+      if (err instanceof EditThisTrackError) { await alertDialog("Edit This Track", err.message); return; }
+      throw err;
+    }
+    await alertDialog("Edit This Track", editThisTrackDone(r.prefix, r.report.length ? extractConflictMessage(r.report) : ""));
   }), { enabled: viewing });
 
   registry.bind("ID_FILE_DOWNLOAD", run(async () => {
@@ -190,6 +197,8 @@ export function bindFileCommands(registry: CommandRegistry, docs: DocumentServic
   return {
     openRecent: async (path: string) => {
       await run(async () => {
+        // An open Object Properties window closes as OK first, as for File > Open.
+        if (!(await registry.passGuard("ID_FILE_OPEN"))) return;
         if (!(await saveModified())) return;
         await report(await docs.openTxx(path, path.split("/").pop()!));
       })();

@@ -1,7 +1,8 @@
 /*
   Objects mode (EDIT_OBJECTS; Traxx/TraxxViewInteract.cpp, TraxxViewEdit.cpp, TraxxFrame.cpp):
 
-    click            select the nearest object (within 128 pixels at 640 x 480)
+    click            select the object under the click by its outline (Traxx 1.8.2), else the
+                     nearest base (within 128 pixels at 640 x 480; Traditional Traxx clicking)
     Ctrl+click/drag  add or remove one, or every object inside a box
     drag             move the selection on the ground; Shift+drag turns each one in place
     double-click     Properties
@@ -10,29 +11,33 @@
                      Delete, Enter Properties
     right-click      the Object menu, with Set Type
 */
+import { FILE_NEW_V6_IDS } from "../../core/traxx/track-kind-ui.ts";
 import type { ModeHandler, ViewPoint } from "../editor.ts";
 import type { ModeContext } from "./context.ts";
 import { CONTEXT_MENUS } from "../../ui/shell/commands.ts";
 import { recordFields, type Recording } from "../../core/edit/record.ts";
-import { applyModel, deleteObjects, dragObjects, dragRotate, insertObject, modelBaseZ, moveObjects, OBJECT_TYPE_NAMES, pasteObject, raiseObjects, rotateObjects, setTypeOfObjects, sizeObjects, tiltObjects, typeToIndex, budgetCap, unusedModels } from "../../core/edit/objects.ts";
+import { applyModel, deleteObjects, dragObjects, dragRotate, insertObject, modelBaseZ, moveObjects, objectHeightCap, OBJECT_TYPE_NAMES, pasteObject, raiseObjects, rotateObjects, setTypeOfObjects, sizeObjects, tiltObjects, typeToIndex, budgetCap, unusedModels } from "../../core/edit/objects.ts";
 import { objectLimit } from "../../core/traxx/v6.ts";
 import { insideRect, nearestOnScreen, OBJECT_LIMIT } from "../../core/view/screen-pick.ts";
 import { objectMatrix } from "../../core/view/model-geometry.ts";
 import { alertDialog, confirmDialog } from "../../ui/shell/dialog.ts";
 import { ALTITUDE_SCALE } from "../../core/view/camera.ts";
 import { OBJ_COL } from "../../core/settings.ts";
-import { TRAXX_BOX_FOG, TRAXX_BOX_LIGHT, type TraxxBox, type TraxxLight } from "../../core/traxx/sit.ts";
+import { TRAXX_BOX_FOG, TRAXX_BOX_LIGHT, TRAXX_BOX_RAMP, type TraxxBox, type TraxxLight } from "../../core/traxx/sit.ts";
 import { lightGuideContext } from "../../core/traxx/light-props.ts";
 import { applyObjectFields, objectFields, previewObject } from "../../core/edit/object-properties.ts";
-import { groupPropertiesDialog, objectPropertiesDialog } from "../../ui/dialogs/object-dialogs.ts";
-import { applyGroup, applyLook, groupStart } from "../../core/edit/group-properties.ts";
+import { objectRaceContext } from "../../core/edit/race-edit.ts";
+import { groupPropertiesDialog, objectPropertiesWindow, type ObjectPropertiesWindow } from "../../ui/dialogs/object-dialogs.ts";
+import { takeViewFocusOnEnter } from "../../ui/input/view-focus.ts";
+import { applyGroup, groupStart, previewGroup } from "../../core/edit/group-properties.ts";
 import { LIGHTCORE_COLOUR, lightPoolDrawing } from "../../core/view/light-pool.ts";
 import { cellsOf } from "../../core/traxx/world.ts";
 import { copyForClipboard } from "../../core/traxx/box-ground.ts";
 
 /** A ground point picked in the view: whole ipos / steps and the 1/256 left over. */
 interface Spot { at: [number, number, number]; fraction: [number, number, number] }
-import { effectiveFog, fogShapeLines, fogVolumeCentre, fogVolumeRing, type FogPreview } from "../../core/view/fog-volume.ts";
+import { effectiveFog, fogShapeLines, fogVolumeCentre, fogVolumeCorners, fogVolumeRing, type FogPreview } from "../../core/view/fog-volume.ts";
+import { pickCandidateOf, pickChooseWinner, pickLocalCorners, pickModelBounds, pickResolve, PICK_MIN_DEPTH, type PickCandidate } from "../../core/view/object-pick-hull.ts";
 import { arrowSegments, lightArrow } from "../../core/view/arrows.ts";
 import { openDialog } from "../../ui/shell/dialog.ts";
 import { el } from "../../shared/dom.ts";
@@ -58,7 +63,7 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
 
   const track = () => editor.doc!.track;
   /** 4096, or 16,384 on a version 6 track (spec 14). */
-  const objectMax = () => objectLimit(editor.doc!.track, editor.doc!.carry.situationIsSi3);
+  const objectMax = () => objectLimit(editor.doc!.track);
   const exists = (i: number) => i >= 0 && i < (editor.doc?.track.boxes.length ?? 0);
   const selected = () => sel.collect(exists);
   const boxes = () => selected().map((i) => track().boxes[i]);
@@ -71,7 +76,62 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
     const mid = isFog ? fogVolumeCentre(b, fog) : null;
     return mid ? view.project(mid[0], mid[1], mid[2]) : view.project(b.ipos[0] + b.fraction[0] / 256, b.ipos[1] + b.fraction[1] / 256, ALTITUDE_SCALE * (b.ipos[2] + b.fraction[2] / 256));
   });
-  const nearest = (p: { x: number; y: number }) => nearestOnScreen(screenPoints(), p, OBJECT_LIMIT, view.size);
+  /*
+    SelectObjectByOutline (Traxx 1.8.2, 2031ec1; TraxxViewDisplay.cpp): the object whose projected
+    bounding box holds the click. A model box is bounded by its model's vertices, a model-less one
+    by +-width / length / height, both through the object's matrix; a Fog by its world volume. Not
+    a candidate: a corner behind the camera or at depth <= 10 (Traxx's units, 64 to a scene unit),
+    or a collider hidden by Hide Collider Boxes. The front-most face at the click wins, a Fog only
+    when nothing solid is hit. World-wrap border copies are not outline-pickable.
+  */
+  const outlinePick = (p: { x: number; y: number }): { winner: number; isFog: boolean } => {
+    const px = Math.round(p.x), py = Math.round(p.y);
+    const proj = (x: number, y: number, z: number) => {
+      const q = view.projectDepth(x, y, z);
+      return q ? { x: Math.round(q.x), y: Math.round(q.y), depth: Math.trunc(q.depth * 64) } : null;
+    };
+    const cands: PickCandidate[] = track().boxes.map((box) => {
+      const none: PickCandidate = { hit: false, depth: 0, isFog: false };
+      const geo = box.modelName ? view.modelGeometry(box.modelName) : null;
+      const bounds = geo ? pickModelBounds(geo.vertices) : null;
+      let corners: ({ x: number; y: number; depth: number } | null)[];
+      let isFog = false;
+      if (!bounds && box.type === TRAXX_BOX_FOG) {
+        const { fog, isFog: fogOn } = effectiveFog(box, fogPreview);
+        const fc = fogOn ? fogVolumeCorners(box, fog) : null;
+        if (!fc) return none;
+        isFog = true;
+        corners = fc.map(([x, y, z]) => proj(x, y, z));
+      } else {
+        if (!bounds && app.settings.hide_colliders && box.type !== TRAXX_BOX_RAMP) return none;
+        // CalculateBoxLocationsOpenGL < 10: the camera is at the box itself.
+        const m = objectMatrix(box);
+        const at = proj(m[12]!, m[13]!, m[14]!);
+        if (!at || at.depth < PICK_MIN_DEPTH) return none;
+        const lo = bounds ? bounds.lo : [-box.width, -box.length, -box.height];
+        const hi = bounds ? bounds.hi : [box.width, box.length, box.height];
+        corners = pickLocalCorners(lo, hi).map(([x, y, z]) => proj(
+          m[0]! * x + m[4]! * y + m[8]! * z + m[12]!, m[1]! * x + m[5]! * y + m[9]! * z + m[13]!, m[2]! * x + m[6]! * y + m[10]! * z + m[14]!));
+      }
+      return pickCandidateOf(corners, px, py, isFog) ?? none;
+    });
+    const winner = pickChooseWinner(cands);
+    return { winner, isFog: winner >= 0 && cands[winner]!.isFog };
+  };
+  /*
+    SelectNearestObject (TraxxViewInteract.cpp): the outline pick unless Options > Advanced >
+    Traditional Traxx clicking is on; a click inside no outline (or on a Fog) falls through to the
+    nearest-base rule (Manhattan, within 128 pixels), which keeps tiny far objects easy to hit
+    (PickResolve). Click, double-click, Ctrl+click and the right-click target all come here.
+  */
+  const nearest = (p: { x: number; y: number }) => {
+    let pick = { winner: -1, isFog: false };
+    if (!app.settings.traditional_clicking) {
+      pick = outlinePick(p);
+      if (pick.winner >= 0 && !pick.isFog) return pick.winner;
+    }
+    return pickResolve(pick.winner, pick.isFog, nearestOnScreen(screenPoints(), p, OBJECT_LIMIT, view.size));
+  };
   /*
     The ground under a point as ScreenToTerrainPoint gives it: whole ipos and steps, and the
     1/256 fractions (0 on Classic 8-bit; the drive surface's own elsewhere, Traxx 1.7).
@@ -88,7 +148,8 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
     editor.commit(rec);
     editor.selectionChanged();
   };
-  const nudge = (label: string, change: (b: TraxxBox[]) => void) => { if (selected().length) edit(label, () => change(boxes())); };
+  // The nudge keys: with the Object Properties window open they move its object and its fields follow.
+  const nudge = (label: string, change: (b: TraxxBox[]) => void) => { if (selected().length) { edit(label, () => change(boxes())); followWindow(); } };
 
   /* Delete, asking first when there is more than one. */
   const remove = async () => {
@@ -121,6 +182,7 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
     app.emit("commands", undefined);
   };
   const paste = (p: ViewPoint | null) => {
+    if (objWin) return;
     const copyBox = editor.clipboard.object as TraxxBox | undefined;
     const spot = menuPoint ?? ground(p);
     if (!copyBox || !spot) return;
@@ -134,7 +196,7 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
 
   const setType = async (index: number) => {
     const list = selected();
-    if (!list.length) return;
+    if (!list.length || objWin) return;
     let r: ReturnType<typeof setTypeOfObjects> | null = null;
     edit("Set Type", () => { r = setTypeOfObjects(track(), list, index); });
     const res = r as ReturnType<typeof setTypeOfObjects> | null;
@@ -157,6 +219,8 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
     const ups = function* () { for (let i = 2; i < geo.raw.length; i += 3) yield geo.raw[i]; };
     const title = name.toUpperCase().replace(/^MODELS\\/, "");
     nudge("Apply Model", (b) => applyModel(b, { title, keyframed: geo.frameNames.length > 0, baseZ: modelBaseZ(ups()) }, track()));
+    // An Object Properties window open on that object shows its new model and height.
+    followWindow();
   }) as (...args: never[]) => unknown;
 
   /* The light pool shown for a box while a dialog edits its light (SetLightPreview). */
@@ -184,31 +248,65 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
   };
 
   /*
-    OnObjectProperties: the dialog edits the anchor live; Cancel puts it back. The cab button
-    picks a keyframed model the track holds (load it in the Models window first), and asks for
-    a base as well when the object has none, as Traxx does.
+    OnObjectProperties (Traxx 1.8.2, 75cf23a, 90a876c; TraxxViewEdit.cpp OnObjectProperties ..
+    ObjectDialogRefresh): a MODELESS window, one at a time, bound to its box by identity (a
+    checkpoint renumber moves boxes between slots, so the slot is looked up when needed). It opens
+    beside the view; a second request brings it forward; a multiselection ends here. While it is
+    up the view reaches no other object (select, Ctrl+click, box select, Tab, Delete, Insert,
+    Paste, Set Type and Group Properties are off; Copy works; Edit > Undo is greyed); its drag,
+    turn and nudge keys move this one and the fields follow. Apply commits an undo step (the
+    object from the last load, then every field, as OK always did); Cancel puts the live place,
+    angles and size back. The cab button picks a keyframed model the track holds (load it in the
+    Models window first), and asks for a base as well when the object has none, as Traxx does.
   */
-  const properties = async () => {
-    const doc = editor.doc;
-    const i = sel.anchor;
-    if (!doc || !exists(i)) return;
-    const t = doc.track;
-    const box = t.boxes[i]!;
-    const before = structuredClone(box);
-    const rec = recordFields(t, ["boxes", "sounds"], "Object Properties", { objects: true });
+  let objWin: { box: TraxxBox; win: ObjectPropertiesWindow; loaded: TraxxBox; dropFocus: () => void } | null = null;
+  /** ObjectDialogIndex: the window's box's slot, or -1 when it is gone. */
+  const winIndex = () => (objWin && editor.doc ? editor.doc.track.boxes.indexOf(objWin.box) : -1);
+  /* Reset's resting height: the model's basez as a height above ground. */
+  const restingOf = (box: TraxxBox) => {
     const geo = box.modelName ? view.modelGeometry(box.modelName) : null;
     const baseZ = geo ? modelBaseZ((function* () { for (let k = 2; k < geo.raw.length; k += 3) yield geo.raw[k]!; })()) : 0;
     const restFz = geo ? (-baseZ) >> 8 : 0;
-    const resting = geo ? restFz + (-baseZ - 256 * restFz) / 256 : 0;
+    return geo ? restFz + (-baseZ - 256 * restFz) / 256 : 0;
+  };
+  /** ObjectDialogRefresh: the view moved the window's object; its fields follow (and Cancel goes back to here). */
+  const followWindow = () => {
+    if (!objWin || !editor.doc) return;
+    if (winIndex() < 0) { objWin.win.abandon(); return; }
+    const box = objWin.box;
+    objWin.loaded = structuredClone(box);
+    objWin.win.refreshFromBox(objectFields(box, editor.doc.track), box.modelName ? `MODELS\\${box.modelName}` : "", box.crushName, restingOf(box));
+  };
+
+  const properties = () => {
+    // One at a time: a second request brings the open window forward.
+    if (objWin) { objWin.win.raise(); return; }
+    const doc = editor.doc;
+    const i = sel.anchor;
+    if (!doc || !exists(i)) return;
+    // Only this object is reachable from the view while the window is open: a multiselection ends here.
+    sel.clear();
+    sel.select(i);
+    boxFrom = boxTo = null;
+    editor.selectionChanged();
+    const t = doc.track;
+    const box = t.boxes[i]!;
     let base = "";
     const refresh = () => { view.refresh({ objects: true }); editor.selectionChanged(); };
-    const result = await objectPropertiesDialog({
-      fields: objectFields(box, t),
+    const host = view.viewport.canvas.parentElement ?? view.viewport.canvas;
+    const state = {
+      box, loaded: structuredClone(box),
+      // TakeViewFocus: the pointer over the view at open (the double-click, Enter or right-click was there) hands it the keys.
+      dropFocus: takeViewFocusOnEnter(host, host.matches(":hover")),
+    } as { box: TraxxBox; win: ObjectPropertiesWindow; loaded: TraxxBox; dropFocus: () => void };
+    objWin = state;
+    state.win = objectPropertiesWindow({
+      fields: objectFields(box, t, t.raceRules.mode),
       modelName: box.modelName ? `MODELS\\${box.modelName}` : "",
       crushName: box.crushName,
       sitUnits: app.settings.show_sit_units,
-      restingHeight: resting,
-      preview: (f) => { previewObject(box, t, f); refresh(); },
+      restingHeight: restingOf(box),
+      preview: (f) => { if (winIndex() >= 0) { previewObject(box, t, f); refresh(); } },
       previewLight: (light, isLight) => { lightPreview = { box, light, isLight }; view.setLightPreview(lightPreview); editor.selectionChanged(); },
       lightContext: lightGuideContext(t),
       previewFog: (fog, isFog) => setFogPreview({ box, fog, isFog }),
@@ -223,42 +321,80 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
         }
         return cab;
       },
+      // ObjectDialogContext: the rules, the other checkpoints' numbers, the Main route tick.
+      raceContext: () => objectRaceContext(t.boxes, t.raceRules.mode, box),
+    }, {
+      // ObjectDialogApply / ApplyObjectProperties.
+      apply: async (result) => {
+        const index = t.boxes.indexOf(box);
+        if (index < 0 || editor.doc?.track !== t) return null;
+        if (!editor.canEdit) return objectFields(box, t, t.raceRules.mode);
+        // The live preview is what is shown; the apply starts from the box as it was last loaded.
+        Object.assign(box, structuredClone(state.loaded));
+        const rec = recordFields(t, ["boxes", "sounds"], "Object Properties", { objects: true });
+        box.crushName = result.crushName;
+        if (base) box.modelName = base;
+        base = "";
+        const messages = applyObjectFields(t, index, result.fields, t, result.wavs, state.loaded.heightAboveGround);
+        editor.commit(rec);
+        // ...which may have moved the box to another slot (a checkpoint renumber).
+        const now = t.boxes.indexOf(box);
+        if (now < 0) return null;
+        sel.select(now);
+        state.loaded = structuredClone(box);
+        editor.selectionChanged();
+        if (messages.length) await alertDialog("Object Properties", messages.join("\n\n"));
+        return objectFields(box, t, t.raceRules.mode);
+      },
+      restore: () => { if (t.boxes.includes(box)) { Object.assign(box, structuredClone(state.loaded)); refresh(); } },
+      closed: () => {
+        state.dropFocus();
+        if (objWin === state) objWin = null;
+        editor.modeless = null;
+        lightPreview = null;
+        view.setLightPreview(null);
+        setFogPreview(null);
+        refresh();
+        app.emit("commands", undefined);
+      },
     });
-    lightPreview = null;
-    view.setLightPreview(null);
-    setFogPreview(null);
-    if (!result || !editor.canEdit) {
-      Object.assign(box, before);
-      refresh();
-      return;
-    }
-    // The dialog's last preview is what is shown; start the real apply from the box as it was.
-    Object.assign(box, structuredClone(before));
-    box.crushName = result.crushName;
-    if (base) box.modelName = base;
-    const messages = applyObjectFields(t, i, result.fields, t, result.wavs, before.heightAboveGround);
-    if (box.type === 6) { sel.select(t.boxes.indexOf(box)); }
-    editor.commit(rec);
-    editor.selectionChanged();
-    if (messages.length) await alertDialog("Object Properties", messages.join("\n\n"));
+    editor.modeless = { close: (ok, modeSwitch) => state.win.close(ok, modeSwitch) };
+    app.emit("commands", undefined);
   };
+  /* TX_EDITMODE, Track Components: the window keeps its edit (it closes as OK); refused, it is cancelled instead. */
+  const closeWindowForSwitch = async () => {
+    if (objWin && !(await objWin.win.close(true, true))) await objWin?.win.close(false);
+  };
+  // CTraxxDoc's view loop: New, Open, Close, Save, Write POD... close the window as OK first; a refused Apply aborts them.
+  registry.guard(["ID_FILE_NEW", "ID_FILE_NEW_CLASSIC16", "ID_FILE_NEW_SPLINE", "ID_FILE_NEW_FINE", ...FILE_NEW_V6_IDS, "ID_FILE_OPEN", "ID_FILE_SAVE",
+    "ID_FILE_SAVE_AS", "ID_FILE_CLOSE", "ID_FILE_VIEWPOD", "ID_FILE_CLONE", "ID_FILE_EDITTRACK", "ID_FILE_WRITEPOD", "ID_FILE_DOWNLOAD",
+    // OnSpecialEnlargeWorld: the window holds a copy of the 256 world, so it closes as OK first (ObjectDialogClose).
+    "ID_SPECIAL_ENLARGEWORLD"],
+  async () => (objWin ? objWin.win.close(true) : true));
+  registry.guard(["ID_VIEW_COMPONENTS"], async () => { await closeWindowForSwitch(); return true; });
+  // The document is closed or replaced: the window goes without a word; its object deleted some other way, the same (ObjectDialogCheck).
+  ctx.docs.on("opened", () => objWin?.win.abandon());
+  editor.on("changed", () => { if (objWin && winIndex() < 0) objWin.win.abandon(); });
 
   const can = () => editor.canEdit;
+  /* While the Object Properties window is up only its object is reachable (Copy Object still works). */
+  const free = () => can() && !objWin;
   const one = () => can() && sel.anchor >= 0 && exists(sel.anchor);
   registry.bind("ID_OBJECT_PROPERTIES", () => properties(), { enabled: () => sel.anchor >= 0 && exists(sel.anchor) });
 
   /* OnObjectGroupProperties: the look previews live; Cancel goes back; OK applies afresh. */
   registry.bind("ID_OBJECT_GROUPPROPERTIES", async () => {
     const list = selected();
-    if (!editor.canEdit || !list.length) return;
+    if (!editor.canEdit || objWin || !list.length) return;
     const t = track();
     const boxes = list.map((i) => t.boxes[i]!);
     const looks = boxes.map((b) => structuredClone(b));
     const restore = () => boxes.forEach((b, k) => Object.assign(b, structuredClone(looks[k]!)));
     const start = groupStart(boxes, t);
-    const result = await groupPropertiesDialog(list.length, start, pickWav, (text) => {
+    // PreviewGroupProperties: RestoreGroupLook, the per-box look, then (Traxx 1.8.2) the rigid move.
+    const result = await groupPropertiesDialog(list.length, start, pickWav, (text, asOne) => {
       restore();
-      for (const b of boxes) applyLook(b, text, start.text, t);
+      previewGroup(boxes, text, start.text, t, asOne);
       view.refresh({ objects: true });
       editor.selectionChanged();
     });
@@ -279,11 +415,11 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
         : `${out.refused} of the ${list.length} selected objects were left as they were: a track can have at most ${budgetCap(out.group)} of type ${OBJECT_TYPE_NAMES[index]}.`);
     }
     if (notes.length) await alertDialog("Group Properties", notes.join("\n\n"));
-  }, { enabled: () => can() && selected().length > 0 });
-  registry.bind("ID_OBJECT_INSERT", insert, { enabled: can });
-  registry.bind("ID_OBJECT_DELETE", remove, { enabled: one });
+  }, { enabled: () => free() && selected().length > 0 });
+  registry.bind("ID_OBJECT_INSERT", insert, { enabled: free });
+  registry.bind("ID_OBJECT_DELETE", remove, { enabled: () => free() && one() });
   registry.bind("ID_OBJECT_COPY", copy, { enabled: one });
-  registry.bind("ID_OBJECT_PASTE", () => paste(editor.lastPoint), { enabled: () => can() && Boolean(editor.clipboard.object) });
+  registry.bind("ID_OBJECT_PASTE", () => paste(editor.lastPoint), { enabled: () => free() && Boolean(editor.clipboard.object) });
   registry.bind("ID_OBJECT_PURGE", async () => {
     const doc = editor.doc;
     if (!doc) return;
@@ -300,6 +436,7 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
 
   /* SortBoxes order, nearest last: Tab steps to the next nearer object, back to the farthest after the nearest. */
   const tabNext = () => {
+    if (objWin) return;   // only the object in the window can be reached
     const order = view.objectsByDepth();
     if (!order.length) return;
     const at = order.indexOf(sel.anchor);
@@ -309,9 +446,22 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
   };
 
   return {
-    deactivate() { boxFrom = boxTo = null; },
+    deactivate() { boxFrom = boxTo = null; void closeWindowForSwitch(); },
     down(p) {
       menuPoint = null;
+      /*
+        With the Object Properties window open only ITS object can be reached: a click on it may
+        start a drag; a click anywhere else, or a Ctrl+click (which would select), does nothing.
+      */
+      if (objWin) {
+        const hit = p.ctrl ? -1 : nearest(p);
+        collapseOnUp = false;
+        if (hit >= 0 && hit === winIndex()) {
+          lastX = p.x;
+          dragging = recordFields(track(), fields, p.shift ? "Turn Objects" : "Move Objects", touch);
+        }
+        return;
+      }
       if (p.ctrl) { boxFrom = boxTo = { x: p.x, y: p.y }; collapseOnUp = false; return; }
       const hit = nearest(p);
       // A plain click on a member keeps the set (so it can be dragged); released without a drag it collapses.
@@ -330,6 +480,7 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
       else { const spot = ground(p); if (spot) dragObjects(track(), selected(), spot.at, spot.fraction); }
       lastX = p.x;
       editor.emit("changed", touch);
+      followWindow();
     },
     up(p) {
       if (boxFrom) {
@@ -344,13 +495,16 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
       collapseOnUp = false;
     },
     dblclick(p) {
+      // The window is open already: it comes forward; nothing is picked.
+      if (objWin) { properties(); return; }
       sel.select(nearest(p));
       editor.selectionChanged();
       registry.exec("ID_OBJECT_PROPERTIES");
     },
     contextMenu(p) {
       menuPoint = ground(p);
-      sel.select(nearest(p));
+      // With the Object Properties window open the menu acts on ITS object: nothing new is picked.
+      if (!objWin) sel.select(nearest(p));
       editor.selectionChanged();
       const list = selected();
       const n = list.length;
@@ -361,8 +515,11 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
         items,
         options: {
           labels: { ID_OBJECT_DELETE: n > 1 ? `Delete ${n} Objects` : "Delete", ID_OBJECT_GROUPPROPERTIES: n > 1 ? `Group &Properties of ${n} Objects...` : "Group &Properties..." },
-          enabled: { ID_OBJECT_GROUPPROPERTIES: n > 1 && registry.isEnabled("ID_OBJECT_GROUPPROPERTIES") },
-          slots: { types: OBJECT_TYPE_NAMES.map((label, i) => ({ label, checked: i === common, enabled: n > 0, run: () => void setType(i) })) },
+          // The window being open, the rest of the menu is off (Set Type too); Copy Object works.
+          enabled: (objWin
+            ? { ID_OBJECT_GROUPPROPERTIES: false, ID_OBJECT_INSERT: false, ID_OBJECT_DELETE: false, ID_OBJECT_PROPERTIES: false, ID_OBJECT_PASTE: false }
+            : { ID_OBJECT_GROUPPROPERTIES: n > 1 && registry.isEnabled("ID_OBJECT_GROUPPROPERTIES") }) as Record<string, boolean>,
+          slots: { types: OBJECT_TYPE_NAMES.map((label, i) => ({ label, checked: i === common, enabled: n > 0 && !objWin, run: () => void setType(i) })) },
         },
       };
     },
@@ -380,8 +537,9 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
         case "KeyD": nudge("Move", (b) => moveObjects(b, heights(), nudgeMove(shift, ctrl, sit), 0)); return true;
         case "KeyV": nudge("Move", (b) => moveObjects(b, heights(), 0, -nudgeMove(shift, ctrl, sit))); return true;
         case "KeyF": nudge("Move", (b) => moveObjects(b, heights(), 0, nudgeMove(shift, ctrl, sit))); return true;
-        case "KeyS": case "BracketRight": nudge("Raise", (b) => raiseObjects(b, heights(), nudgeRaise(shift, ctrl))); return true;
-        case "KeyX": case "BracketLeft": nudge("Lower", (b) => raiseObjects(b, heights(), -nudgeRaise(shift, ctrl))); return true;
+        // ObjectRaise: capped at ObjectHeightCap (500 steps, or the ceiling on a Tall Heights V6 track).
+        case "KeyS": case "BracketRight": nudge("Raise", (b) => raiseObjects(b, heights(), nudgeRaise(shift, ctrl), objectHeightCap(track()))); return true;
+        case "KeyX": case "BracketLeft": nudge("Lower", (b) => raiseObjects(b, heights(), -nudgeRaise(shift, ctrl), objectHeightCap(track()))); return true;
         case "KeyG": nudge("Tilt", (b) => tiltObjects(b, nudgeTilt(shift, ctrl), 0)); return true;
         case "KeyB": nudge("Tilt", (b) => tiltObjects(b, -nudgeTilt(shift, ctrl), 0)); return true;
         case "KeyH": nudge("Tilt", (b) => tiltObjects(b, 0, nudgeTilt(shift, ctrl))); return true;
@@ -397,14 +555,14 @@ export function objectsMode(ctx: ModeContext): ModeHandler {
       return false;
     },
     keyUp(e) {
-      if (e.code === "Delete") { void remove(); return true; }
+      if (e.code === "Delete") { if (!objWin) void remove(); return true; }
       if (e.code === "Enter" || e.code === "NumpadEnter") { registry.exec("ID_OBJECT_PROPERTIES"); return true; }
       return false;
     },
     copy,
     paste,
     canCopy: () => sel.anchor >= 0,
-    canPaste: () => Boolean(editor.clipboard.object),
+    canPaste: () => !objWin && Boolean(editor.clipboard.object),
     drawOverlay(g, project) {
       const doc = editor.doc;
       if (!doc) return;

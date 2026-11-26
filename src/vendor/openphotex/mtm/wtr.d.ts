@@ -52,6 +52,22 @@ export declare function parseWtr(bytes: Uint8Array, { cells }?: {
  * 2 * base + 1 .. 2 * (base + 65536 / step), the terrain's whole range (9.1).
  */
 export declare function wtrHeightRange(major: number, step?: number, base?: number): [number, number];
+/**
+ * The height window of a track format version 6 level: its .TXV's terrainHeightStep and
+ * terrainHeightBase. On a 256-cell .SI3 the engine takes a version 1 lake (and fall) height in
+ * 1..4096 OR in the track's own window 2 * base + 1 .. 2 * (base + 65536 / step) (CP4's rule,
+ * Traxx origin/main TrackPODLakes.h LakeHeightWindow). Without it a version 1 file keeps the
+ * classic 1..4096.
+ */
+export interface V6HeightWindow {
+    step: number;
+    base: number;
+}
+/**
+ * Whether a version 1 lake height (half-feet) is one a reader takes: 1..4096, or, with `heightWindow`
+ * (a 256-cell .SI3), also 2 * base + 1 .. 2 * (base + 65536 / step).
+ */
+export declare function wtrV1HeightOk(height: number, heightWindow?: V6HeightWindow): boolean;
 export interface WtrWriteLake {
     flags: number;
     height: number;
@@ -71,12 +87,15 @@ export interface WtrWriteLake {
  * Write a .WTR as Traxx 1.7 lays one out. Lake i gets id i + 1, which tileMap must use. The tile
  * map is N * N bytes, and N picks the version (9.1): 256 x 256 writes version 1 (heights 1..4096,
  * the CP4 file; a lake outside that throws), 512 x 512 version 2. `version`, when given, must agree.
+ * `heightWindow` (a 256-cell .SI3's step and base) also lets a version 1 lake take the track's height
+ * window, as the engine does (wtrV1HeightOk).
  * `edgeRule` marks a file filled with the edge rule as Traxx 1.7.3 does (minor 1, header flags bit 0);
  * without it the header is Traxx 1.7.0's (minor 0, flags 0).
  */
-export declare function writeWtr(lakes: readonly WtrWriteLake[], tileMap: Uint8Array, { version, edgeRule }?: {
+export declare function writeWtr(lakes: readonly WtrWriteLake[], tileMap: Uint8Array, { version, edgeRule, heightWindow }?: {
     version?: 1 | 2;
     edgeRule?: boolean;
+    heightWindow?: V6HeightWindow;
 }): Uint8Array;
 /** The lake id (0 none) of the 32 ft tile under world feet (x, z); the world wraps at 32 N ft, N the map's side. */
 export declare function wtrLakeAt(wtr: Pick<Wtr, "tileMap">, xFt: number, zFt: number): number;

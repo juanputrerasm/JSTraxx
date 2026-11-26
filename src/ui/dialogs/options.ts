@@ -77,6 +77,8 @@ function advancedTab(w: TraxxSettings): HTMLElement {
     // Traxx 1.8.0 (4ebf477): Show Detail Mask moved to View > Visual Helpers > Show Detail Strength.
     // Traxx's "Keep HD art only" is how JSTraxx always works, so it is not offered.
     el("p", { class: "opt-hint" }, "HD art (PNG, TGA) is kept as it is: JSTraxx builds its 8-bit tile in memory and writes no .RAW or .ACT files when importing it. Write POD still packs the legacy fallback unless you omit it there."),
+    // Traxx 1.8.2 (2031ec1, IDC_TRADITIONALCLICK): between "Let the Textures window go behind Traxx" and Water opacity.
+    checkbox("Traditional Traxx clicking (pick the nearest object base)", () => w.traditional_clicking, (v) => { w.traditional_clicking = v; }),
     el("div", { class: "opt-row" }, "Water opacity (0 = grid only):", opacity, "%"),
     checkbox("Wire Frame: show each cell's diagonal", () => w.wire_diagonals, (v) => { w.wire_diagonals = v; }),
     el("div", { class: "opt-row" }, "Wire Frame line width:", wireWidth, "pixels"));

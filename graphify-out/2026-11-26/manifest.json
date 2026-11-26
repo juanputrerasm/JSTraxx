@@ -1,0 +1,4820 @@
+{
+  "package.json": {
+    "mtime": 1794867370.6833687,
+    "seen": 1794867429.9640079,
+    "ast_hash": "b416f46ef5e23225a715f1980e907f02",
+    "semantic_hash": ""
+  },
+  "scripts/traxx-help.mjs": {
+    "mtime": 1793049243.0655794,
+    "seen": 1793833427.645998,
+    "ast_hash": "0886652b9a265742a16add4f63d78e29",
+    "semantic_hash": ""
+  },
+  "scripts/traxx-stock-data.mjs": {
+    "mtime": 1793048076.7383249,
+    "seen": 1793833427.6459992,
+    "ast_hash": "11c30511db63dd510a008bb25c9755d1",
+    "semantic_hash": ""
+  },
+  "scripts/traxx-ui-art.mjs": {
+    "mtime": 1793053850.9302707,
+    "seen": 1793833427.6459992,
+    "ast_hash": "c911e31729124a78f0051337ea0e2feb",
+    "semantic_hash": ""
+  },
+  "src/app/autosave.ts": {
+    "mtime": 1793049757.141892,
+    "seen": 1793833427.6460001,
+    "ast_hash": "e59cafc378efed127e07eb4fe19fd0af",
+    "semantic_hash": ""
+  },
+  "src/app/components-command.ts": {
+    "mtime": 1795560069.5483212,
+    "seen": 1795560163.86577,
+    "ast_hash": "821ba5107037f1d8469ce5a234870e4a",
+    "semantic_hash": ""
+  },
+  "src/app/document-service.ts": {
+    "mtime": 1795557868.5490944,
+    "seen": 1795558962.042457,
+    "ast_hash": "60da821d5c90ee91aa019cf5b16fa968",
+    "semantic_hash": ""
+  },
+  "src/app/editor.ts": {
+    "mtime": 1795559857.0341907,
+    "seen": 1795559953.6207402,
+    "ast_hash": "19277960926d7be0f57d3ed282d84c70",
+    "semantic_hash": ""
+  },
+  "src/app/file-commands.ts": {
+    "mtime": 1795557777.1992126,
+    "seen": 1795558962.042458,
+    "ast_hash": "b91735b6a14aa247619edd0d7733d854",
+    "semantic_hash": ""
+  },
+  "src/app/library.ts": {
+    "mtime": 1793833342.631701,
+    "seen": 1793833427.6460018,
+    "ast_hash": "6648e9378ebe28444d4eb223e4daac8a",
+    "semantic_hash": ""
+  },
+  "src/app/modes/context.ts": {
+    "mtime": 1793045832.8789835,
+    "seen": 1793833427.6460018,
+    "ast_hash": "a24b405166c218c05756b3a66fbab2fc",
+    "semantic_hash": ""
+  },
+  "src/app/modes/course-mode.ts": {
+    "mtime": 1795559920.9228437,
+    "seen": 1795559953.6207428,
+    "ast_hash": "9c9ee9fb8bfcebb7bb2edbb50fb1e0a9",
+    "semantic_hash": ""
+  },
+  "src/app/modes/ground-boxes-mode.ts": {
+    "mtime": 1795558060.20497,
+    "seen": 1795558962.0424619,
+    "ast_hash": "a476115f8c1f1b3675f4fab86a825d70",
+    "semantic_hash": ""
+  },
+  "src/app/modes/index.ts": {
+    "mtime": 1795559755.9514022,
+    "seen": 1795559953.620745,
+    "ast_hash": "89d3bbb9810285cbb1d7f52775c221b7",
+    "semantic_hash": ""
+  },
+  "src/app/modes/objects-mode.ts": {
+    "mtime": 1795559793.4671867,
+    "seen": 1795559953.620747,
+    "ast_hash": "46d9fc1639bc7bd4a1b5858738da7ad2",
+    "semantic_hash": ""
+  },
+  "src/app/modes/terrain-mode.ts": {
+    "mtime": 1795558162.0382786,
+    "seen": 1795558962.042465,
+    "ast_hash": "c3c2ec7617b3652c35911b63f7dbd839",
+    "semantic_hash": ""
+  },
+  "src/app/modes/textures-mode.ts": {
+    "mtime": 1795558392.8995898,
+    "seen": 1795558962.0424662,
+    "ast_hash": "cdee8e68b41b67b869e26633492ec8db",
+    "semantic_hash": ""
+  },
+  "src/app/special-commands.ts": {
+    "mtime": 1795558274.3813474,
+    "seen": 1795558962.0424662,
+    "ast_hash": "2c5f0dbde3a6d4e16e69c72df015c66b",
+    "semantic_hash": ""
+  },
+  "src/app/state.ts": {
+    "mtime": 1795558035.9521759,
+    "seen": 1795558962.042467,
+    "ast_hash": "d100d09190437640d582a713bee41398",
+    "semantic_hash": ""
+  },
+  "src/app/version.ts": {
+    "mtime": 1792806049.4658148,
+    "seen": 1793833427.646007,
+    "ast_hash": "5ee59eedf9907fcfd580edbc6c129429",
+    "semantic_hash": ""
+  },
+  "src/app/workers.ts": {
+    "mtime": 1792805670.059886,
+    "seen": 1793833427.646007,
+    "ast_hash": "845f0953ac49688fb22acd7e26263fe2",
+    "semantic_hash": ""
+  },
+  "src/app/write-pod-command.ts": {
+    "mtime": 1795557295.3875132,
+    "seen": 1795557356.20102,
+    "ast_hash": "24cb1470949b68623d1a35fdc0ce0eb9",
+    "semantic_hash": ""
+  },
+  "src/core/doc/clone.ts": {
+    "mtime": 1795557295.4051118,
+    "seen": 1795557356.201021,
+    "ast_hash": "b7a1cc12001c227dc22bd36a59e6ed22",
+    "semantic_hash": ""
+  },
+  "src/core/doc/components.ts": {
+    "mtime": 1795559708.9606242,
+    "seen": 1795559953.620755,
+    "ast_hash": "f879b5274fb6500442062fd8b3f5de2c",
+    "semantic_hash": ""
+  },
+  "src/core/doc/document.ts": {
+    "mtime": 1795556219.6527483,
+    "seen": 1795557146.818052,
+    "ast_hash": "6db24f6ca47289a32d896dfdc3713ae8",
+    "semantic_hash": ""
+  },
+  "src/core/doc/hd-legacy.ts": {
+    "mtime": 1793046738.8159971,
+    "seen": 1793833427.6460092,
+    "ast_hash": "beced2b59a1adede0802a3cc16300dcc",
+    "semantic_hash": ""
+  },
+  "src/core/doc/integrity.ts": {
+    "mtime": 1795556916.490589,
+    "seen": 1795557146.818055,
+    "ast_hash": "22dfdf088acf2d1db76ed7542a6a2d2e",
+    "semantic_hash": ""
+  },
+  "src/core/doc/load-pod.ts": {
+    "mtime": 1795556617.1535776,
+    "seen": 1795557146.818055,
+    "ast_hash": "826aef83ad700eee4962ce2c13ff3769",
+    "semantic_hash": ""
+  },
+  "src/core/doc/load-txx.ts": {
+    "mtime": 1795556676.0624123,
+    "seen": 1795557146.8180559,
+    "ast_hash": "54b07925b457b129bdddc1dd97ed8953",
+    "semantic_hash": ""
+  },
+  "src/core/doc/names.ts": {
+    "mtime": 1792806932.3375008,
+    "seen": 1793833427.6460109,
+    "ast_hash": "3ecc242e03ef3984d567b90ba0c124e6",
+    "semantic_hash": ""
+  },
+  "src/core/doc/new-track.ts": {
+    "mtime": 1795554242.2604735,
+    "seen": 1795554634.0487769,
+    "ast_hash": "0013c21e06da572eacf059bdc8f3290b",
+    "semantic_hash": ""
+  },
+  "src/core/edit/art-folder.ts": {
+    "mtime": 1794800621.229526,
+    "seen": 1794802194.13618,
+    "ast_hash": "2c65b777e43b40cab4e8c41a39784988",
+    "semantic_hash": ""
+  },
+  "src/core/edit/course.ts": {
+    "mtime": 1793046048.2056687,
+    "seen": 1793833427.646013,
+    "ast_hash": "95cc8b858515305c2136810a3062ff41",
+    "semantic_hash": ""
+  },
+  "src/core/edit/ground-boxes.ts": {
+    "mtime": 1795554151.6271749,
+    "seen": 1795554634.048785,
+    "ast_hash": "c22355d95215996282798c490350879e",
+    "semantic_hash": ""
+  },
+  "src/core/edit/group-properties.ts": {
+    "mtime": 1795556181.9963489,
+    "seen": 1795557146.818066,
+    "ast_hash": "6cd87f25cebd9426c9f82401cf222526",
+    "semantic_hash": ""
+  },
+  "src/core/edit/history.ts": {
+    "mtime": 1795559352.0744796,
+    "seen": 1795559953.620773,
+    "ast_hash": "dd6b96bd24a60234b658f337517b2ab6",
+    "semantic_hash": ""
+  },
+  "src/core/edit/lighting.ts": {
+    "mtime": 1794800834.2647865,
+    "seen": 1794802194.1361878,
+    "ast_hash": "401f9863571b80676bd5a5d42fa0a939",
+    "semantic_hash": ""
+  },
+  "src/core/edit/object-properties.ts": {
+    "mtime": 1795559655.1826577,
+    "seen": 1795559953.6207738,
+    "ast_hash": "22466a0aa98b376eb341334d89b4266c",
+    "semantic_hash": ""
+  },
+  "src/core/edit/object-selection.ts": {
+    "mtime": 1793045469.1445637,
+    "seen": 1793833427.646015,
+    "ast_hash": "7850b245dcc65fd55543732f3a33b6b4",
+    "semantic_hash": ""
+  },
+  "src/core/edit/objects.ts": {
+    "mtime": 1795559671.610917,
+    "seen": 1795559953.620775,
+    "ast_hash": "eaffbbee767e39905145e0f9dfffc7a8",
+    "semantic_hash": ""
+  },
+  "src/core/edit/optimal-palette.ts": {
+    "mtime": 1793049043.0820522,
+    "seen": 1793833427.646016,
+    "ast_hash": "2605c4dce6edfd70e9f0293bd384f432",
+    "semantic_hash": ""
+  },
+  "src/core/edit/patterns.ts": {
+    "mtime": 1794552331.9476516,
+    "seen": 1794553101.4026911,
+    "ast_hash": "bccbdc86a7a89b8761b9d8120d3c26f7",
+    "semantic_hash": ""
+  },
+  "src/core/edit/record.ts": {
+    "mtime": 1794552273.3245795,
+    "seen": 1794553101.402692,
+    "ast_hash": "bd1ccf112a3be7ad02e047825ac8858d",
+    "semantic_hash": ""
+  },
+  "src/core/edit/terrain-gen.ts": {
+    "mtime": 1793048831.6255257,
+    "seen": 1793833427.646018,
+    "ast_hash": "5ef4540989f4b2d3c5fff4d4e4d3c7db",
+    "semantic_hash": ""
+  },
+  "src/core/edit/terrain.ts": {
+    "mtime": 1795558123.0510368,
+    "seen": 1795558962.042496,
+    "ast_hash": "a5b9b3f8ae07627fba061d4f38dc9380",
+    "semantic_hash": ""
+  },
+  "src/core/edit/texture-list.ts": {
+    "mtime": 1793046990.1824625,
+    "seen": 1793833427.646019,
+    "ast_hash": "4d042d70e4446d6c8a1b821f93bdfeb5",
+    "semantic_hash": ""
+  },
+  "src/core/edit/texture-selection.ts": {
+    "mtime": 1793047187.18313,
+    "seen": 1793833427.646019,
+    "ast_hash": "8d47f1466f79c6f2139a3827cbc2932e",
+    "semantic_hash": ""
+  },
+  "src/core/edit/textures.ts": {
+    "mtime": 1795558392.8992705,
+    "seen": 1795558962.042498,
+    "ast_hash": "0fab8e05b03de7c3c3a82ff7b9f341bb",
+    "semantic_hash": ""
+  },
+  "src/core/image/bmp.ts": {
+    "mtime": 1793048560.7127454,
+    "seen": 1793833427.6460202,
+    "ast_hash": "022f6e459537988cc5a912ef78c6943e",
+    "semantic_hash": ""
+  },
+  "src/core/image/composite.ts": {
+    "mtime": 1794801200.3305173,
+    "seen": 1794802194.1361978,
+    "ast_hash": "57d874799e4b77b26b61a58e8b56da60",
+    "semantic_hash": ""
+  },
+  "src/core/image/hd-texture.ts": {
+    "mtime": 1794801200.3297846,
+    "seen": 1794802194.136199,
+    "ast_hash": "99704ce97a3c1add8d3150c12d81243f",
+    "semantic_hash": ""
+  },
+  "src/core/image/image-format.ts": {
+    "mtime": 1793046649.8619823,
+    "seen": 1793833427.6460211,
+    "ast_hash": "85d460275b8c5641b7980ad3f364ccf3",
+    "semantic_hash": ""
+  },
+  "src/core/settings.ts": {
+    "mtime": 1795559360.9069445,
+    "seen": 1795559953.620785,
+    "ast_hash": "c7d60fd14d7274eb094a2a7ec2dc388a",
+    "semantic_hash": ""
+  },
+  "src/core/storage.ts": {
+    "mtime": 1793833323.6749048,
+    "seen": 1793833427.6460218,
+    "ast_hash": "1808f5057b45ae64fe6d2111892d2c30",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/bytes.ts": {
+    "mtime": 1792806709.6983337,
+    "seen": 1793833427.6460218,
+    "ast_hash": "c473f4088504c46395cdc588f762f9bf",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/cformat.ts": {
+    "mtime": 1792803602.0431063,
+    "seen": 1793833427.6460228,
+    "ast_hash": "d5be0a1e47055b8e08262043db5e639f",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/lines.ts": {
+    "mtime": 1792806932.335895,
+    "seen": 1793833427.6460228,
+    "ast_hash": "c2134671839a9484a2bd8ae0ab11f809",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/map.ts": {
+    "mtime": 1795559937.3173413,
+    "seen": 1795559953.620797,
+    "ast_hash": "b2dbe17b247e456781f747d4763dc642",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/palette-file.ts": {
+    "mtime": 1792804659.4568155,
+    "seen": 1793833427.646024,
+    "ast_hash": "0521670f6c87c735d0f10ee94cce0f75",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/palette.ts": {
+    "mtime": 1793043046.4729173,
+    "seen": 1793833427.646025,
+    "ast_hash": "643016a75777bd7f200632f2a994f99f",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/pod-items.ts": {
+    "mtime": 1794800614.1226487,
+    "seen": 1794802194.136213,
+    "ast_hash": "29b5274a74d84d3c02f6915d0c54d93e",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/pod-writer.ts": {
+    "mtime": 1795557042.0764503,
+    "seen": 1795557146.818092,
+    "ast_hash": "eb6d3494b99ed471853fdf7fda79a246",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/sit.ts": {
+    "mtime": 1795553095.1638517,
+    "seen": 1795554634.048814,
+    "ast_hash": "b9e26434f07b88bf62009bc9367728e5",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/stock-data.ts": {
+    "mtime": 1793048076.76664,
+    "seen": 1793833427.646026,
+    "ast_hash": "4305b136e314699af3a66c566d9f47e9",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/terrain.ts": {
+    "mtime": 1794552205.5965774,
+    "seen": 1794553101.4027169,
+    "ast_hash": "ee35b2a7cfad7e593e316d2f8483495a",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/txp.ts": {
+    "mtime": 1792804659.4546912,
+    "seen": 1793833427.646027,
+    "ast_hash": "b5eb13dfb4a70920617c0808608ad908",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/txx.ts": {
+    "mtime": 1795556219.6526332,
+    "seen": 1795557146.818099,
+    "ast_hash": "452228560030f720fbbe06267e472b7d",
+    "semantic_hash": ""
+  },
+  "src/core/version.ts": {
+    "mtime": 1794867370.6896892,
+    "seen": 1794867429.9640791,
+    "ast_hash": "c8a4447e76dcb6c6ccd7a89c12906de4",
+    "semantic_hash": ""
+  },
+  "src/core/vfs.ts": {
+    "mtime": 1792805561.965288,
+    "seen": 1793833427.646029,
+    "ast_hash": "0c983141e60aab23bbb264f377a7a12c",
+    "semantic_hash": ""
+  },
+  "src/core/view/arrows.ts": {
+    "mtime": 1793049895.243357,
+    "seen": 1793833427.646029,
+    "ast_hash": "85ac6576ee4ddec6ca887c2601e28277",
+    "semantic_hash": ""
+  },
+  "src/core/view/camera.ts": {
+    "mtime": 1795663007.4365506,
+    "seen": 1795663045.818227,
+    "ast_hash": "7463e13805583a72cda273cd9ada971b",
+    "semantic_hash": ""
+  },
+  "src/core/view/ground-box-geometry.ts": {
+    "mtime": 1795554161.8574405,
+    "seen": 1795554634.0488288,
+    "ast_hash": "145354fa15a7342528485d3e0841db8f",
+    "semantic_hash": ""
+  },
+  "src/core/view/light-pool.ts": {
+    "mtime": 1795554161.8576765,
+    "seen": 1795554634.0488288,
+    "ast_hash": "53b1e11e8675f3a0ff251b5e63b46d83",
+    "semantic_hash": ""
+  },
+  "src/core/view/model-geometry.ts": {
+    "mtime": 1794863488.914191,
+    "seen": 1794864574.0184598,
+    "ast_hash": "8174c34b7667192c027916c75e0ace00",
+    "semantic_hash": ""
+  },
+  "src/core/view/pick.ts": {
+    "mtime": 1794552175.8360298,
+    "seen": 1794553101.402731,
+    "ast_hash": "34477ab657522196a68f32347428021e",
+    "semantic_hash": ""
+  },
+  "src/core/view/screen-pick.ts": {
+    "mtime": 1793045469.146738,
+    "seen": 1793833427.6460319,
+    "ast_hash": "9e78e4b374369163efaba19280ea9f2d",
+    "semantic_hash": ""
+  },
+  "src/core/view/tiles.ts": {
+    "mtime": 1793047651.0663605,
+    "seen": 1793833427.6460319,
+    "ast_hash": "2e60886b13b3636ec80bc43ea53b33bb",
+    "semantic_hash": ""
+  },
+  "src/main.ts": {
+    "mtime": 1795559973.4487433,
+    "seen": 1795560163.865856,
+    "ast_hash": "5c03a0833cf5c5bc1b23839e706223ef",
+    "semantic_hash": ""
+  },
+  "src/render/backdrop.ts": {
+    "mtime": 1794552265.4628737,
+    "seen": 1794553101.402735,
+    "ast_hash": "53946b62d2c2d1238bdde597a6d31105",
+    "semantic_hash": ""
+  },
+  "src/render/camera-math.ts": {
+    "mtime": 1793044858.6698174,
+    "seen": 1793833427.646034,
+    "ast_hash": "34137355683436c37b997f724234d45c",
+    "semantic_hash": ""
+  },
+  "src/render/course.ts": {
+    "mtime": 1795559853.3768504,
+    "seen": 1795559953.620826,
+    "ast_hash": "0903ddb4e3e040575145bef372caad59",
+    "semantic_hash": ""
+  },
+  "src/render/ground-boxes.ts": {
+    "mtime": 1795555767.0955753,
+    "seen": 1795557146.818121,
+    "ast_hash": "816f393f2cea007fce7e9bbaf0dc92fa",
+    "semantic_hash": ""
+  },
+  "src/render/hd-decode.ts": {
+    "mtime": 1793046726.978795,
+    "seen": 1793833427.646035,
+    "ast_hash": "8e78e68a518e7a1d450abf3a007c6281",
+    "semantic_hash": ""
+  },
+  "src/render/model-preview.ts": {
+    "mtime": 1793047943.5622845,
+    "seen": 1793833427.646035,
+    "ast_hash": "2541d2e3a4798b32fa35242b17a56ae7",
+    "semantic_hash": ""
+  },
+  "src/render/models.ts": {
+    "mtime": 1793053217.692098,
+    "seen": 1793833427.646036,
+    "ast_hash": "0f783e33c6ee198fc3772f4b0e770521",
+    "semantic_hash": ""
+  },
+  "src/render/objects.ts": {
+    "mtime": 1794552197.6978397,
+    "seen": 1794553101.40274,
+    "ast_hash": "7f7830774e969504c4886f8e0a1df261",
+    "semantic_hash": ""
+  },
+  "src/render/overlay.ts": {
+    "mtime": 1793051912.05601,
+    "seen": 1793833427.646037,
+    "ast_hash": "c50f43d933ddd95b75dc17444fadea70",
+    "semantic_hash": ""
+  },
+  "src/render/terrain.ts": {
+    "mtime": 1795555767.0951293,
+    "seen": 1795557146.8181272,
+    "ast_hash": "fc2d9f8062fc7fefc54f61d5a025e639",
+    "semantic_hash": ""
+  },
+  "src/render/track-view.ts": {
+    "mtime": 1795663011.5698168,
+    "seen": 1795663045.818249,
+    "ast_hash": "44729fe3202d0822964933c765bafb9b",
+    "semantic_hash": ""
+  },
+  "src/render/viewport.ts": {
+    "mtime": 1794864943.5601392,
+    "seen": 1794865287.780283,
+    "ast_hash": "4dc8287a3df866f38ec7d4ff0c541b89",
+    "semantic_hash": ""
+  },
+  "src/render/water.ts": {
+    "mtime": 1795555592.6711807,
+    "seen": 1795557146.8181288,
+    "ast_hash": "58b5b4e49744f3754926273fa11c10cb",
+    "semantic_hash": ""
+  },
+  "src/shared/dom.ts": {
+    "mtime": 1792805561.9606586,
+    "seen": 1793833427.646039,
+    "ast_hash": "04a0cc4f318534472ba1c41d2586a1e3",
+    "semantic_hash": ""
+  },
+  "src/shared/emitter.ts": {
+    "mtime": 1792805561.9607804,
+    "seen": 1793833427.64604,
+    "ast_hash": "7a9bff869687b7744f8043cc1e688a8d",
+    "semantic_hash": ""
+  },
+  "src/shared/image-decode.ts": {
+    "mtime": 1793046726.1872659,
+    "seen": 1793833427.64604,
+    "ast_hash": "336b42fca20854753197a03acd3cff97",
+    "semantic_hash": ""
+  },
+  "src/shared/opfs.ts": {
+    "mtime": 1792807362.9969509,
+    "seen": 1793833427.6460412,
+    "ast_hash": "3043b359887218fa55420d6c3e260a41",
+    "semantic_hash": ""
+  },
+  "src/shared/path-utils.ts": {
+    "mtime": 1792805539.5059946,
+    "seen": 1793833427.6460412,
+    "ast_hash": "8eb55bfaf300843f285eb5dab4c44e1b",
+    "semantic_hash": ""
+  },
+  "src/shared/settings-store.ts": {
+    "mtime": 1792805651.6294694,
+    "seen": 1793833427.646042,
+    "ast_hash": "592d45b5d40b0f77112f14f0b18162ba",
+    "semantic_hash": ""
+  },
+  "src/shared/system-clipboard.ts": {
+    "mtime": 1793045631.8470283,
+    "seen": 1793833427.646042,
+    "ast_hash": "dddd95a0d054c7988d7960cfa38a6200",
+    "semantic_hash": ""
+  },
+  "src/shared/worker-client.ts": {
+    "mtime": 1792805539.5020711,
+    "seen": 1793833427.646042,
+    "ast_hash": "c33cc78534e0d388c5baf012ce23aeee",
+    "semantic_hash": ""
+  },
+  "src/shared/worker-host.ts": {
+    "mtime": 1792805539.5042005,
+    "seen": 1793833427.6460428,
+    "ast_hash": "65a695d95259bea869f7dae135986a14",
+    "semantic_hash": ""
+  },
+  "src/ui/bars/controls.ts": {
+    "mtime": 1794264356.7600555,
+    "seen": 1794264562.0889359,
+    "ast_hash": "611f54c41d01ee4c2e5a9ee6763a8389",
+    "semantic_hash": ""
+  },
+  "src/ui/bars/tool-bars.ts": {
+    "mtime": 1795559893.4305453,
+    "seen": 1795559953.620842,
+    "ast_hash": "ba47f381663e8698576c2ce4d877e85f",
+    "semantic_hash": ""
+  },
+  "src/ui/bars/view-control.ts": {
+    "mtime": 1795555724.6974063,
+    "seen": 1795557146.818136,
+    "ast_hash": "152191de11031cbefdb3a0f78a6ff36f",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/about.ts": {
+    "mtime": 1794237284.1384866,
+    "seen": 1794263599.057334,
+    "ast_hash": "7ab09ba68ff14c8360210b8eb41ec651",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/adjust-heights.ts": {
+    "mtime": 1795558162.0381079,
+    "seen": 1795558962.042561,
+    "ast_hash": "6acf8c4aba6a3f9ee3d1f76c915ed8ff",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/components-dialog.ts": {
+    "mtime": 1795559724.8649359,
+    "seen": 1795559953.6208441,
+    "ast_hash": "ba83df54b7febbd8fae48521da47fab5",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/course-dialogs.ts": {
+    "mtime": 1795558372.437299,
+    "seen": 1795558962.042562,
+    "ast_hash": "ba1b10f4b7c907b7cb463ecd531d2ad9",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/file-dialogs.ts": {
+    "mtime": 1792807436.719194,
+    "seen": 1793833427.6460469,
+    "ast_hash": "87dd0f314a5471dadb728d182f192b41",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/keyboard-summary.ts": {
+    "mtime": 1793049133.46175,
+    "seen": 1793833427.6460469,
+    "ast_hash": "6abbb7032c56c96e5fa3cccc66db7781",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/object-dialogs.ts": {
+    "mtime": 1795559780.0494792,
+    "seen": 1795559953.620849,
+    "ast_hash": "dea2126cac8b2a0667bb47307521eb95",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/options.ts": {
+    "mtime": 1795556342.243782,
+    "seen": 1795557146.818143,
+    "ast_hash": "3b2254f53bfe87abc25956e4c0f9820d",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/special-dialogs.ts": {
+    "mtime": 1794866548.1785014,
+    "seen": 1794866725.826625,
+    "ast_hash": "b1107fbeec255fb6ba23545ba0503b2f",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/terrain-gen-dialog.ts": {
+    "mtime": 1795558262.6647768,
+    "seen": 1795558962.042568,
+    "ast_hash": "eaab89d572d036817bedbae85002554a",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/texture-cut-dialog.ts": {
+    "mtime": 1793047446.0012555,
+    "seen": 1793833427.646049,
+    "ast_hash": "3d168d25a0ef15d2b4dbe08f2e2e8ad6",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/texture-dialogs.ts": {
+    "mtime": 1793047159.678886,
+    "seen": 1793833427.64605,
+    "ast_hash": "93da1d92e7a1d09698fc7bbabd27bc38",
+    "semantic_hash": ""
+  },
+  "src/ui/input/edit-input.ts": {
+    "mtime": 1793045568.4511752,
+    "seen": 1793833427.64605,
+    "ast_hash": "2162a2075a31fb22a55cc2e45661aa94",
+    "semantic_hash": ""
+  },
+  "src/ui/input/view-focus.ts": {
+    "mtime": 1795556517.0336885,
+    "seen": 1795557146.8181472,
+    "ast_hash": "841b28d01f18fe07a489bbf68c43b2f0",
+    "semantic_hash": ""
+  },
+  "src/ui/input/view-input.ts": {
+    "mtime": 1793044834.8297684,
+    "seen": 1793833427.6460512,
+    "ast_hash": "96ddf0c50e612b9924cb4ab1e51b298f",
+    "semantic_hash": ""
+  },
+  "src/ui/panels/models-panel.ts": {
+    "mtime": 1794264411.3750541,
+    "seen": 1794264562.088969,
+    "ast_hash": "7556df3d891adf34f7a3f5741beca197",
+    "semantic_hash": ""
+  },
+  "src/ui/panels/patterns-panel.ts": {
+    "mtime": 1794552424.351839,
+    "seen": 1794553101.4027689,
+    "ast_hash": "02acac58c58c81e2ce0aae80009305ed",
+    "semantic_hash": ""
+  },
+  "src/ui/panels/textures-panel.ts": {
+    "mtime": 1794801200.3310869,
+    "seen": 1794802194.136267,
+    "ast_hash": "315efcac9851eae9cc8515b0242dc08b",
+    "semantic_hash": ""
+  },
+  "src/ui/panels/transitions-panel.ts": {
+    "mtime": 1795558413.600471,
+    "seen": 1795558962.0425751,
+    "ast_hash": "8cfc392caaca1a63db5a183c60567244",
+    "semantic_hash": ""
+  },
+  "src/ui/shell/app-shell.ts": {
+    "mtime": 1795559506.4295878,
+    "seen": 1795559953.6208582,
+    "ast_hash": "703bcaf264eca41ce9b3887437f082bd",
+    "semantic_hash": ""
+  },
+  "src/ui/shell/commands.ts": {
+    "mtime": 1795559500.3868423,
+    "seen": 1795559953.6208582,
+    "ast_hash": "882f5d05176e6b49e8b41348b318b44c",
+    "semantic_hash": ""
+  },
+  "src/ui/shell/context-menu.ts": {
+    "mtime": 1793055454.6592577,
+    "seen": 1793833427.6460538,
+    "ast_hash": "84025b3b1b139d937a65a0dc90b60be0",
+    "semantic_hash": ""
+  },
+  "src/ui/shell/dialog.ts": {
+    "mtime": 1795576886.0144663,
+    "seen": 1795663045.8182771,
+    "ast_hash": "4e0d3df532aa8c0b919a3982d0ece54a",
+    "semantic_hash": ""
+  },
+  "src/ui/shell/menu.ts": {
+    "mtime": 1794229126.8410192,
+    "seen": 1794229602.883473,
+    "ast_hash": "3a679e04bb16f29c82bf8226718fa8c6",
+    "semantic_hash": ""
+  },
+  "src/ui/shell/panel.ts": {
+    "mtime": 1792806187.7000692,
+    "seen": 1793833427.646055,
+    "ast_hash": "4d48263b6cde35dbce9d71b7923964e4",
+    "semantic_hash": ""
+  },
+  "src/ui/shell/progress.ts": {
+    "mtime": 1792807431.071964,
+    "seen": 1793833427.646056,
+    "ast_hash": "7f04b729c185516f5424e1a66764f3d7",
+    "semantic_hash": ""
+  },
+  "src/ui/shell/statusbar.ts": {
+    "mtime": 1792805802.2611158,
+    "seen": 1793833427.646056,
+    "ast_hash": "51912d7fc17959d04264b14a81f240b9",
+    "semantic_hash": ""
+  },
+  "src/ui/shell/toolbar.ts": {
+    "mtime": 1792805802.2592013,
+    "seen": 1793833427.646057,
+    "ast_hash": "bba7d9805d23bc036de62cd1e71483c2",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/audio/mod.d.ts": {
+    "mtime": 1795555802.618196,
+    "seen": 1795557146.818243,
+    "ast_hash": "ade261ec5e40cc706a22db541d4077c5",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/audio/mod.js": {
+    "mtime": 1795555802.6183662,
+    "seen": 1795557146.818244,
+    "ast_hash": "46352e1aaa961354fdd79a9699d9ca48",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/cpr/cmd.d.ts": {
+    "mtime": 1795555802.618877,
+    "seen": 1795557146.8182452,
+    "ast_hash": "33ef3c38c08c4408e55cdd1f132a44c0",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/cpr/cmd.js": {
+    "mtime": 1795555802.6190047,
+    "seen": 1795557146.818246,
+    "ast_hash": "7d09f14c43826d580be1cde7eb5251ff",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/cpr/garage.d.ts": {
+    "mtime": 1795555802.6191118,
+    "seen": 1795557146.818246,
+    "ast_hash": "a1ed422a245eff91c9264aa27afb33fe",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/cpr/garage.js": {
+    "mtime": 1795555802.6192408,
+    "seen": 1795557146.8182468,
+    "ast_hash": "05600983a16575ede7e09d170dfe6f3c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/cpr/road.d.ts": {
+    "mtime": 1795555802.61935,
+    "seen": 1795557146.818248,
+    "ast_hash": "c133fe3722e1f73f467b944661a8a3d8",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/cpr/road.js": {
+    "mtime": 1795555802.619478,
+    "seen": 1795557146.818248,
+    "ast_hash": "26aea671e9f7cb2f879fc213feaa975f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/cpr/track.d.ts": {
+    "mtime": 1795555802.619593,
+    "seen": 1795557146.818248,
+    "ast_hash": "5aac512446e65f966f6597f05a37e555",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/cpr/track.js": {
+    "mtime": 1795555802.619734,
+    "seen": 1795557146.818249,
+    "ast_hash": "8eb70c90bbfdc45b5f5de90027d53c1d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/errors.d.ts": {
+    "mtime": 1795555802.6199775,
+    "seen": 1795557146.818249,
+    "ast_hash": "04b6e6d2b9b294fafdcf94957611c6f7",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/errors.js": {
+    "mtime": 1795555802.6201317,
+    "seen": 1795557146.81825,
+    "ast_hash": "78f3a283bd74cff650d1913e52ae32d7",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/ai-line.d.ts": {
+    "mtime": 1795555802.6203158,
+    "seen": 1795557146.81825,
+    "ast_hash": "835580959bc83f642b8ce7a42b6202a5",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/ai-line.js": {
+    "mtime": 1795555802.620474,
+    "seen": 1795557146.818251,
+    "ast_hash": "bed59277b11057547f9553c7aefb22e1",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/coords.d.ts": {
+    "mtime": 1795555802.620622,
+    "seen": 1795557146.818251,
+    "ast_hash": "8dbb998ff3d7fbe001c62f41dd4f25b4",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/coords.js": {
+    "mtime": 1795555802.6207826,
+    "seen": 1795557146.818252,
+    "ast_hash": "dea0eb2d325d3f8942d6b1860aa2ae26",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/lte.d.ts": {
+    "mtime": 1795555802.6209397,
+    "seen": 1795557146.818252,
+    "ast_hash": "dfc9076b144d9c23423984e59a9b1be6",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/lte.js": {
+    "mtime": 1795555802.6210835,
+    "seen": 1795557146.818253,
+    "ast_hash": "0291dea03b84809875e3c892af0c0836",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/lvl.d.ts": {
+    "mtime": 1795555802.621226,
+    "seen": 1795557146.818253,
+    "ast_hash": "8b754950b6dd85137811882fdacf44e8",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/lvl.js": {
+    "mtime": 1795555802.621379,
+    "seen": 1795557146.818254,
+    "ast_hash": "179d20f81655761fa13771f8895aff09",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/parts.d.ts": {
+    "mtime": 1795555802.621512,
+    "seen": 1795557146.818254,
+    "ast_hash": "52356637f0f2786143d8621d2f6dca32",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/parts.js": {
+    "mtime": 1795555802.6216557,
+    "seen": 1795557146.8182552,
+    "ast_hash": "cfbfe134f584f618a705b794cf0daccb",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/script.d.ts": {
+    "mtime": 1795555802.6217997,
+    "seen": 1795557146.8182552,
+    "ast_hash": "d16239181d42c42d64132f1d5c7afc6c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/script.js": {
+    "mtime": 1795555802.621965,
+    "seen": 1795557146.818256,
+    "ast_hash": "6cb45d23a6924fe8a2214f35b2c24517",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/sit.d.ts": {
+    "mtime": 1795555802.622112,
+    "seen": 1795557146.818256,
+    "ast_hash": "1a4f4cf6835fdaf5610b95e4d7365a69",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/sit.js": {
+    "mtime": 1795555802.6222587,
+    "seen": 1795557146.8182569,
+    "ast_hash": "992e82dea5e685efd398289022b8a572",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/smf.d.ts": {
+    "mtime": 1795555802.6224022,
+    "seen": 1795557146.8182569,
+    "ast_hash": "27ba69a75795ec94313cd31973488f0d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/smf.js": {
+    "mtime": 1795555802.622545,
+    "seen": 1795557146.8182578,
+    "ast_hash": "da3441fb4713e91947894b1298acd504",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/tex.d.ts": {
+    "mtime": 1795555802.622715,
+    "seen": 1795557146.8182578,
+    "ast_hash": "863fdab496abdd4327b6a0f9343072c7",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/tex.js": {
+    "mtime": 1795555802.6228535,
+    "seen": 1795557146.818259,
+    "ast_hash": "e1cb0408b5809b76c1fffb75f0f8b67a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/text.d.ts": {
+    "mtime": 1795555802.623032,
+    "seen": 1795557146.818259,
+    "ast_hash": "e2f5f6991379e577ea2ea0a175feea42",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/text.js": {
+    "mtime": 1795555802.6231647,
+    "seen": 1795557146.81826,
+    "ast_hash": "9ee45e0c8b9301dcbdf47b969c07c555",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/trk.d.ts": {
+    "mtime": 1795555802.6232908,
+    "seen": 1795557146.81826,
+    "ast_hash": "6de4c6239c23f5d952d85728acc19d68",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/trk.js": {
+    "mtime": 1795555802.6234493,
+    "seen": 1795557146.818261,
+    "ast_hash": "dbe8b8f2d1faf9962e5de7c724e52a50",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/veg.d.ts": {
+    "mtime": 1795555802.6236105,
+    "seen": 1795557146.818261,
+    "ast_hash": "c00996ae1a63078f8e196d332b7677d9",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/veg.js": {
+    "mtime": 1795555802.6237514,
+    "seen": 1795557146.818262,
+    "ast_hash": "19f5c2a108695af2168ed4268ccf7f39",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/vegetation.d.ts": {
+    "mtime": 1795555802.6238885,
+    "seen": 1795557146.818262,
+    "ast_hash": "7c39dfed1969d9da9a10961c4ac8ecf2",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/evo/vegetation.js": {
+    "mtime": 1795555802.6240175,
+    "seen": 1795557146.818263,
+    "ast_hash": "34a25181e087987bc666ee9fe7b27c2b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/fly/bsp.d.ts": {
+    "mtime": 1795555802.6241462,
+    "seen": 1795557146.818263,
+    "ast_hash": "db8706ff21de38cfb419c8b4e709e533",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/fly/bsp.js": {
+    "mtime": 1795555802.6242447,
+    "seen": 1795557146.818264,
+    "ast_hash": "aea761d7afffae711e5a032d9a00034c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/fly/globe.d.ts": {
+    "mtime": 1795555802.6243427,
+    "seen": 1795557146.818264,
+    "ast_hash": "13184a3c9246836010a11978f4063964",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/fly/globe.js": {
+    "mtime": 1795555802.6244488,
+    "seen": 1795557146.8182652,
+    "ast_hash": "e05b446f19ae0e175d1851e9bc8db504",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/fly/quadrant.d.ts": {
+    "mtime": 1795555802.6245477,
+    "seen": 1795557146.8182652,
+    "ast_hash": "c36b6fce44335a368737469c8f73c470",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/fly/quadrant.js": {
+    "mtime": 1795555802.624648,
+    "seen": 1795557146.8182662,
+    "ast_hash": "95568973473c9c28599422b070aef382",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/fly/scenery.d.ts": {
+    "mtime": 1795555802.624748,
+    "seen": 1795557146.8182662,
+    "ast_hash": "83b4a0c0ce1efdfdab0624dd9ffeeb45",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/fly/scenery.js": {
+    "mtime": 1795555802.6248493,
+    "seen": 1795557146.8182662,
+    "ast_hash": "09b4cedb63760f3e88aa4515102d44d2",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/fly/tagged.d.ts": {
+    "mtime": 1795555802.6249576,
+    "seen": 1795557146.8182669,
+    "ast_hash": "72940e2f2ec0996b91ebf43a6a089b8d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/fly/tagged.js": {
+    "mtime": 1795555802.625093,
+    "seen": 1795557146.8182669,
+    "ast_hash": "28bf639b5ff6117a49b6d9cd1b88e9ce",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/index.d.ts": {
+    "mtime": 1795555802.625228,
+    "seen": 1795557146.8182678,
+    "ast_hash": "ddbee354cca501fd5b28e3c38ebb1212",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/index.js": {
+    "mtime": 1795555802.6253517,
+    "seen": 1795557146.8182678,
+    "ast_hash": "130b4c3f3d7cd913f0ed0e99a15e884e",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/model/bin-write.d.ts": {
+    "mtime": 1795555802.625525,
+    "seen": 1795557146.818269,
+    "ast_hash": "53869cfe28b76bee8ca968f156e82398",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/model/bin-write.js": {
+    "mtime": 1795555802.6256318,
+    "seen": 1795557146.818269,
+    "ast_hash": "65d73d88cad3458026dead2c1193f36d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/model/bin.d.ts": {
+    "mtime": 1795555802.6257463,
+    "seen": 1795557146.81827,
+    "ast_hash": "6d9365c6da74f8806a94c3ec3d13f0db",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/model/bin.js": {
+    "mtime": 1795555802.6258497,
+    "seen": 1795557146.81827,
+    "ast_hash": "42a423f5e61b16b140138cb33ecd3ff3",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/cockpit.d.ts": {
+    "mtime": 1795555802.626242,
+    "seen": 1795557146.818272,
+    "ast_hash": "934c88a22f0cf17eaf2f2bf41af81a7e",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/cockpit.js": {
+    "mtime": 1795555802.626348,
+    "seen": 1795557146.818272,
+    "ast_hash": "6422006338ab52c7d6edd613de7d0b80",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/level-palette.d.ts": {
+    "mtime": 1795555802.62743,
+    "seen": 1795557146.8182762,
+    "ast_hash": "e28d3131a312dd78a1e2ea0866b8cc29",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/level-palette.js": {
+    "mtime": 1795555802.627531,
+    "seen": 1795557146.8182771,
+    "ast_hash": "eb6f8cd875361aef36740c6e9b03ae72",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/loc.d.ts": {
+    "mtime": 1795555802.6276362,
+    "seen": 1795557146.8182771,
+    "ast_hash": "c8febe79ae0159dec7fa9ee2da26b921",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/loc.js": {
+    "mtime": 1795555802.6277344,
+    "seen": 1795557146.8182778,
+    "ast_hash": "4f7cab5b6a2bcae1e0ece22715aebe99",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/replay.d.ts": {
+    "mtime": 1795555802.6280425,
+    "seen": 1795557146.818279,
+    "ast_hash": "88306c35094858a4725722b7e1ed2693",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/replay.js": {
+    "mtime": 1795555802.6281633,
+    "seen": 1795557146.81828,
+    "ast_hash": "aebf6d2a6f5de2ec380039f7463e4ab3",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/sit.d.ts": {
+    "mtime": 1795555802.6285274,
+    "seen": 1795557146.818281,
+    "ast_hash": "468347befee1d161119606605896f149",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/sit.js": {
+    "mtime": 1795555802.6286435,
+    "seen": 1795557146.818282,
+    "ast_hash": "7f8c0787270d38da68ba1325dd20adc8",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/sound.d.ts": {
+    "mtime": 1795555802.6287472,
+    "seen": 1795557146.818282,
+    "ast_hash": "37bcaae47227dd993d799a6049e6b206",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/sound.js": {
+    "mtime": 1795555802.6288462,
+    "seen": 1795557146.818283,
+    "ast_hash": "02abc8494628ef9f5f8c2ae90b3c04c6",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/sun.d.ts": {
+    "mtime": 1795555802.6291647,
+    "seen": 1795557146.818284,
+    "ast_hash": "df1e6b26efc6f2fa8a0e6d1d286035f7",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/sun.js": {
+    "mtime": 1795555802.6293898,
+    "seen": 1795557146.818285,
+    "ast_hash": "c187b628b2337711aca4c0a4d99f8d12",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/trn.d.ts": {
+    "mtime": 1795555802.629549,
+    "seen": 1795557146.818285,
+    "ast_hash": "227fd3611dfc0d45a9509468ab3e8304",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/trn.js": {
+    "mtime": 1795555802.6296704,
+    "seen": 1795557146.818285,
+    "ast_hash": "d4f5ac0bcb636e3b7622018a16ac214d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/txv.d.ts": {
+    "mtime": 1795555802.629785,
+    "seen": 1795557146.8182862,
+    "ast_hash": "3f9b19f8dc415e19f53f5c44afc22c37",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/txv.js": {
+    "mtime": 1795555802.6299036,
+    "seen": 1795557146.8182871,
+    "ast_hash": "89e03b6885295f090521380303ddb24c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/write.d.ts": {
+    "mtime": 1795555802.6305683,
+    "seen": 1795557146.8182888,
+    "ast_hash": "7ba8da2665346b3239723f31cce1ef7a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/write.js": {
+    "mtime": 1795555802.6307082,
+    "seen": 1795557146.81829,
+    "ast_hash": "d035d1d9b73907a7949e9c0f44a83d49",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/cth.d.ts": {
+    "mtime": 1795555802.6310844,
+    "seen": 1795557146.818291,
+    "ast_hash": "f119cd62fb62ae1cb9389558d6229f52",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/cth.js": {
+    "mtime": 1795555802.631184,
+    "seen": 1795557146.818291,
+    "ast_hash": "016df7a54a20c51d8e8f4e05e7f0ceb1",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/dfm.d.ts": {
+    "mtime": 1795555802.6312838,
+    "seen": 1795557146.818292,
+    "ast_hash": "c3a10a8186d0bc059f1790e05b302f1e",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/dfm.js": {
+    "mtime": 1795555802.6314142,
+    "seen": 1795557146.818292,
+    "ast_hash": "8fe9a4c00af11ba7e4aff5a8bf73ac89",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/fog.d.ts": {
+    "mtime": 1795555802.631534,
+    "seen": 1795557146.818293,
+    "ast_hash": "9796bbedf402730a3f246bd747de4f1c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/fog.js": {
+    "mtime": 1795555802.631634,
+    "seen": 1795557146.818293,
+    "ast_hash": "dad642c61df717c066d55626f0c8da8b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/geo.d.ts": {
+    "mtime": 1795555802.6317375,
+    "seen": 1795557146.818294,
+    "ast_hash": "b975fde9b7d51070de89d5bc0a903b77",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/geo.js": {
+    "mtime": 1795555802.6318364,
+    "seen": 1795557146.818294,
+    "ast_hash": "acd52c184b3411ce3d9b6e7a7d82fb62",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/kfm.d.ts": {
+    "mtime": 1795555802.63194,
+    "seen": 1795557146.818295,
+    "ast_hash": "95c083f1512e820b12630dbccfded9e0",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/kfm.js": {
+    "mtime": 1795555802.6320605,
+    "seen": 1795557146.818295,
+    "ast_hash": "47489cd55f10d6a826c1a2a41b768840",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/set.d.ts": {
+    "mtime": 1795555802.6321602,
+    "seen": 1795557146.818296,
+    "ast_hash": "c4ecc7f6488ccc3946cea826d5543a39",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/set.js": {
+    "mtime": 1795555802.6322742,
+    "seen": 1795557146.818296,
+    "ast_hash": "309560818f30d847236ae8d8035e1c15",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/skl.d.ts": {
+    "mtime": 1795555802.6323931,
+    "seen": 1795557146.818296,
+    "ast_hash": "ba60f024a61554c1357bc30937ca4bde",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/skl.js": {
+    "mtime": 1795555802.6325097,
+    "seen": 1795557146.8182971,
+    "ast_hash": "3e48ad5a5d0f6446c694b619f76d0fc8",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/text.d.ts": {
+    "mtime": 1795555802.6326315,
+    "seen": 1795557146.8182971,
+    "ast_hash": "ea9cb8677ae1de47cdfe2abe50cdb079",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/text.js": {
+    "mtime": 1795555802.6327333,
+    "seen": 1795557146.818298,
+    "ast_hash": "23edbec0fe16786810e7eca1d6d232f1",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/thm.d.ts": {
+    "mtime": 1795555802.632827,
+    "seen": 1795557146.818298,
+    "ast_hash": "37b275f31b0c0f1d6998dbe2f00891c6",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/thm.js": {
+    "mtime": 1795555802.6329248,
+    "seen": 1795557146.8182988,
+    "ast_hash": "48881b79accbc0de8de3e986d4eff6d8",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/zth.d.ts": {
+    "mtime": 1795555802.6330225,
+    "seen": 1795557146.8182988,
+    "ast_hash": "9d9cece79cfe459fe36dda67a0b98fc3",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/nocturne/zth.js": {
+    "mtime": 1795555802.6331205,
+    "seen": 1795557146.8183,
+    "ast_hash": "6a94cdb491f96933c5dcd853c64c7d9d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/pod/lookup.d.ts": {
+    "mtime": 1795555802.6332474,
+    "seen": 1795557146.8183,
+    "ast_hash": "3f063e23d7645a49b84299382138cb6a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/pod/lookup.js": {
+    "mtime": 1795555802.6333458,
+    "seen": 1795557146.818301,
+    "ast_hash": "2d7f3a46201bbca08d1d3848f4645c62",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/pod/parse.d.ts": {
+    "mtime": 1795555802.6334484,
+    "seen": 1795557146.818301,
+    "ast_hash": "53ce20e36dfc1706cf4b27447c38619f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/pod/parse.js": {
+    "mtime": 1795555802.6335862,
+    "seen": 1795557146.818301,
+    "ast_hash": "2f85171ece218da0b216f0caf5cb1e26",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/pod/paths.d.ts": {
+    "mtime": 1795555802.633737,
+    "seen": 1795557146.818302,
+    "ast_hash": "98cc8f61e20def69dd6822774d7a3c55",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/pod/paths.js": {
+    "mtime": 1795555802.6338835,
+    "seen": 1795557146.818302,
+    "ast_hash": "8b56086b16391d3e994e635de387ee04",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/pod/pod2.d.ts": {
+    "mtime": 1795555802.6340246,
+    "seen": 1795557146.8183029,
+    "ast_hash": "24ff1ed8349f36d2845af6afd5f1879c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/pod/pod2.js": {
+    "mtime": 1795555802.6341631,
+    "seen": 1795557146.8183029,
+    "ast_hash": "c7afb56176d381a048660640fe87d85d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/pod/types.d.ts": {
+    "mtime": 1795555802.6343186,
+    "seen": 1795557146.818304,
+    "ast_hash": "5c647c68a4e7006ffc3eb1a585a6896b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/pod/types.js": {
+    "mtime": 1795555802.63445,
+    "seen": 1795557146.818304,
+    "ast_hash": "e2ebd7ddedcadeeadbf819c35985c768",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/pod/write.d.ts": {
+    "mtime": 1795555802.6349351,
+    "seen": 1795557146.818306,
+    "ast_hash": "345550dbe68e7ac449bdb96d9d276621",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/pod/write.js": {
+    "mtime": 1795555802.6350708,
+    "seen": 1795557146.818306,
+    "ast_hash": "49b0bfed74fe8c235f12298b98903f26",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cpr/index.d.ts": {
+    "mtime": 1795555802.6374311,
+    "seen": 1795557146.818314,
+    "ast_hash": "3a6f1c27181d8204cddf8367c8ca0a9d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cpr/index.js": {
+    "mtime": 1795555802.637528,
+    "seen": 1795557146.818315,
+    "ast_hash": "0c2efb1532d041b6c21e7ed9cf3a35c7",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cpr/rules.d.ts": {
+    "mtime": 1795555802.6376307,
+    "seen": 1795557146.818315,
+    "ast_hash": "f4d894eb4f15e9130d4d6abb7435c3ed",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cpr/rules.js": {
+    "mtime": 1795555802.6377335,
+    "seen": 1795557146.818316,
+    "ast_hash": "b636730f84178ac2683abeb8498a2d65",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cpr/step.d.ts": {
+    "mtime": 1795555802.637847,
+    "seen": 1795557146.818316,
+    "ast_hash": "9e653d43d4d9f3cb592f88ad84a3df9c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cpr/step.js": {
+    "mtime": 1795555802.63798,
+    "seen": 1795557146.8183172,
+    "ast_hash": "618760ac7a912e46cfd04a299356adf2",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/evo/driveline.d.ts": {
+    "mtime": 1795555802.6381328,
+    "seen": 1795557146.8183172,
+    "ast_hash": "92ebc7cb5ca483a75daa4645df3bfb9e",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/evo/driveline.js": {
+    "mtime": 1795555802.6382408,
+    "seen": 1795557146.8183181,
+    "ast_hash": "5eebed979b9c81b8804267e576040ad9",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/evo/ground.d.ts": {
+    "mtime": 1795555802.6383379,
+    "seen": 1795557146.8183181,
+    "ast_hash": "b0bd9ec1eae18897e6363cd6a2a2fe2f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/evo/ground.js": {
+    "mtime": 1795555802.6384358,
+    "seen": 1795557146.818319,
+    "ast_hash": "154e5d5e20d5fa4331adaa911426cd45",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/evo/index.d.ts": {
+    "mtime": 1795555802.6385343,
+    "seen": 1795557146.818319,
+    "ast_hash": "997c25ca5996d0ac79e61109d8e15c01",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/evo/index.js": {
+    "mtime": 1795555802.6386347,
+    "seen": 1795557146.8183198,
+    "ast_hash": "96bcef2b00c58d450a144477aefba735",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/evo/params.d.ts": {
+    "mtime": 1795555802.638737,
+    "seen": 1795557146.8183198,
+    "ast_hash": "33d46732394817d6a7652f4f7fba4e40",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/evo/params.js": {
+    "mtime": 1795555802.6388476,
+    "seen": 1795557146.818321,
+    "ast_hash": "a443f38f0677a652c06da579e9f8f54d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/evo/rules.d.ts": {
+    "mtime": 1795555802.6389737,
+    "seen": 1795557146.818321,
+    "ast_hash": "994ef9ece2f92751eac235b20dc7f600",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/evo/rules.js": {
+    "mtime": 1795555802.6390948,
+    "seen": 1795557146.818322,
+    "ast_hash": "aec0d1f6ca9a1e324ce410dc511052d7",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/evo/spec.d.ts": {
+    "mtime": 1795555802.6392262,
+    "seen": 1795557146.818322,
+    "ast_hash": "2db836eb07b059e16c3fe8284845c3d6",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/evo/spec.js": {
+    "mtime": 1795555802.6393378,
+    "seen": 1795557146.818323,
+    "ast_hash": "548d81bdc36c12e5b8d28f94f09795f3",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/evo/step.d.ts": {
+    "mtime": 1795555802.6394782,
+    "seen": 1795557146.818323,
+    "ast_hash": "51b637d2fee135b67a11aac36accaeb1",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/evo/step.js": {
+    "mtime": 1795555802.6395874,
+    "seen": 1795557146.818323,
+    "ast_hash": "1c3d1a2ccac985ca5f008223e267b335",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/box-box.d.ts": {
+    "mtime": 1795555802.639754,
+    "seen": 1795557146.8183239,
+    "ast_hash": "5f55348edba90450bafbe29c1b27df9c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/box-box.js": {
+    "mtime": 1795555802.6398618,
+    "seen": 1795557146.8183239,
+    "ast_hash": "9790ba51f6a5c90ba306059797b5a12a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/box-step.d.ts": {
+    "mtime": 1795555802.6399872,
+    "seen": 1795557146.818325,
+    "ast_hash": "fcc91127641051a1bbeec3ad09696241",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/box-step.js": {
+    "mtime": 1795555802.6401243,
+    "seen": 1795557146.818326,
+    "ast_hash": "d2e587298b50cdcc23a7334a9d44a0af",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/box.d.ts": {
+    "mtime": 1795555802.6402519,
+    "seen": 1795557146.818326,
+    "ast_hash": "0e1db1499d2f57514e30b66bfd34357b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/box.js": {
+    "mtime": 1795555802.6403682,
+    "seen": 1795557146.818326,
+    "ast_hash": "4946e7ff9b9065c3bbbab240c30dee88",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/edges.d.ts": {
+    "mtime": 1795555802.6404707,
+    "seen": 1795557146.818327,
+    "ast_hash": "7b7a0346296c11891f5e16be9ac0b34f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/edges.js": {
+    "mtime": 1795555802.640578,
+    "seen": 1795557146.818327,
+    "ast_hash": "4ce5a84c0f916dc279e93c3d06295055",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/faces.d.ts": {
+    "mtime": 1795555802.640819,
+    "seen": 1795557146.8183281,
+    "ast_hash": "31706961e1799046f84d81301a6855db",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/faces.js": {
+    "mtime": 1795555802.6409264,
+    "seen": 1795557146.8183281,
+    "ast_hash": "167af8ea4b04860a8069b60cb81454de",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/moving-object.d.ts": {
+    "mtime": 1795555802.6410484,
+    "seen": 1795557146.818329,
+    "ast_hash": "81148f3c2dc1b8b3f6faed072dad09ef",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/moving-object.js": {
+    "mtime": 1795555802.6411817,
+    "seen": 1795557146.818329,
+    "ast_hash": "4b72f894708d7734d4217b75c1a90e4d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/ramp.d.ts": {
+    "mtime": 1795555802.641288,
+    "seen": 1795557146.81833,
+    "ast_hash": "4c80b59076a3b96b1868c5ca6e517ca6",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/ramp.js": {
+    "mtime": 1795555802.6413927,
+    "seen": 1795557146.81833,
+    "ast_hash": "797ef09fc9346e2067cc9857a0373506",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/top-crush.d.ts": {
+    "mtime": 1795555802.6415029,
+    "seen": 1795557146.8183308,
+    "ast_hash": "8a702d72d6c3a92c40a091efe6ed4b44",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/top-crush.js": {
+    "mtime": 1795555802.641621,
+    "seen": 1795557146.8183308,
+    "ast_hash": "7a018674cc79a56f27778bcde11d48f2",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/truck-box.d.ts": {
+    "mtime": 1795555802.6417577,
+    "seen": 1795557146.818332,
+    "ast_hash": "7e2350fa16eee912eace0f01581be521",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/truck-box.js": {
+    "mtime": 1795555802.6418657,
+    "seen": 1795557146.818332,
+    "ast_hash": "ad8c47ebafd9fddb8144cbce5c2feba1",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/truck-face.d.ts": {
+    "mtime": 1795555802.6420245,
+    "seen": 1795557146.818333,
+    "ast_hash": "2445f76ffd826130ecb3d87a138cc371",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/truck-face.js": {
+    "mtime": 1795555802.642167,
+    "seen": 1795557146.818333,
+    "ast_hash": "f860b1cfa228b7fd5359e0c81285f0f4",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/truck-truck.d.ts": {
+    "mtime": 1795555802.642503,
+    "seen": 1795557146.818335,
+    "ast_hash": "3b17bb09f1b3734dd5e7469851a6492c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/truck-truck.js": {
+    "mtime": 1795555802.6426075,
+    "seen": 1795557146.818335,
+    "ast_hash": "d80188795baae473295c5ced3e83e749",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/constants.d.ts": {
+    "mtime": 1795555802.6427467,
+    "seen": 1795557146.818336,
+    "ast_hash": "f5c5574fb86db7797084b650e1151587",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/constants.js": {
+    "mtime": 1795555802.642873,
+    "seen": 1795557146.818336,
+    "ast_hash": "1cd7be7ca89620ea88784c7bd95aba86",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/index.d.ts": {
+    "mtime": 1795555802.6429732,
+    "seen": 1795557146.818336,
+    "ast_hash": "1ad218b96c39a2eddc9fe5db5e8e124f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/index.js": {
+    "mtime": 1795555802.6430788,
+    "seen": 1795557146.818337,
+    "ast_hash": "4c9bd543629b3d5137cdc9276fd83c26",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/math.d.ts": {
+    "mtime": 1795555802.6432183,
+    "seen": 1795557146.818337,
+    "ast_hash": "2b33e1616db840f70c05af540f81a75f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/math.js": {
+    "mtime": 1795555802.6433384,
+    "seen": 1795557146.8183382,
+    "ast_hash": "5fe60a3af9363ac243ff60121b4ebf27",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/race/race.d.ts": {
+    "mtime": 1795555802.6434698,
+    "seen": 1795557146.8183382,
+    "ast_hash": "6e523cbe4751caff8b9b9b12b2db8f6a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/race/race.js": {
+    "mtime": 1795555802.6435747,
+    "seen": 1795557146.818339,
+    "ast_hash": "7fb1c0802e3374ef4d6734cf4a9b2743",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/race/summit.d.ts": {
+    "mtime": 1795555802.6437485,
+    "seen": 1795557146.818339,
+    "ast_hash": "79c0b3563ad1cb78c68e658f8fc586e1",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/race/summit.js": {
+    "mtime": 1795555802.6438942,
+    "seen": 1795557146.81834,
+    "ast_hash": "06eadbc80f94098c073955768e412d95",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/time.d.ts": {
+    "mtime": 1795555802.644029,
+    "seen": 1795557146.818341,
+    "ast_hash": "4e725e73e3ea1726e203feb151f3dd45",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/time.js": {
+    "mtime": 1795555802.6441708,
+    "seen": 1795557146.818341,
+    "ast_hash": "61e9ea949aca7e3629622cf1b10e7727",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/autopilot.d.ts": {
+    "mtime": 1795555802.6443672,
+    "seen": 1795557146.818342,
+    "ast_hash": "e03150bdc3526c7de690384483482a5b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/autopilot.js": {
+    "mtime": 1795555802.6445005,
+    "seen": 1795557146.818342,
+    "ast_hash": "71515b484b7ed32a9b1e235e100e3031",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/contacts.d.ts": {
+    "mtime": 1795555802.6449542,
+    "seen": 1795557146.818343,
+    "ast_hash": "894578dad5a9606beaebfc6497c586f6",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/contacts.js": {
+    "mtime": 1795555802.6451085,
+    "seen": 1795557146.818343,
+    "ast_hash": "dfcb144d5fd1233ae34a2fddcaa9cca5",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/controls.d.ts": {
+    "mtime": 1795555802.645292,
+    "seen": 1795557146.8183439,
+    "ast_hash": "d9a34fe8c6fa3f28f57f63a973989e63",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/controls.js": {
+    "mtime": 1795555802.6454444,
+    "seen": 1795557146.8183439,
+    "ast_hash": "b71d72aedf9ab69b32cd4c43614ada5a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/damage.d.ts": {
+    "mtime": 1795555802.645589,
+    "seen": 1795557146.818345,
+    "ast_hash": "9677f48d584680302303cd412790691c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/damage.js": {
+    "mtime": 1795555802.6457407,
+    "seen": 1795557146.818345,
+    "ast_hash": "0182fc825cfbcd712de56bbcb5d44cc2",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/drivetrain.d.ts": {
+    "mtime": 1795555802.6458802,
+    "seen": 1795557146.818345,
+    "ast_hash": "f90451ce36aa5ff84ba5a8fbf00fd148",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/drivetrain.js": {
+    "mtime": 1795555802.6461382,
+    "seen": 1795557146.818346,
+    "ast_hash": "5533226a4fdfd87b93335a9298df386b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/dynamics.d.ts": {
+    "mtime": 1795555802.6463122,
+    "seen": 1795557146.818346,
+    "ast_hash": "d8b7607997c3c1b5220ade01ee1bea81",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/dynamics.js": {
+    "mtime": 1795555802.6464517,
+    "seen": 1795557146.818347,
+    "ast_hash": "53a6bdacee1eb89a019843a5afeaacb9",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/params.d.ts": {
+    "mtime": 1795555802.6467857,
+    "seen": 1795557146.818348,
+    "ast_hash": "608910c9c5187b376260058b1a7cc81b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/params.js": {
+    "mtime": 1795555802.6468973,
+    "seen": 1795557146.8183491,
+    "ast_hash": "96106923bd19339460d4f6265e5046d9",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/recovery.d.ts": {
+    "mtime": 1795555802.6470003,
+    "seen": 1795557146.8183491,
+    "ast_hash": "fb809d3666182360c14a6a29b55e8842",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/recovery.js": {
+    "mtime": 1795555802.6471112,
+    "seen": 1795557146.81835,
+    "ast_hash": "85ed581d66093f0938a4a1d9a550d7ee",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/state.d.ts": {
+    "mtime": 1795555802.64723,
+    "seen": 1795557146.81835,
+    "ast_hash": "108cce0b4247df2ceb6e02a54ae86e73",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/state.js": {
+    "mtime": 1795555802.6473622,
+    "seen": 1795557146.818351,
+    "ast_hash": "0c49dafeca02f4fc1ab32a3ec9dd54e0",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/traffic.d.ts": {
+    "mtime": 1795555802.6475036,
+    "seen": 1795557146.818351,
+    "ast_hash": "a1ba9266647d4a0488d5ab00778038d7",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/traffic.js": {
+    "mtime": 1795555802.647624,
+    "seen": 1795557146.8183522,
+    "ast_hash": "7c41c81843fd3a0dec03a1da1467c222",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/water-drag.d.ts": {
+    "mtime": 1795555802.6480925,
+    "seen": 1795557146.818353,
+    "ast_hash": "e97ab1baae6dd67c07c32a40b0929ab8",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/water-drag.js": {
+    "mtime": 1795555802.6482627,
+    "seen": 1795557146.818354,
+    "ast_hash": "fb530eb632d8f370cad5ac533a4ea274",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/checkpoints.d.ts": {
+    "mtime": 1795555802.6485124,
+    "seen": 1795557146.818354,
+    "ast_hash": "a6fd2cc9ea8df35e4e38d0a34f087163",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/checkpoints.js": {
+    "mtime": 1795555802.6486735,
+    "seen": 1795557146.8183548,
+    "ast_hash": "ae72c5137bf8dad6e0f3cbfe13864913",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/course.d.ts": {
+    "mtime": 1795555802.6488342,
+    "seen": 1795557146.8183548,
+    "ast_hash": "30f23009d3a1a042697141a41799e264",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/course.js": {
+    "mtime": 1795555802.6490204,
+    "seen": 1795557146.818356,
+    "ast_hash": "725a331456c1f8bdc7a747fad68e6ce9",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/ground.d.ts": {
+    "mtime": 1795555802.6492286,
+    "seen": 1795557146.818356,
+    "ast_hash": "94f5e2bd7b45be0f196a0ae69c0b0518",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/ground.js": {
+    "mtime": 1795555802.6494076,
+    "seen": 1795557146.818356,
+    "ast_hash": "a8472d9f3570f45da5e506b50f2f6a4d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/road.d.ts": {
+    "mtime": 1795555802.6496003,
+    "seen": 1795557146.818357,
+    "ast_hash": "05759df70ee018948feee86960e07900",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/road.js": {
+    "mtime": 1795555802.6498096,
+    "seen": 1795557146.818357,
+    "ast_hash": "fea1e04da5a8818e9b4606634a307813",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/surface.d.ts": {
+    "mtime": 1795555802.650015,
+    "seen": 1795557146.818358,
+    "ast_hash": "45c183476df5ac33a81f92c539d86f69",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/surface.js": {
+    "mtime": 1795555802.6501625,
+    "seen": 1795557146.818358,
+    "ast_hash": "2264ec311ac06b19ac781b48436f771f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/terrain.d.ts": {
+    "mtime": 1795555802.65034,
+    "seen": 1795557146.8183591,
+    "ast_hash": "6b4c8d25306ec2c96b07bf81bbbc6b51",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/terrain.js": {
+    "mtime": 1795555802.6505015,
+    "seen": 1795557146.8183591,
+    "ast_hash": "54473a6eeb00b038836f62cb69f9dfe4",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/water.d.ts": {
+    "mtime": 1795555802.6506639,
+    "seen": 1795557146.81836,
+    "ast_hash": "5b27d17b4d780383b55af0b0af8d411a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/water.js": {
+    "mtime": 1795555802.6508012,
+    "seen": 1795557146.81836,
+    "ast_hash": "d103ace6105565b805933dbf811ea66a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/wrap.d.ts": {
+    "mtime": 1795555802.650919,
+    "seen": 1795557146.818361,
+    "ast_hash": "1d4238403fac5505d8e4aa844ca0fd1f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/world/wrap.js": {
+    "mtime": 1795555802.6510522,
+    "seen": 1795557146.818361,
+    "ast_hash": "f93703b0e263f64237f808f9fe19e24b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/terrain/ground-boxes.d.ts": {
+    "mtime": 1795555802.6512103,
+    "seen": 1795557146.818362,
+    "ast_hash": "3e3ccb2ee77c58606e6e63fc30ba169c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/terrain/ground-boxes.js": {
+    "mtime": 1795555802.6513262,
+    "seen": 1795557146.818362,
+    "ast_hash": "e722d748266f275a0a1822075b5b3111",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/terrain/hb-underground.d.ts": {
+    "mtime": 1795555802.651489,
+    "seen": 1795557146.818363,
+    "ast_hash": "6ad29cbd63ac2d4a25a91f8a8292d5d6",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/terrain/hb-underground.js": {
+    "mtime": 1795555802.6516404,
+    "seen": 1795557146.818363,
+    "ast_hash": "bf734e17c53c8230e3f2e17abf82cd41",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/terrain/height.d.ts": {
+    "mtime": 1795555802.6517754,
+    "seen": 1795557146.818364,
+    "ast_hash": "259ebbee9d2c0dce2db8af4184a31551",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/terrain/height.js": {
+    "mtime": 1795555802.6519284,
+    "seen": 1795557146.818364,
+    "ast_hash": "038847bdc6bbc10ddac0f3619ec8e0ab",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/text.d.ts": {
+    "mtime": 1795555802.6523626,
+    "seen": 1795557146.818366,
+    "ast_hash": "f551ea8b81e857d498e814214167e01a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/text.js": {
+    "mtime": 1795555802.6524858,
+    "seen": 1795557146.818366,
+    "ast_hash": "4db5224c11f9b4e22c13fbf5b2c11058",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/act.d.ts": {
+    "mtime": 1795555802.6526587,
+    "seen": 1795557146.818367,
+    "ast_hash": "e35a9685c0d13398e46394c64e34b864",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/act.js": {
+    "mtime": 1795555802.6527767,
+    "seen": 1795557146.818367,
+    "ast_hash": "53ae207791bf370d18d4692f6c270298",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/bundled-palettes.d.ts": {
+    "mtime": 1795555802.6529088,
+    "seen": 1795557146.818368,
+    "ast_hash": "84277c9258408954c74648cd30dfe5dd",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/bundled-palettes.js": {
+    "mtime": 1795555802.6530225,
+    "seen": 1795557146.818368,
+    "ast_hash": "8872100a0c5141fed5ff7c6f2d81f81a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/encode.d.ts": {
+    "mtime": 1795555802.6531417,
+    "seen": 1795557146.818369,
+    "ast_hash": "33341c375aebc765a2baeed4e22f4bc3",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/encode.js": {
+    "mtime": 1795555802.6532543,
+    "seen": 1795557146.818369,
+    "ast_hash": "dde76622a8e7f55c546f3ad7953ab8e9",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/palette-rank.d.ts": {
+    "mtime": 1795555802.6536207,
+    "seen": 1795557146.81837,
+    "ast_hash": "e9a9edea5de78b276e104df2bb441bb1",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/palette-rank.js": {
+    "mtime": 1795555802.6537576,
+    "seen": 1795557146.818371,
+    "ast_hash": "0d33c467d0b2f840f74f66e7a971af25",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/raw.d.ts": {
+    "mtime": 1795555802.6544855,
+    "seen": 1795557146.8183732,
+    "ast_hash": "f6b31141835d85f2d66111e4d8fd8638",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/raw.js": {
+    "mtime": 1795555802.6546388,
+    "seen": 1795557146.818374,
+    "ast_hash": "6ca848f0cb3daec9e60abc368971369d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/sky.d.ts": {
+    "mtime": 1795555802.654782,
+    "seen": 1795557146.818379,
+    "ast_hash": "17ae4fffe1d3c2b6bcd1acfb6189dea5",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/sky.js": {
+    "mtime": 1795555802.6549098,
+    "seen": 1795557146.81838,
+    "ast_hash": "e99de60f3748da374a7663ee5f7f19c7",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/tiff.d.ts": {
+    "mtime": 1795555802.655053,
+    "seen": 1795557146.81838,
+    "ast_hash": "0d5f432075a7e5c39c287440dddc33b8",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/tiff.js": {
+    "mtime": 1795555802.6551766,
+    "seen": 1795557146.818381,
+    "ast_hash": "453ab4112d093841069f710efadbb239",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/truck/common.d.ts": {
+    "mtime": 1795555802.6553414,
+    "seen": 1795557146.818382,
+    "ast_hash": "8551ccc55a1033595b6f61420c09191b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/truck/common.js": {
+    "mtime": 1795555802.655446,
+    "seen": 1795557146.818382,
+    "ast_hash": "bc2bf9a26d484f1f5840eb1b98d0808c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/truck/cpr-car.d.ts": {
+    "mtime": 1795555802.655547,
+    "seen": 1795557146.8183832,
+    "ast_hash": "a1c20dde451683af348b4a9b41c74094",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/truck/cpr-car.js": {
+    "mtime": 1795555802.65568,
+    "seen": 1795557146.8183832,
+    "ast_hash": "0fceacce3725b4cbd2539e226db34994",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/truck/manifest.d.ts": {
+    "mtime": 1795555802.6558042,
+    "seen": 1795557146.818384,
+    "ast_hash": "4e7f1ec6179ae61b18f776682785e507",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/truck/manifest.js": {
+    "mtime": 1795555802.6559062,
+    "seen": 1795557146.818385,
+    "ast_hash": "862dba94dc8420b6b092d99c4fbbdda0",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/truck/mtm-trk.d.ts": {
+    "mtime": 1795555802.656004,
+    "seen": 1795557146.818385,
+    "ast_hash": "749b095c0ef9fe5772a43c1e9c388bdd",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/truck/mtm-trk.js": {
+    "mtime": 1795555802.6561174,
+    "seen": 1795557146.8183858,
+    "ast_hash": "51c41909af00ae380ef03d286105335e",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/ani.d.ts": {
+    "mtime": 1795555802.6562655,
+    "seen": 1795557146.8183858,
+    "ast_hash": "d53482e0917aad6e2d51f914bcba16e5",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/ani.js": {
+    "mtime": 1795555802.6563723,
+    "seen": 1795557146.818387,
+    "ast_hash": "2c9c27ec80806ed3987ecf23be9a5751",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/coords.d.ts": {
+    "mtime": 1795555802.6564744,
+    "seen": 1795557146.818388,
+    "ast_hash": "50fe94bd448ec338e9765cef988588d6",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/coords.js": {
+    "mtime": 1795555802.6565785,
+    "seen": 1795557146.818388,
+    "ast_hash": "cbf3ffdc487b13156a75f4005ea4fe31",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/def.d.ts": {
+    "mtime": 1795555802.6566927,
+    "seen": 1795557146.818389,
+    "ast_hash": "50ea959f6ce630f13c15b4a170771c7f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/def.js": {
+    "mtime": 1795555802.6568322,
+    "seen": 1795557146.818389,
+    "ast_hash": "e308fa3722c484cb370af374450c788e",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/hb-briefing.d.ts": {
+    "mtime": 1795555802.6569843,
+    "seen": 1795557146.8183901,
+    "ast_hash": "35abd96509c2bc75e7611cdf993ad28d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/hb-briefing.js": {
+    "mtime": 1795555802.6570885,
+    "seen": 1795557146.818391,
+    "ast_hash": "bf7b1c87eef77b9be765d8fd63c14526",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/hb-nav.d.ts": {
+    "mtime": 1795555802.657201,
+    "seen": 1795557146.818391,
+    "ast_hash": "77b3adfc7cefca268f70bcfeef4dd9ef",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/hb-nav.js": {
+    "mtime": 1795555802.6573002,
+    "seen": 1795557146.818392,
+    "ast_hash": "f4945953f7ff36fecc01da8b210748d4",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/lvl.d.ts": {
+    "mtime": 1795555802.657649,
+    "seen": 1795557146.8183942,
+    "ast_hash": "2f90cd6cc634c2afab853005f24d5c2f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/lvl.js": {
+    "mtime": 1795555802.6577895,
+    "seen": 1795557146.8183942,
+    "ast_hash": "4ae8e10cdcdde1591dc928330ce3d1b8",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/nav.d.ts": {
+    "mtime": 1795555802.657915,
+    "seen": 1795557146.818395,
+    "ast_hash": "6d1f6b5086166a1fcfbb22e60fe9690c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/nav.js": {
+    "mtime": 1795555802.6580245,
+    "seen": 1795557146.8183959,
+    "ast_hash": "7af844f438b920aba559f40acf705381",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/pup.d.ts": {
+    "mtime": 1795555802.6581256,
+    "seen": 1795557146.8183959,
+    "ast_hash": "a77f3fea9b5fc5f0c067e2d0166cf889",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/pup.js": {
+    "mtime": 1795555802.6582253,
+    "seen": 1795557146.818397,
+    "ast_hash": "ce7d3b5500a1442d80ca599e05e23e7b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/tables.d.ts": {
+    "mtime": 1795555802.6583216,
+    "seen": 1795557146.818397,
+    "ast_hash": "8ca30e6486c909ff32af360590fe9c38",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/tables.js": {
+    "mtime": 1795555802.6584384,
+    "seen": 1795557146.818398,
+    "ast_hash": "ccf7d16832c0304789cfa1a9a3363561",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/tdf.d.ts": {
+    "mtime": 1795555802.6585405,
+    "seen": 1795557146.818399,
+    "ast_hash": "7b26de67ba5f666e13768f502543b823",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/tdf.js": {
+    "mtime": 1795555802.6586409,
+    "seen": 1795557146.818399,
+    "ast_hash": "0c8d7169ce0df5dcd38d3c4e2473310b",
+    "semantic_hash": ""
+  },
+  "src/worker/art-handlers.ts": {
+    "mtime": 1793833335.8822265,
+    "seen": 1793833427.646173,
+    "ast_hash": "5991958eb465a8bdfbce13923cbc58ae",
+    "semantic_hash": ""
+  },
+  "src/worker/asset-worker.ts": {
+    "mtime": 1794265081.3433084,
+    "seen": 1794265246.940227,
+    "ast_hash": "407589946ca17e8fbdfdd96b21e0e8fe",
+    "semantic_hash": ""
+  },
+  "src/worker/doc-handlers.ts": {
+    "mtime": 1795556923.4322016,
+    "seen": 1795557146.8184042,
+    "ast_hash": "ed6139a2d3e6382fc8094f6a05ba0244",
+    "semantic_hash": ""
+  },
+  "src/worker/model-handlers.ts": {
+    "mtime": 1794264394.5931904,
+    "seen": 1794264562.0894542,
+    "ast_hash": "fa85f7ae84e225d057644a885d5b2641",
+    "semantic_hash": ""
+  },
+  "src/worker/pattern-handlers.ts": {
+    "mtime": 1793047694.213873,
+    "seen": 1793833427.646175,
+    "ast_hash": "74883437e89b8221ff09ca654296495c",
+    "semantic_hash": ""
+  },
+  "src/worker/pod-index.ts": {
+    "mtime": 1794552884.1011896,
+    "seen": 1794553101.40308,
+    "ast_hash": "88cf4a9a4daadfa45480762e810b384e",
+    "semantic_hash": ""
+  },
+  "src/worker/store-handlers.ts": {
+    "mtime": 1793833324.4444792,
+    "seen": 1793833427.646176,
+    "ast_hash": "f431d895c1dc9133e88a1a8b1691216e",
+    "semantic_hash": ""
+  },
+  "src/worker/tracked-folder.ts": {
+    "mtime": 1793056333.6272323,
+    "seen": 1793833427.646176,
+    "ast_hash": "6b4d5cf0ccfc2f7eb90564cbfdb011d4",
+    "semantic_hash": ""
+  },
+  "tests/backdrops.test.ts": {
+    "mtime": 1793055534.657514,
+    "seen": 1793833427.646177,
+    "ast_hash": "09044c5e73a19a3e470f63e3b501b9eb",
+    "semantic_hash": ""
+  },
+  "tests/clone-folder.test.ts": {
+    "mtime": 1793056357.9192364,
+    "seen": 1793833427.646177,
+    "ast_hash": "838bbd4ea977b869ac79aca2118e7116",
+    "semantic_hash": ""
+  },
+  "tests/components.test.ts": {
+    "mtime": 1793048785.0172706,
+    "seen": 1793833427.646178,
+    "ast_hash": "06b9bb0f545524b47bef7fb55d5ce48d",
+    "semantic_hash": ""
+  },
+  "tests/doc.test.ts": {
+    "mtime": 1794801622.0222075,
+    "seen": 1794802194.1365561,
+    "ast_hash": "9caf628c6a48a6aef6712c9c131fc77d",
+    "semantic_hash": ""
+  },
+  "tests/edit.test.ts": {
+    "mtime": 1795559690.6600802,
+    "seen": 1795559953.6211252,
+    "ast_hash": "4c5a88cd034403f790bf6e9c5bd193c7",
+    "semantic_hash": ""
+  },
+  "tests/image.test.ts": {
+    "mtime": 1794801548.8771052,
+    "seen": 1794802194.1365619,
+    "ast_hash": "53e5213888b11a796503d68335b28aa9",
+    "semantic_hash": ""
+  },
+  "tests/object-properties.test.ts": {
+    "mtime": 1794864485.1631103,
+    "seen": 1794864574.01876,
+    "ast_hash": "bcd10c8dde6a35906555c5ac54a9e642",
+    "semantic_hash": ""
+  },
+  "tests/patterns.test.ts": {
+    "mtime": 1793047775.4519575,
+    "seen": 1793833427.6461802,
+    "ast_hash": "8b4b674aceb216e0ae9fd2c71b4dcaeb",
+    "semantic_hash": ""
+  },
+  "tests/pod-writer.test.ts": {
+    "mtime": 1793057199.0546646,
+    "seen": 1793833427.646181,
+    "ast_hash": "c38e641657c12b8389bca770f92c3b5e",
+    "semantic_hash": ""
+  },
+  "tests/settings.test.ts": {
+    "mtime": 1795559833.3424237,
+    "seen": 1795559953.62114,
+    "ast_hash": "51046cdba17e32e713318b83cf3262c1",
+    "semantic_hash": ""
+  },
+  "tests/special.test.ts": {
+    "mtime": 1794801012.1999207,
+    "seen": 1794802194.136566,
+    "ast_hash": "3ad77ac9296430a6a589c299c555459e",
+    "semantic_hash": ""
+  },
+  "tests/stock.test.ts": {
+    "mtime": 1792803764.3531516,
+    "seen": 1793833427.6461818,
+    "ast_hash": "9b4d43670e198ac0208eaa7f8f219b94",
+    "semantic_hash": ""
+  },
+  "tests/storage.test.ts": {
+    "mtime": 1793833403.6859477,
+    "seen": 1793833427.646183,
+    "ast_hash": "a4e697ede50eeff8c9a45640e2097a79",
+    "semantic_hash": ""
+  },
+  "tests/textures-window.test.ts": {
+    "mtime": 1793047477.4570262,
+    "seen": 1793833427.646183,
+    "ast_hash": "d002dbc05a7dcd8cf34d788355b405ac",
+    "semantic_hash": ""
+  },
+  "tests/traxx-sit.test.ts": {
+    "mtime": 1794863372.8305385,
+    "seen": 1794864574.01877,
+    "ast_hash": "584ff3c125172ecade2b476c87809a64",
+    "semantic_hash": ""
+  },
+  "tests/traxx-txp-pal.test.ts": {
+    "mtime": 1792804659.4587145,
+    "seen": 1793833427.646184,
+    "ast_hash": "e46a454775b885c7c8a48df2c81bea12",
+    "semantic_hash": ""
+  },
+  "tests/traxx-txx.test.ts": {
+    "mtime": 1795554439.1246748,
+    "seen": 1795554634.049143,
+    "ast_hash": "33e8dd8f4b7aa63ed1a608cb25112d34",
+    "semantic_hash": ""
+  },
+  "tests/vfs.test.ts": {
+    "mtime": 1792806070.580459,
+    "seen": 1793833427.646185,
+    "ast_hash": "6574740f2a52386c229040b58d9f1eca",
+    "semantic_hash": ""
+  },
+  "tests/view.test.ts": {
+    "mtime": 1794544236.1640382,
+    "seen": 1794545933.1442251,
+    "ast_hash": "a156a4f8c25a689c1f59a01d5ad15dc2",
+    "semantic_hash": ""
+  },
+  "tsconfig.json": {
+    "mtime": 1792806049.499587,
+    "seen": 1793833427.6461859,
+    "ast_hash": "48b3a67a8f3c36b2f7efa9a7b0d6dc8a",
+    "semantic_hash": ""
+  },
+  "vite.config.ts": {
+    "mtime": 1793050179.203966,
+    "seen": 1793833427.6461859,
+    "ast_hash": "776240b8f61290a7c6273e6a9a064a65",
+    "semantic_hash": ""
+  },
+  ".github/workflows/pages.yml": {
+    "mtime": 1793059104.9334457,
+    "seen": 1793833427.646187,
+    "ast_hash": "dc6bf62ad16ddd1f93e87b16acff4d2f",
+    "semantic_hash": ""
+  },
+  "AGENTS.md": {
+    "mtime": 1794545845.3937955,
+    "seen": 1794545933.144228,
+    "ast_hash": "61d44ad7a7bd65baef422b86dec0a6e9",
+    "semantic_hash": ""
+  },
+  "CLAUDE.md": {
+    "mtime": 1792803764.3553827,
+    "seen": 1793833427.646187,
+    "ast_hash": "5c27369b226fcf2be8a6cfe52224e767",
+    "semantic_hash": ""
+  },
+  "LICENSE.md": {
+    "mtime": 1793058924.4367263,
+    "seen": 1793833427.646188,
+    "ast_hash": "c263925d3d7846ff52334a1e30eb0760",
+    "semantic_hash": ""
+  },
+  "NOTICE.md": {
+    "mtime": 1793058936.8537855,
+    "seen": 1793833427.646188,
+    "ast_hash": "5e276db2c90cbf1a856b2ec97b88e8f6",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1795556966.4718838,
+    "seen": 1795557146.818447,
+    "ast_hash": "6e0a6250e462fe64dc8268a835204bbe",
+    "semantic_hash": ""
+  },
+  "docs/PARITY.md": {
+    "mtime": 1795560141.942942,
+    "seen": 1795560163.8662112,
+    "ast_hash": "0f5e994215c1732841a03e9a63f8adb0",
+    "semantic_hash": ""
+  },
+  "index.html": {
+    "mtime": 1792806049.4680507,
+    "seen": 1793833427.6461902,
+    "ast_hash": "e4b8b9fe0c3ea888c2d8218d2783086e",
+    "semantic_hash": ""
+  },
+  "public/help/TID_ABOUT.html": {
+    "mtime": 1793049243.908161,
+    "seen": 1793833427.6461902,
+    "ast_hash": "37eb71c3568e47c3449030001c154500",
+    "semantic_hash": ""
+  },
+  "public/help/TID_BUILDINGS.html": {
+    "mtime": 1793049243.904859,
+    "seen": 1793833427.6461911,
+    "ast_hash": "974d244dff75ace20aaae446da586aa8",
+    "semantic_hash": ""
+  },
+  "public/help/TID_COMPONENTS.html": {
+    "mtime": 1793049243.9090896,
+    "seen": 1793833427.6461911,
+    "ast_hash": "703c1fef33a93633194babb5760ade73",
+    "semantic_hash": ""
+  },
+  "public/help/TID_COURSE.html": {
+    "mtime": 1793049243.9053695,
+    "seen": 1793833427.646192,
+    "ast_hash": "40119689c0d4ca989cb98b78dfd531e9",
+    "semantic_hash": ""
+  },
+  "public/help/TID_INTRO.html": {
+    "mtime": 1793049243.904418,
+    "seen": 1793833427.646192,
+    "ast_hash": "0fd0283fbc73a575d4acaa884dc41715",
+    "semantic_hash": ""
+  },
+  "public/help/TID_OBJECTS.html": {
+    "mtime": 1793049243.906852,
+    "seen": 1793833427.6461928,
+    "ast_hash": "254adbdff947493ec16c07876484ff3b",
+    "semantic_hash": ""
+  },
+  "public/help/TID_OBJPROPS.html": {
+    "mtime": 1793049243.909288,
+    "seen": 1793833427.6461928,
+    "ast_hash": "f99a91f2449a6c168431e0bcca0efcd3",
+    "semantic_hash": ""
+  },
+  "public/help/TID_SETTINGS.html": {
+    "mtime": 1793049243.9088018,
+    "seen": 1793833427.6461928,
+    "ast_hash": "2c31b8b6c8435f26ccac9118c76a1df0",
+    "semantic_hash": ""
+  },
+  "public/help/TID_SETUP.html": {
+    "mtime": 1793049243.9070528,
+    "seen": 1793833427.646194,
+    "ast_hash": "943fed86685f1b5732426411cbb175e4",
+    "semantic_hash": ""
+  },
+  "public/help/TID_SPECIAL.html": {
+    "mtime": 1793049243.9097388,
+    "seen": 1793833427.646194,
+    "ast_hash": "3726abbc5b7878f8d3dbdd253e5667db",
+    "semantic_hash": ""
+  },
+  "public/help/TID_TERRAIN.html": {
+    "mtime": 1793049243.9076312,
+    "seen": 1793833427.646195,
+    "ast_hash": "ee9fd1aa0a79906fe9617f785f55d09f",
+    "semantic_hash": ""
+  },
+  "public/help/TID_TEXTUREBOX.html": {
+    "mtime": 1793049243.9094603,
+    "seen": 1793833427.646195,
+    "ast_hash": "75051312de0322cd57d7f75a6aac3bf6",
+    "semantic_hash": ""
+  },
+  "public/help/TID_TEXTURECUT.html": {
+    "mtime": 1793049243.909918,
+    "seen": 1793833427.646196,
+    "ast_hash": "6687d1f65e5021e1f4aab9c36f81d3cd",
+    "semantic_hash": ""
+  },
+  "public/help/TID_TEXTURES.html": {
+    "mtime": 1793049243.9079247,
+    "seen": 1793833427.646196,
+    "ast_hash": "109d3157d408b524c7afe2bf0b54c03f",
+    "semantic_hash": ""
+  },
+  "public/help/TID_TRACKS.html": {
+    "mtime": 1793049243.9084406,
+    "seen": 1793833427.646197,
+    "ast_hash": "1f0eefc07144993c1ceb26534312e6ff",
+    "semantic_hash": ""
+  },
+  "public/help/TID_WORLD.html": {
+    "mtime": 1793049243.9062963,
+    "seen": 1793833427.646197,
+    "ast_hash": "5d6c56aea10bf85c2414c94eeda46293",
+    "semantic_hash": ""
+  },
+  "public/help/index.html": {
+    "mtime": 1793049243.9100637,
+    "seen": 1793833427.646198,
+    "ast_hash": "2cdc9d7cd94597ddee93f7f32fedd773",
+    "semantic_hash": ""
+  },
+  "public/ui/edit0.png": {
+    "mtime": 1795559273.5777361,
+    "seen": 1795559953.6211882,
+    "ast_hash": "9fa39fae9c4c256d8886a2a728f667c4",
+    "semantic_hash": ""
+  },
+  "public/ui/edit1.png": {
+    "mtime": 1795559273.5780556,
+    "seen": 1795559953.6211882,
+    "ast_hash": "debfc9185588306182d30426626940e0",
+    "semantic_hash": ""
+  },
+  "public/ui/edit2.png": {
+    "mtime": 1795559273.5783784,
+    "seen": 1795559953.621189,
+    "ast_hash": "8332f6e6f302ca38393dea944bf53cf7",
+    "semantic_hash": ""
+  },
+  "public/ui/edit3.png": {
+    "mtime": 1795559273.57862,
+    "seen": 1795559953.621189,
+    "ast_hash": "68ee60852e0d95a26b8acacc848e9835",
+    "semantic_hash": ""
+  },
+  "public/ui/edit4.png": {
+    "mtime": 1795559273.578835,
+    "seen": 1795559953.6211898,
+    "ast_hash": "4d8929cf5f140f1a5256f65bd67348b5",
+    "semantic_hash": ""
+  },
+  "public/ui/edit5.png": {
+    "mtime": 1795559273.5791993,
+    "seen": 1795559953.6211898,
+    "ast_hash": "20e1c93034809d1f760cb7447602eb54",
+    "semantic_hash": ""
+  },
+  "public/ui/edit6.png": {
+    "mtime": 1795559273.5794685,
+    "seen": 1795559953.621191,
+    "ast_hash": "bed51570eedb315781cc48e3aa116def",
+    "semantic_hash": ""
+  },
+  "public/ui/edit7.png": {
+    "mtime": 1795559273.5796533,
+    "seen": 1795559953.621191,
+    "ast_hash": "2c3da602912da736f863b413d7ddc19d",
+    "semantic_hash": ""
+  },
+  "public/ui/level_ic.png": {
+    "mtime": 1795559273.5799649,
+    "seen": 1795559953.621192,
+    "ast_hash": "1326445d912c931d2f9406e37903996b",
+    "semantic_hash": ""
+  },
+  "public/ui/music_ic.png": {
+    "mtime": 1795559273.5808356,
+    "seen": 1795559953.621192,
+    "ast_hash": "e34688358591b23fa4c92a2f2c1b4b1b",
+    "semantic_hash": ""
+  },
+  "public/ui/nomusic_.png": {
+    "mtime": 1795559273.5810838,
+    "seen": 1795559953.621193,
+    "ast_hash": "f84d67bafc80f65fd25a35bf9058e317",
+    "semantic_hash": ""
+  },
+  "public/ui/onground.png": {
+    "mtime": 1795559273.5803416,
+    "seen": 1795559953.621193,
+    "ast_hash": "037d5a838ed85009e4d3bc8d194ae2c2",
+    "semantic_hash": ""
+  },
+  "public/ui/soundpla.png": {
+    "mtime": 1795559273.5806103,
+    "seen": 1795559953.621194,
+    "ast_hash": "edb4f93573f44861eb974714b445e6f2",
+    "semantic_hash": ""
+  },
+  "public/ui/toolbar-editmode.png": {
+    "mtime": 1795559273.575415,
+    "seen": 1795559953.621194,
+    "ast_hash": "15d49449319b246b00f70670e0f1f4d9",
+    "semantic_hash": ""
+  },
+  "public/ui/toolbar-main.png": {
+    "mtime": 1795559273.5747666,
+    "seen": 1795559953.621195,
+    "ast_hash": "c4287e49f2960b571f739be7ccb37584",
+    "semantic_hash": ""
+  },
+  "public/ui/toolbar-objects.png": {
+    "mtime": 1795559273.5766947,
+    "seen": 1795559953.621195,
+    "ast_hash": "3ac90a7498e5241a8dfb80ae8e585c55",
+    "semantic_hash": ""
+  },
+  "public/ui/toolbar-palette.png": {
+    "mtime": 1795559273.5772,
+    "seen": 1795559953.621196,
+    "ast_hash": "96e6ca2f7bdf6bbae555b754051750a3",
+    "semantic_hash": ""
+  },
+  "public/ui/toolbar-patterns.png": {
+    "mtime": 1795559273.576984,
+    "seen": 1795559953.621196,
+    "ast_hash": "10d1112154990b69ff95193b80f9660b",
+    "semantic_hash": ""
+  },
+  "public/ui/toolbar-textures.png": {
+    "mtime": 1795559273.576332,
+    "seen": 1795559953.621197,
+    "ast_hash": "8ee8b98d4cf5dd4b66583b324aeaabea",
+    "semantic_hash": ""
+  },
+  "public/ui/toolbar-windows.png": {
+    "mtime": 1795559273.575824,
+    "seen": 1795559953.621197,
+    "ast_hash": "595c7298cfec10b0ed031ee477c4898d",
+    "semantic_hash": ""
+  },
+  "public/ui/traxxico.png": {
+    "mtime": 1795559273.5813215,
+    "seen": 1795559953.6211982,
+    "ast_hash": "99d3cc1db2eda145284ca1c00de59733",
+    "semantic_hash": ""
+  },
+  "public/ui/vert_ico.png": {
+    "mtime": 1795559273.5801718,
+    "seen": 1795559953.6211982,
+    "ast_hash": "657b65c8b68b5ac29ac5e5dcaef228ee",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/terrain16.ts": {
+    "mtime": 1795558841.0785573,
+    "seen": 1795558962.042521,
+    "ast_hash": "722c1be30e60f97e898f720ae8877781",
+    "semantic_hash": ""
+  },
+  "tests/traxx-17.test.ts": {
+    "mtime": 1794863939.7027495,
+    "seen": 1794864574.018767,
+    "ast_hash": "15e784f546fd58edb4f6585dd6766499",
+    "semantic_hash": ""
+  },
+  "src/core/edit/fog-properties.ts": {
+    "mtime": 1794227835.5640655,
+    "seen": 1794228074.0839329,
+    "ast_hash": "ce9ac826fde47df91b600b35deaebcd7",
+    "semantic_hash": ""
+  },
+  "src/core/edit/terrain-gen16.ts": {
+    "mtime": 1795558223.7204292,
+    "seen": 1795558962.042496,
+    "ast_hash": "32ea091db23dd2a9390bd5470d9cf940",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/height-image.ts": {
+    "mtime": 1795556368.8112442,
+    "seen": 1795557146.8180852,
+    "ast_hash": "5d5424d81a9a42fcf64f68c458f18290",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/heights-png.ts": {
+    "mtime": 1794552712.83422,
+    "seen": 1794553101.4027069,
+    "ast_hash": "5520a2f0f762a250f40daeec37cb4590",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/veg.ts": {
+    "mtime": 1794863657.743573,
+    "seen": 1794864574.01845,
+    "ast_hash": "43c5ca223e4eb0cc7a845992644821f8",
+    "semantic_hash": ""
+  },
+  "src/core/view/fog-volume.ts": {
+    "mtime": 1794227872.1909664,
+    "seen": 1794228074.083957,
+    "ast_hash": "58886a173b52e88ed8701e4e5fbe88d7",
+    "semantic_hash": ""
+  },
+  "src/render/fog-boxes.ts": {
+    "mtime": 1794864594.3448157,
+    "seen": 1794865287.780271,
+    "ast_hash": "21c006ae5a937b3dc68c8c3404c5c3f0",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/fog-dialog.ts": {
+    "mtime": 1794227957.6136065,
+    "seen": 1794228074.08398,
+    "ast_hash": "89c096a9ebac72477b4b9e032f63432f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/audio/probe.d.ts": {
+    "mtime": 1795555802.6185458,
+    "seen": 1795557146.818244,
+    "ast_hash": "027237a48f867780380ba44950dfce57",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/audio/probe.js": {
+    "mtime": 1795555802.618683,
+    "seen": 1795557146.8182452,
+    "ast_hash": "6f35493d9aca9c5924ef30fe1e3afb95",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/cpt.d.ts": {
+    "mtime": 1795555802.6264505,
+    "seen": 1795557146.818273,
+    "ast_hash": "af87d813c4e2a222f129b0c51b84825d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/cpt.js": {
+    "mtime": 1795555802.6265628,
+    "seen": 1795557146.818273,
+    "ast_hash": "dc0aa9d5e2d25c77baaa119a93a16757",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/heights.d.ts": {
+    "mtime": 1795555802.6269002,
+    "seen": 1795557146.818275,
+    "ast_hash": "32dff4e1b8293831bd63c0fc07fb4034",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/heights.js": {
+    "mtime": 1795555802.6270015,
+    "seen": 1795557146.818275,
+    "ast_hash": "3f56e72c6d9a55d6abc43b698c419a9f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/high-scores.d.ts": {
+    "mtime": 1795555802.6271713,
+    "seen": 1795557146.8182762,
+    "ast_hash": "1d3ff226023aa8db35824a3e3f785849",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/high-scores.js": {
+    "mtime": 1795555802.6273053,
+    "seen": 1795557146.8182762,
+    "ast_hash": "cb88743cda14a44f56dff9505a7e3a04",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/player-pro.d.ts": {
+    "mtime": 1795555802.6278362,
+    "seen": 1795557146.8182778,
+    "ast_hash": "bcdad36b10bba9db55a10a56a1489bd3",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/player-pro.js": {
+    "mtime": 1795555802.6279347,
+    "seen": 1795557146.818279,
+    "ast_hash": "8c9bdc134e01ad3c5460a11d0d4c4c99",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/saved-game.d.ts": {
+    "mtime": 1795555802.6283133,
+    "seen": 1795557146.81828,
+    "ast_hash": "2635a0f2c6dd68239325de2f18d8e806",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/saved-game.js": {
+    "mtime": 1795555802.6284215,
+    "seen": 1795557146.818281,
+    "ast_hash": "14ff9f19fff75342e9cfe242909da4fa",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/srf.d.ts": {
+    "mtime": 1795555802.6289475,
+    "seen": 1795557146.818283,
+    "ast_hash": "2d4bf04c0b970e7a682d55d673470c0c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/srf.js": {
+    "mtime": 1795555802.6290593,
+    "seen": 1795557146.818284,
+    "ast_hash": "8ee065fc7e6faeb40534dbc1b22298eb",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/veg.d.ts": {
+    "mtime": 1795555802.6300335,
+    "seen": 1795557146.8182871,
+    "ast_hash": "fec14b57f91876ad944f8987fa6f0422",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/veg.js": {
+    "mtime": 1795555802.6301384,
+    "seen": 1795557146.818288,
+    "ast_hash": "c4c02cac2507c1685ceb4481d7c212b0",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/wtr.d.ts": {
+    "mtime": 1795555802.630825,
+    "seen": 1795557146.81829,
+    "ast_hash": "ccc591c34e7fc6e2faf3127d09145ec0",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/wtr.js": {
+    "mtime": 1795555802.630924,
+    "seen": 1795557146.81829,
+    "ast_hash": "b31c36bf0051132675f0359d6b38e390",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/pod/write-pod2.d.ts": {
+    "mtime": 1795555802.6346047,
+    "seen": 1795557146.818305,
+    "ast_hash": "9192133394b5667d4eff2d30b728e7f8",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/pod/write-pod2.js": {
+    "mtime": 1795555802.6347554,
+    "seen": 1795557146.818305,
+    "ast_hash": "a4da0fe564a3f869739a8c261b3c169a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/terrain/spline.d.ts": {
+    "mtime": 1795555802.6520386,
+    "seen": 1795557146.8183649,
+    "ast_hash": "523d12d6443ae2af1bf2c3e94d7afec9",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/terrain/spline.js": {
+    "mtime": 1795555802.6522422,
+    "seen": 1795557146.8183649,
+    "ast_hash": "dded7e91c78e6bbc89140d7ad3e54ee9",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/inflate.d.ts": {
+    "mtime": 1795555802.6533613,
+    "seen": 1795557146.818369,
+    "ast_hash": "984e1dee8cef6ea2b6dd0ac258953235",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/inflate.js": {
+    "mtime": 1795555802.6534798,
+    "seen": 1795557146.81837,
+    "ast_hash": "3cfd86d10ab51691484168b42f96a5d3",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/png.d.ts": {
+    "mtime": 1795555802.6542573,
+    "seen": 1795557146.818372,
+    "ast_hash": "76c2a90c26df2cf636196cef171bb005",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/png.js": {
+    "mtime": 1795555802.6543834,
+    "seen": 1795557146.8183732,
+    "ast_hash": "1f3f4e8a65b5945399a926b83c7e30fd",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/hb-qke.d.ts": {
+    "mtime": 1795555802.657436,
+    "seen": 1795557146.818392,
+    "ast_hash": "8988f3815f17a37babcd26a5bf3d85e6",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/hb-qke.js": {
+    "mtime": 1795555802.6575465,
+    "seen": 1795557146.818393,
+    "ast_hash": "3608e0dde9a433d373bb73e7bfa93bed",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/tnl.d.ts": {
+    "mtime": 1795555802.6587648,
+    "seen": 1795557146.8184,
+    "ast_hash": "b1a0e3217e96c2f6b49d5dca2582ee1f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/tv/tnl.js": {
+    "mtime": 1795555802.6589005,
+    "seen": 1795557146.818401,
+    "ast_hash": "c1dc8c31c5f8afa41831b8b3ff664ca1",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/video/smk.d.ts": {
+    "mtime": 1795555802.6590438,
+    "seen": 1795557146.818401,
+    "ast_hash": "31204945c9969b1a08d66c6519f97572",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/video/smk.js": {
+    "mtime": 1795555802.6591547,
+    "seen": 1795557146.818402,
+    "ast_hash": "2243d2a61763af47bda09849d258263e",
+    "semantic_hash": ""
+  },
+  "tests/fog-properties.test.ts": {
+    "mtime": 1794228044.4202187,
+    "seen": 1794228074.0841331,
+    "ast_hash": "a9b979afb4c94d6e71e88be984906d2d",
+    "semantic_hash": ""
+  },
+  "src/core/edit/heightmap-io.ts": {
+    "mtime": 1795554568.33587,
+    "seen": 1795554634.0487869,
+    "ast_hash": "1622f1acb9056c23246d90838ebe01da",
+    "semantic_hash": ""
+  },
+  "src/core/edit/veg-planter.ts": {
+    "mtime": 1794863642.2850273,
+    "seen": 1794864574.018427,
+    "ast_hash": "e13dff72491605335ce1a5c63849024a",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/vegetation-dialog.ts": {
+    "mtime": 1794863680.2613215,
+    "seen": 1794864574.01849,
+    "ast_hash": "583a41ae67be5269fdc7ee880b66de00",
+    "semantic_hash": ""
+  },
+  "tests/height-image.test.ts": {
+    "mtime": 1794228265.3969972,
+    "seen": 1794228511.59291,
+    "ast_hash": "b5c325bca620c7777fd05c449f1aadc9",
+    "semantic_hash": ""
+  },
+  "tests/terrain-gen16.test.ts": {
+    "mtime": 1795558702.110777,
+    "seen": 1795558962.042867,
+    "ast_hash": "21fd7f27c9a927661d79b49118d7201c",
+    "semantic_hash": ""
+  },
+  "tests/veg.test.ts": {
+    "mtime": 1794863715.253691,
+    "seen": 1794864574.0187762,
+    "ast_hash": "9e05d9f01d55864e6bf422d87c0a998b",
+    "semantic_hash": ""
+  },
+  "tests/fixtures/gray16_256_gradient.png": {
+    "mtime": 1794228114.6206243,
+    "seen": 1794228511.592948,
+    "ast_hash": "d78121a9630d696f251a8d17ffa5f41c",
+    "semantic_hash": ""
+  },
+  "src/app/modes/lake-commands.ts": {
+    "mtime": 1795558323.8910024,
+    "seen": 1795558962.042464,
+    "ast_hash": "5f32f572390beb11f3158d1325be9a83",
+    "semantic_hash": ""
+  },
+  "src/app/terrain-commands.ts": {
+    "mtime": 1794552844.3947804,
+    "seen": 1794553101.402669,
+    "ast_hash": "07f55654aedbf03c337df9618ce06266",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/lakes.ts": {
+    "mtime": 1795556527.4182243,
+    "seen": 1795557146.818088,
+    "ast_hash": "84fc814afe5c2b92df94e023ca204ae0",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/surface.ts": {
+    "mtime": 1795558841.078885,
+    "seen": 1795558962.04252,
+    "ast_hash": "801c246df00f565f87421b9ad6e5a813",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/lake-dialog.ts": {
+    "mtime": 1795558342.1149032,
+    "seen": 1795558962.042565,
+    "ast_hash": "931a64b6a97fd54f07a0b87f6427f571",
+    "semantic_hash": ""
+  },
+  "tests/surface-lakes.test.ts": {
+    "mtime": 1795558841.0792491,
+    "seen": 1795558962.042866,
+    "ast_hash": "737ba5eee52f9cbf3082ecdf05fba082",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/instancing.ts": {
+    "mtime": 1794264626.5248091,
+    "seen": 1794264715.557673,
+    "ast_hash": "a5e39d4b1e6b8687de29dd6feed49c0c",
+    "semantic_hash": ""
+  },
+  "src/core/view/veg-draw.ts": {
+    "mtime": 1794552380.9161432,
+    "seen": 1794553101.402733,
+    "ast_hash": "071ea18bb152418c5e8810bc8b03289c",
+    "semantic_hash": ""
+  },
+  "src/render/vegetation.ts": {
+    "mtime": 1794864707.4751801,
+    "seen": 1794865287.780282,
+    "ast_hash": "81aa12ea0df580041d88e22a8ede34c8",
+    "semantic_hash": ""
+  },
+  "tests/veg-draw.test.ts": {
+    "mtime": 1794263564.0853536,
+    "seen": 1794263599.057514,
+    "ast_hash": "a8c0b4165de2d29e681c2be6870b8387",
+    "semantic_hash": ""
+  },
+  "src/app/terrain-kind.ts": {
+    "mtime": 1795557973.4879372,
+    "seen": 1795558962.042468,
+    "ast_hash": "24e85947a090fb8353fe760f74fcf1ef",
+    "semantic_hash": ""
+  },
+  "src/core/doc/surface-sidecar.ts": {
+    "mtime": 1794264357.6995542,
+    "seen": 1794264562.088802,
+    "ast_hash": "6ad458f8861abe7a502e0d9a1005b7dc",
+    "semantic_hash": ""
+  },
+  "src/core/edit/amplitude.ts": {
+    "mtime": 1794264632.7027366,
+    "seen": 1794264715.557652,
+    "ast_hash": "02eadeb1d622271fad1b59509161c940",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/box-ground.ts": {
+    "mtime": 1794264379.833454,
+    "seen": 1794264562.088845,
+    "ast_hash": "c6a88ee5b72833db5734786ed287b25c",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/surface-pick.ts": {
+    "mtime": 1794552587.1814685,
+    "seen": 1794553101.402715,
+    "ast_hash": "ef2f7b0b83405839b2c7bee1f9490143",
+    "semantic_hash": ""
+  },
+  "src/core/ui-layout.ts": {
+    "mtime": 1794264230.8747015,
+    "seen": 1794264562.088879,
+    "ast_hash": "13b369363cba3031e4258868ef23b0a9",
+    "semantic_hash": ""
+  },
+  "src/core/view/surface-tiles.ts": {
+    "mtime": 1794552115.0288253,
+    "seen": 1794553101.4027321,
+    "ast_hash": "ef31f33a62e43fa1a42ad4f3dcbcce65",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/dialog-size.ts": {
+    "mtime": 1794264231.655996,
+    "seen": 1794264562.088947,
+    "ast_hash": "604c64138625f39c97ceef6696582322",
+    "semantic_hash": ""
+  },
+  "tests/traxx-17-dialogs.test.ts": {
+    "mtime": 1794264490.2001677,
+    "seen": 1794264562.0894878,
+    "ast_hash": "dcfff54ebc0c404bc0eb0dcace40e7af",
+    "semantic_hash": ""
+  },
+  "src/core/image/stbi-png.ts": {
+    "mtime": 1794265379.4565973,
+    "seen": 1794265529.969627,
+    "ast_hash": "72d9b07b4bfc230b992e48c0e9122798",
+    "semantic_hash": ""
+  },
+  "tests/drive-surface.test.ts": {
+    "mtime": 1794264700.0680358,
+    "seen": 1794264715.557875,
+    "ast_hash": "fff1bd117db68422693c865f64962dd3",
+    "semantic_hash": ""
+  },
+  "tests/terrain-edit16.test.ts": {
+    "mtime": 1794264651.4639337,
+    "seen": 1794264715.557882,
+    "ast_hash": "abd5532623d7797e73b64dbccf3cb0eb",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/veg-far-card.ts": {
+    "mtime": 1794265142.7727404,
+    "seen": 1794265246.93843,
+    "ast_hash": "795db3e83268ef0caca0294ff87a1507",
+    "semantic_hash": ""
+  },
+  "src/worker/farcard-handlers.ts": {
+    "mtime": 1794265075.7970238,
+    "seen": 1794265246.940235,
+    "ast_hash": "b6de700d12227abcdc500b27a6441fea",
+    "semantic_hash": ""
+  },
+  "tests/veg-far-card.test.ts": {
+    "mtime": 1794265439.6963565,
+    "seen": 1794265529.969861,
+    "ast_hash": "00bca68b7377f73807c2f76fd30382d7",
+    "semantic_hash": ""
+  },
+  "src/app/modes/fall-commands.ts": {
+    "mtime": 1795558350.5170531,
+    "seen": 1795558962.042461,
+    "ast_hash": "9f76045dc1498bf55879b0783a5f2931",
+    "semantic_hash": ""
+  },
+  "src/core/edit/fall-properties.ts": {
+    "mtime": 1795558342.1153655,
+    "seen": 1795558962.042485,
+    "ast_hash": "87d05074e711c993879ce5ed8195e52a",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/course-wrap.ts": {
+    "mtime": 1794552286.2807946,
+    "seen": 1794553101.402705,
+    "ast_hash": "7ede84fa5fa4f3832c0a95f7b399226c",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/falls.ts": {
+    "mtime": 1795557363.1188548,
+    "seen": 1795558962.042507,
+    "ast_hash": "633b196764ad1f9c95c0369cd3d663fe",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/lake-ground.ts": {
+    "mtime": 1795554124.0308957,
+    "seen": 1795554634.048807,
+    "ast_hash": "10ca51b70f19df79ed220adfe5e3712d",
+    "semantic_hash": ""
+  },
+  "src/core/view/fall-shapes.ts": {
+    "mtime": 1794801290.8309438,
+    "seen": 1794802194.136226,
+    "ast_hash": "4cc8f2d43a9eb251b3f4925f007c257a",
+    "semantic_hash": ""
+  },
+  "src/render/waterfalls.ts": {
+    "mtime": 1794864651.8917353,
+    "seen": 1794865287.780284,
+    "ast_hash": "58e8d127b051f8700a93d6cc77fc860b",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/waterfall-dialog.ts": {
+    "mtime": 1795558342.115939,
+    "seen": 1795558962.042571,
+    "ast_hash": "f8bcee546ac1e522fb29ecd7d95877de",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/model/coll-soup.d.ts": {
+    "mtime": 1795555802.625957,
+    "seen": 1795557146.818271,
+    "ast_hash": "45f4e207a168c8805265c3f3c9b8537e",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/model/coll-soup.js": {
+    "mtime": 1795555802.626086,
+    "seen": 1795557146.818271,
+    "ast_hash": "56fd407e1b3b0cfc8f4d71ee886d9296",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/wfl.d.ts": {
+    "mtime": 1795555802.63029,
+    "seen": 1795557146.818288,
+    "ast_hash": "8232188f852239c9ce8f00d02a138df1",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/wfl.js": {
+    "mtime": 1795555802.63042,
+    "seen": 1795557146.8182888,
+    "ast_hash": "e623444712502e1849b6336012bc78c7",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/coll-shape.d.ts": {
+    "mtime": 1795555802.6352642,
+    "seen": 1795557146.8183072,
+    "ast_hash": "336a48203db115200198bb07aaa73bcc",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/coll-shape.js": {
+    "mtime": 1795555802.6354022,
+    "seen": 1795557146.8183072,
+    "ast_hash": "4561ac7b522c3bf0a9b1f546970ca3fa",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/index.d.ts": {
+    "mtime": 1795555802.6364772,
+    "seen": 1795557146.818311,
+    "ast_hash": "892978e4b73dc41392f185a28679fbbc",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/index.js": {
+    "mtime": 1795555802.6366026,
+    "seen": 1795557146.818311,
+    "ast_hash": "def5293f417a50bdf5092543db9279e6",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/rules.d.ts": {
+    "mtime": 1795555802.6367352,
+    "seen": 1795557146.818312,
+    "ast_hash": "373d6741248f499ef97086f3e61c3a47",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/rules.js": {
+    "mtime": 1795555802.6368632,
+    "seen": 1795557146.818312,
+    "ast_hash": "2dddff43efd5ed7e851c0f7cc359ef85",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/surface-mesh.d.ts": {
+    "mtime": 1795555802.6369653,
+    "seen": 1795557146.818313,
+    "ast_hash": "0077ebe2c3f28ddcef27d1fe97847bda",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/surface-mesh.js": {
+    "mtime": 1795555802.6370718,
+    "seen": 1795557146.818313,
+    "ast_hash": "d96abd7ce1c3c2cfd2107f2be3b4e256",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/truck-tri.d.ts": {
+    "mtime": 1795555802.6371694,
+    "seen": 1795557146.818314,
+    "ast_hash": "453f871105146970c6a4575a1925ed6a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/truck-tri.js": {
+    "mtime": 1795555802.6372762,
+    "seen": 1795557146.818314,
+    "ast_hash": "d0c707e69f850e041dc22d81eddec6ad",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/truck-pair.d.ts": {
+    "mtime": 1795555802.6422937,
+    "seen": 1795557146.8183339,
+    "ast_hash": "52fd0c74860d7e7ad27dbb6f20643d1a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/collide/truck-pair.js": {
+    "mtime": 1795555802.6424026,
+    "seen": 1795557146.8183339,
+    "ast_hash": "21b6f6c2b5deef9b0ee0be64de612f7c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/object-support.d.ts": {
+    "mtime": 1795555802.6465707,
+    "seen": 1795557146.818347,
+    "ast_hash": "37958c3985060f85e2f8784c15bb0b39",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/object-support.js": {
+    "mtime": 1795555802.6466796,
+    "seen": 1795557146.818348,
+    "ast_hash": "5dada8ac8646488b62fd57103213f03f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/trick.d.ts": {
+    "mtime": 1795555802.647833,
+    "seen": 1795557146.8183522,
+    "ast_hash": "e9f1b1fdfea5692f631133de5a24aaee",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/mtm2/truck/trick.js": {
+    "mtime": 1795555802.647938,
+    "seen": 1795557146.818353,
+    "ast_hash": "3f45daeb08f2318ac6b62528869d09de",
+    "semantic_hash": ""
+  },
+  "tests/falls.test.ts": {
+    "mtime": 1794802146.345346,
+    "seen": 1794802194.1365602,
+    "ast_hash": "b9bea71fb92818a7da4ca650e5d42846",
+    "semantic_hash": ""
+  },
+  "tests/traxx-171-view.test.ts": {
+    "mtime": 1794544273.347871,
+    "seen": 1794545933.1442208,
+    "ast_hash": "2fe6a838227b05b6ce12226a27baa962",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/audio/mod.js": {
+    "mtime": 1794548787.4665332,
+    "seen": 1794550429.253419,
+    "ast_hash": "46352e1aaa961354fdd79a9699d9ca48",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/audio/probe.js": {
+    "mtime": 1794548787.4667363,
+    "seen": 1794550429.25342,
+    "ast_hash": "6f35493d9aca9c5924ef30fe1e3afb95",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/cpr/cmd.js": {
+    "mtime": 1794548787.4669807,
+    "seen": 1794550429.253421,
+    "ast_hash": "7d09f14c43826d580be1cde7eb5251ff",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/cpr/garage.js": {
+    "mtime": 1794548787.4671946,
+    "seen": 1794550429.253421,
+    "ast_hash": "05600983a16575ede7e09d170dfe6f3c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/cpr/road.js": {
+    "mtime": 1794548787.467335,
+    "seen": 1794550429.253422,
+    "ast_hash": "26aea671e9f7cb2f879fc213feaa975f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/cpr/track.js": {
+    "mtime": 1794548787.4674792,
+    "seen": 1794550429.253422,
+    "ast_hash": "8eb70c90bbfdc45b5f5de90027d53c1d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/errors.js": {
+    "mtime": 1794548787.4676237,
+    "seen": 1794550429.2534232,
+    "ast_hash": "78f3a283bd74cff650d1913e52ae32d7",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/evo/ai-line.js": {
+    "mtime": 1794548787.4678059,
+    "seen": 1794550429.2534232,
+    "ast_hash": "bed59277b11057547f9553c7aefb22e1",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/evo/coords.js": {
+    "mtime": 1794548787.467938,
+    "seen": 1794550429.2534242,
+    "ast_hash": "dea0eb2d325d3f8942d6b1860aa2ae26",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/evo/lte.js": {
+    "mtime": 1794548787.4680798,
+    "seen": 1794550429.2534242,
+    "ast_hash": "0291dea03b84809875e3c892af0c0836",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/evo/lvl.js": {
+    "mtime": 1794548787.4682958,
+    "seen": 1794550429.2534242,
+    "ast_hash": "179d20f81655761fa13771f8895aff09",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/evo/parts.js": {
+    "mtime": 1794548787.4684145,
+    "seen": 1794550429.253425,
+    "ast_hash": "cfbfe134f584f618a705b794cf0daccb",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/evo/script.js": {
+    "mtime": 1794548787.4685452,
+    "seen": 1794550429.253425,
+    "ast_hash": "6cb45d23a6924fe8a2214f35b2c24517",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/evo/sit.js": {
+    "mtime": 1794548787.4686635,
+    "seen": 1794550429.2534258,
+    "ast_hash": "992e82dea5e685efd398289022b8a572",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/evo/smf.js": {
+    "mtime": 1794548787.4687753,
+    "seen": 1794550429.2534258,
+    "ast_hash": "da3441fb4713e91947894b1298acd504",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/evo/tex.js": {
+    "mtime": 1794548787.4689298,
+    "seen": 1794550429.253427,
+    "ast_hash": "e1cb0408b5809b76c1fffb75f0f8b67a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/evo/text.js": {
+    "mtime": 1794548787.4690595,
+    "seen": 1794550429.253427,
+    "ast_hash": "9ee45e0c8b9301dcbdf47b969c07c555",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/evo/trk.js": {
+    "mtime": 1794548787.4691944,
+    "seen": 1794550429.253428,
+    "ast_hash": "dbe8b8f2d1faf9962e5de7c724e52a50",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/evo/veg.js": {
+    "mtime": 1794548787.4693823,
+    "seen": 1794550429.253428,
+    "ast_hash": "19f5c2a108695af2168ed4268ccf7f39",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/evo/vegetation.js": {
+    "mtime": 1794548787.469525,
+    "seen": 1794550429.253429,
+    "ast_hash": "34a25181e087987bc666ee9fe7b27c2b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/fly/bsp.js": {
+    "mtime": 1794548787.4696796,
+    "seen": 1794550429.253429,
+    "ast_hash": "aea761d7afffae711e5a032d9a00034c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/fly/globe.js": {
+    "mtime": 1794548787.4698043,
+    "seen": 1794550429.2534301,
+    "ast_hash": "e05b446f19ae0e175d1851e9bc8db504",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/fly/quadrant.js": {
+    "mtime": 1794548787.4699275,
+    "seen": 1794550429.2534301,
+    "ast_hash": "95568973473c9c28599422b070aef382",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/fly/scenery.js": {
+    "mtime": 1794548787.4700582,
+    "seen": 1794550429.253431,
+    "ast_hash": "09b4cedb63760f3e88aa4515102d44d2",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/fly/tagged.js": {
+    "mtime": 1794548787.4701726,
+    "seen": 1794550429.253431,
+    "ast_hash": "28bf639b5ff6117a49b6d9cd1b88e9ce",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/index.js": {
+    "mtime": 1794548787.4703817,
+    "seen": 1794550429.253432,
+    "ast_hash": "35b61f8081f3117a5c6e8c08df61a7b8",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/model/bin-write.js": {
+    "mtime": 1794548787.4706507,
+    "seen": 1794550429.253432,
+    "ast_hash": "65d73d88cad3458026dead2c1193f36d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/model/bin.js": {
+    "mtime": 1794548787.4707778,
+    "seen": 1794550429.253433,
+    "ast_hash": "42a423f5e61b16b140138cb33ecd3ff3",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/model/coll-soup.js": {
+    "mtime": 1794548787.4709413,
+    "seen": 1794550429.253433,
+    "ast_hash": "56fd407e1b3b0cfc8f4d71ee886d9296",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/cockpit.js": {
+    "mtime": 1794548787.4711213,
+    "seen": 1794550429.2534342,
+    "ast_hash": "6422006338ab52c7d6edd613de7d0b80",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/cpt.js": {
+    "mtime": 1794548787.471286,
+    "seen": 1794550429.2534342,
+    "ast_hash": "dc0aa9d5e2d25c77baaa119a93a16757",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/heights.js": {
+    "mtime": 1794548787.4714355,
+    "seen": 1794550429.253435,
+    "ast_hash": "e9fece70c6da29c0848cd9251a851754",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/high-scores.js": {
+    "mtime": 1794548787.471629,
+    "seen": 1794550429.253435,
+    "ast_hash": "cb88743cda14a44f56dff9505a7e3a04",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/level-palette.js": {
+    "mtime": 1794548787.4717333,
+    "seen": 1794550429.2534359,
+    "ast_hash": "eb6f8cd875361aef36740c6e9b03ae72",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/loc.js": {
+    "mtime": 1794548787.4718428,
+    "seen": 1794550429.2534359,
+    "ast_hash": "4f7cab5b6a2bcae1e0ece22715aebe99",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/player-pro.js": {
+    "mtime": 1794548787.4719458,
+    "seen": 1794550429.253437,
+    "ast_hash": "8c9bdc134e01ad3c5460a11d0d4c4c99",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/replay.js": {
+    "mtime": 1794548787.4720516,
+    "seen": 1794550429.253437,
+    "ast_hash": "aebf6d2a6f5de2ec380039f7463e4ab3",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/saved-game.js": {
+    "mtime": 1794548787.4722817,
+    "seen": 1794550429.253438,
+    "ast_hash": "14ff9f19fff75342e9cfe242909da4fa",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/sit.js": {
+    "mtime": 1794548787.472454,
+    "seen": 1794550429.253438,
+    "ast_hash": "48348d2dfa553e666ba2e5900c16f609",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/sound.js": {
+    "mtime": 1794548787.4728775,
+    "seen": 1794550429.253439,
+    "ast_hash": "02abc8494628ef9f5f8c2ae90b3c04c6",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/srf.js": {
+    "mtime": 1794548787.4731092,
+    "seen": 1794550429.253439,
+    "ast_hash": "8ee065fc7e6faeb40534dbc1b22298eb",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/sun.js": {
+    "mtime": 1794548787.4732468,
+    "seen": 1794550429.25344,
+    "ast_hash": "c187b628b2337711aca4c0a4d99f8d12",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/trn.js": {
+    "mtime": 1794548787.473392,
+    "seen": 1794550429.25344,
+    "ast_hash": "d4f5ac0bcb636e3b7622018a16ac214d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/txv.js": {
+    "mtime": 1794548787.473507,
+    "seen": 1794550429.253441,
+    "ast_hash": "3c08e9b5a02472956ed9f6ddaff9e5a1",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/veg.js": {
+    "mtime": 1794548787.4736228,
+    "seen": 1794550429.253441,
+    "ast_hash": "93a7878e97726068c0ca612af8c6aad5",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/wfl.js": {
+    "mtime": 1794548787.4737616,
+    "seen": 1794550429.253442,
+    "ast_hash": "239333447e5a3bbaa937ff525294de16",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/write.js": {
+    "mtime": 1794548787.4739418,
+    "seen": 1794550429.253442,
+    "ast_hash": "85c987b51d559ba01c0529f1411d4814",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/mtm/wtr.js": {
+    "mtime": 1794548787.4740958,
+    "seen": 1794550429.253443,
+    "ast_hash": "c5a57037941d1542fce088ad8481d76a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/nocturne/cth.js": {
+    "mtime": 1794548787.4742293,
+    "seen": 1794550429.253443,
+    "ast_hash": "016df7a54a20c51d8e8f4e05e7f0ceb1",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/nocturne/dfm.js": {
+    "mtime": 1794548787.4743342,
+    "seen": 1794550429.2534442,
+    "ast_hash": "8fe9a4c00af11ba7e4aff5a8bf73ac89",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/nocturne/fog.js": {
+    "mtime": 1794548787.4744346,
+    "seen": 1794550429.2534442,
+    "ast_hash": "dad642c61df717c066d55626f0c8da8b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/nocturne/geo.js": {
+    "mtime": 1794548787.4745457,
+    "seen": 1794550429.2534442,
+    "ast_hash": "acd52c184b3411ce3d9b6e7a7d82fb62",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/nocturne/kfm.js": {
+    "mtime": 1794548787.4747076,
+    "seen": 1794550429.2534451,
+    "ast_hash": "47489cd55f10d6a826c1a2a41b768840",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/nocturne/set.js": {
+    "mtime": 1794548787.4748507,
+    "seen": 1794550429.2534451,
+    "ast_hash": "309560818f30d847236ae8d8035e1c15",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/nocturne/skl.js": {
+    "mtime": 1794548787.4749975,
+    "seen": 1794550429.2534459,
+    "ast_hash": "3e48ad5a5d0f6446c694b619f76d0fc8",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/nocturne/text.js": {
+    "mtime": 1794548787.4751053,
+    "seen": 1794550429.2534459,
+    "ast_hash": "23edbec0fe16786810e7eca1d6d232f1",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/nocturne/thm.js": {
+    "mtime": 1794548787.4752192,
+    "seen": 1794550429.2534468,
+    "ast_hash": "48881b79accbc0de8de3e986d4eff6d8",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/nocturne/zth.js": {
+    "mtime": 1794548787.4753246,
+    "seen": 1794550429.2534468,
+    "ast_hash": "6a94cdb491f96933c5dcd853c64c7d9d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/pod/lookup.js": {
+    "mtime": 1794548787.4754639,
+    "seen": 1794550429.253448,
+    "ast_hash": "2d7f3a46201bbca08d1d3848f4645c62",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/pod/parse.js": {
+    "mtime": 1794548787.4755876,
+    "seen": 1794550429.253448,
+    "ast_hash": "2f85171ece218da0b216f0caf5cb1e26",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/pod/paths.js": {
+    "mtime": 1794548787.4758608,
+    "seen": 1794550429.253449,
+    "ast_hash": "8b56086b16391d3e994e635de387ee04",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/pod/pod2.js": {
+    "mtime": 1794548787.4760413,
+    "seen": 1794550429.253449,
+    "ast_hash": "c7afb56176d381a048660640fe87d85d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/pod/types.js": {
+    "mtime": 1794548787.4761987,
+    "seen": 1794550429.25345,
+    "ast_hash": "e2ebd7ddedcadeeadbf819c35985c768",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/pod/write-pod2.js": {
+    "mtime": 1794548787.4763768,
+    "seen": 1794550429.25345,
+    "ast_hash": "a4da0fe564a3f869739a8c261b3c169a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/pod/write.js": {
+    "mtime": 1794548787.4767184,
+    "seen": 1794550429.253451,
+    "ast_hash": "49b0bfed74fe8c235f12298b98903f26",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/cp4/coll-shape.js": {
+    "mtime": 1794548787.4770315,
+    "seen": 1794550429.253451,
+    "ast_hash": "4561ac7b522c3bf0a9b1f546970ca3fa",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/cp4/falls.js": {
+    "mtime": 1794548787.4771986,
+    "seen": 1794550429.253452,
+    "ast_hash": "2f0acd16a508b211604acf90bbaac3c9",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/cp4/index.js": {
+    "mtime": 1794548787.477369,
+    "seen": 1794550429.253452,
+    "ast_hash": "75e9ff1bcf592f22e965d25e6e79aa9f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/cp4/rules.js": {
+    "mtime": 1794548787.4774797,
+    "seen": 1794550429.253453,
+    "ast_hash": "2dddff43efd5ed7e851c0f7cc359ef85",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/cp4/surface-mesh.js": {
+    "mtime": 1794548787.477594,
+    "seen": 1794550429.253453,
+    "ast_hash": "d96abd7ce1c3c2cfd2107f2be3b4e256",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/cp4/truck-tri.js": {
+    "mtime": 1794548787.4777179,
+    "seen": 1794550429.253454,
+    "ast_hash": "d0c707e69f850e041dc22d81eddec6ad",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/cpr/index.js": {
+    "mtime": 1794548787.4779456,
+    "seen": 1794550429.253454,
+    "ast_hash": "0c2efb1532d041b6c21e7ed9cf3a35c7",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/cpr/rules.js": {
+    "mtime": 1794548787.4781651,
+    "seen": 1794550429.2534552,
+    "ast_hash": "b636730f84178ac2683abeb8498a2d65",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/cpr/step.js": {
+    "mtime": 1794548787.478329,
+    "seen": 1794550429.2534552,
+    "ast_hash": "618760ac7a912e46cfd04a299356adf2",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/evo/driveline.js": {
+    "mtime": 1794548787.479005,
+    "seen": 1794550429.2534552,
+    "ast_hash": "5eebed979b9c81b8804267e576040ad9",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/evo/ground.js": {
+    "mtime": 1794548787.479271,
+    "seen": 1794550429.2534559,
+    "ast_hash": "154e5d5e20d5fa4331adaa911426cd45",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/evo/index.js": {
+    "mtime": 1794548787.4794462,
+    "seen": 1794550429.2534559,
+    "ast_hash": "96bcef2b00c58d450a144477aefba735",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/evo/params.js": {
+    "mtime": 1794548787.479603,
+    "seen": 1794550429.2534568,
+    "ast_hash": "a443f38f0677a652c06da579e9f8f54d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/evo/rules.js": {
+    "mtime": 1794548787.4797876,
+    "seen": 1794550429.2534568,
+    "ast_hash": "aec0d1f6ca9a1e324ce410dc511052d7",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/evo/spec.js": {
+    "mtime": 1794548787.4799612,
+    "seen": 1794550429.253458,
+    "ast_hash": "548d81bdc36c12e5b8d28f94f09795f3",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/evo/step.js": {
+    "mtime": 1794548787.4801888,
+    "seen": 1794550429.253458,
+    "ast_hash": "1c3d1a2ccac985ca5f008223e267b335",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/collide/box-box.js": {
+    "mtime": 1794548787.4806218,
+    "seen": 1794550429.253459,
+    "ast_hash": "9790ba51f6a5c90ba306059797b5a12a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/collide/box-step.js": {
+    "mtime": 1794548787.4807706,
+    "seen": 1794550429.253459,
+    "ast_hash": "d2e587298b50cdcc23a7334a9d44a0af",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/collide/box.js": {
+    "mtime": 1794548787.4809592,
+    "seen": 1794550429.25346,
+    "ast_hash": "5d08ae7a9131ad2fc0c648b76c13aa26",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/collide/edges.js": {
+    "mtime": 1794548787.4811225,
+    "seen": 1794550429.25346,
+    "ast_hash": "4ce5a84c0f916dc279e93c3d06295055",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/collide/faces.js": {
+    "mtime": 1794548787.4812977,
+    "seen": 1794550429.253461,
+    "ast_hash": "167af8ea4b04860a8069b60cb81454de",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/collide/moving-object.js": {
+    "mtime": 1794548787.481439,
+    "seen": 1794550429.253461,
+    "ast_hash": "ecfc53acdd1c36242d3766b5d2224603",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/collide/ramp.js": {
+    "mtime": 1794548787.4815998,
+    "seen": 1794550429.253462,
+    "ast_hash": "797ef09fc9346e2067cc9857a0373506",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/collide/top-crush.js": {
+    "mtime": 1794548787.4817352,
+    "seen": 1794550429.253462,
+    "ast_hash": "18910b337d4ec54e3e512cdbaf355ccd",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/collide/truck-box.js": {
+    "mtime": 1794548787.4819865,
+    "seen": 1794550429.253463,
+    "ast_hash": "5b2d5dbc6acffd0c1b0bc36313b29100",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/collide/truck-face.js": {
+    "mtime": 1794548787.4823024,
+    "seen": 1794550429.253463,
+    "ast_hash": "f860b1cfa228b7fd5359e0c81285f0f4",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/collide/truck-pair.js": {
+    "mtime": 1794548787.4824545,
+    "seen": 1794550429.253464,
+    "ast_hash": "21b6f6c2b5deef9b0ee0be64de612f7c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/collide/truck-truck.js": {
+    "mtime": 1794548787.4827163,
+    "seen": 1794550429.253464,
+    "ast_hash": "a89dc5eea90ada2a795916019439f9fb",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/constants.js": {
+    "mtime": 1794548787.4829886,
+    "seen": 1794550429.2534652,
+    "ast_hash": "5c9e81fbbfe121cd6130d6cc03975b8f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/index.js": {
+    "mtime": 1794548787.4831178,
+    "seen": 1794550429.2534652,
+    "ast_hash": "4c9bd543629b3d5137cdc9276fd83c26",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/math.js": {
+    "mtime": 1794548787.4832768,
+    "seen": 1794550429.2534661,
+    "ast_hash": "5fe60a3af9363ac243ff60121b4ebf27",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/race/race.js": {
+    "mtime": 1794548787.4835968,
+    "seen": 1794550429.2534661,
+    "ast_hash": "7fb1c0802e3374ef4d6734cf4a9b2743",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/race/summit.js": {
+    "mtime": 1794548787.4837704,
+    "seen": 1794550429.2534668,
+    "ast_hash": "06eadbc80f94098c073955768e412d95",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/time.js": {
+    "mtime": 1794548787.48402,
+    "seen": 1794550429.2534668,
+    "ast_hash": "61e9ea949aca7e3629622cf1b10e7727",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/truck/autopilot.js": {
+    "mtime": 1794548787.484485,
+    "seen": 1794550429.2534678,
+    "ast_hash": "71515b484b7ed32a9b1e235e100e3031",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/truck/contacts.js": {
+    "mtime": 1794548787.4851387,
+    "seen": 1794550429.2534678,
+    "ast_hash": "dfcb144d5fd1233ae34a2fddcaa9cca5",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/truck/controls.js": {
+    "mtime": 1794548787.4857445,
+    "seen": 1794550429.253469,
+    "ast_hash": "b71d72aedf9ab69b32cd4c43614ada5a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/truck/damage.js": {
+    "mtime": 1794548787.4859984,
+    "seen": 1794550429.253469,
+    "ast_hash": "0182fc825cfbcd712de56bbcb5d44cc2",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/truck/drivetrain.js": {
+    "mtime": 1794548787.4861765,
+    "seen": 1794550429.25347,
+    "ast_hash": "5533226a4fdfd87b93335a9298df386b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/truck/dynamics.js": {
+    "mtime": 1794548787.4863653,
+    "seen": 1794550429.25347,
+    "ast_hash": "53a6bdacee1eb89a019843a5afeaacb9",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/truck/object-support.js": {
+    "mtime": 1794548787.4865355,
+    "seen": 1794550429.253471,
+    "ast_hash": "5dada8ac8646488b62fd57103213f03f",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/truck/params.js": {
+    "mtime": 1794548787.4866862,
+    "seen": 1794550429.253471,
+    "ast_hash": "96106923bd19339460d4f6265e5046d9",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/truck/recovery.js": {
+    "mtime": 1794548787.4869227,
+    "seen": 1794550429.253472,
+    "ast_hash": "85ed581d66093f0938a4a1d9a550d7ee",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/truck/state.js": {
+    "mtime": 1794548787.487092,
+    "seen": 1794550429.253472,
+    "ast_hash": "0c49dafeca02f4fc1ab32a3ec9dd54e0",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/truck/traffic.js": {
+    "mtime": 1794548787.487289,
+    "seen": 1794550429.253473,
+    "ast_hash": "7c41c81843fd3a0dec03a1da1467c222",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/truck/trick.js": {
+    "mtime": 1794548787.487567,
+    "seen": 1794550429.253473,
+    "ast_hash": "3f45daeb08f2318ac6b62528869d09de",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/truck/water-drag.js": {
+    "mtime": 1794548787.487744,
+    "seen": 1794550429.253474,
+    "ast_hash": "fb530eb632d8f370cad5ac533a4ea274",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/world/checkpoints.js": {
+    "mtime": 1794548787.4879932,
+    "seen": 1794550429.253474,
+    "ast_hash": "ae72c5137bf8dad6e0f3cbfe13864913",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/world/course.js": {
+    "mtime": 1794548787.4882047,
+    "seen": 1794550429.2534752,
+    "ast_hash": "725a331456c1f8bdc7a747fad68e6ce9",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/world/ground.js": {
+    "mtime": 1794548787.4885628,
+    "seen": 1794550429.2534752,
+    "ast_hash": "5857ec90fc5ac90fdbb394692f3ea921",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/world/road.js": {
+    "mtime": 1794548787.488756,
+    "seen": 1794550429.2534761,
+    "ast_hash": "f2b40b0d8e7d1e3c9ed0a779137840b5",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/world/surface.js": {
+    "mtime": 1794548787.4889429,
+    "seen": 1794550429.2534761,
+    "ast_hash": "610fbdf8e8df9a1d0eaefa1c9a87cee4",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/world/terrain.js": {
+    "mtime": 1794548787.4890995,
+    "seen": 1794550429.253477,
+    "ast_hash": "2045763dd7ccb53ec4a97736363128c4",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/world/water.js": {
+    "mtime": 1794548787.4892364,
+    "seen": 1794550429.253477,
+    "ast_hash": "d103ace6105565b805933dbf811ea66a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/sim/mtm2/world/wrap.js": {
+    "mtime": 1794548787.4893806,
+    "seen": 1794550429.2534778,
+    "ast_hash": "cb4c4a6b73e4ca284be4e9a4ff87073a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/terrain/ground-boxes.js": {
+    "mtime": 1794548787.4895504,
+    "seen": 1794550429.2534778,
+    "ast_hash": "24850e066520c7cd47a4741bd55928f0",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/terrain/hb-underground.js": {
+    "mtime": 1794548787.4896955,
+    "seen": 1794550429.253479,
+    "ast_hash": "bf734e17c53c8230e3f2e17abf82cd41",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/terrain/height.js": {
+    "mtime": 1794548787.4898212,
+    "seen": 1794550429.253479,
+    "ast_hash": "038847bdc6bbc10ddac0f3619ec8e0ab",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/terrain/spline.js": {
+    "mtime": 1794548787.4899673,
+    "seen": 1794550429.2534819,
+    "ast_hash": "362d326a6ec693cbef871ce3704c9c97",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/text.js": {
+    "mtime": 1794548787.490093,
+    "seen": 1794550429.253483,
+    "ast_hash": "4db5224c11f9b4e22c13fbf5b2c11058",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/texture/act.js": {
+    "mtime": 1794548787.490318,
+    "seen": 1794550429.253483,
+    "ast_hash": "53ae207791bf370d18d4692f6c270298",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/texture/bundled-palettes.js": {
+    "mtime": 1794548787.4905186,
+    "seen": 1794550429.253484,
+    "ast_hash": "8872100a0c5141fed5ff7c6f2d81f81a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/texture/encode.js": {
+    "mtime": 1794548787.4907537,
+    "seen": 1794550429.253484,
+    "ast_hash": "dde76622a8e7f55c546f3ad7953ab8e9",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/texture/inflate.js": {
+    "mtime": 1794548787.4909217,
+    "seen": 1794550429.253485,
+    "ast_hash": "3cfd86d10ab51691484168b42f96a5d3",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/texture/palette-rank.js": {
+    "mtime": 1794548787.4910533,
+    "seen": 1794550429.253485,
+    "ast_hash": "0d33c467d0b2f840f74f66e7a971af25",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/texture/png.js": {
+    "mtime": 1794548787.4911773,
+    "seen": 1794550429.2534862,
+    "ast_hash": "1f3f4e8a65b5945399a926b83c7e30fd",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/texture/raw.js": {
+    "mtime": 1794548787.4913094,
+    "seen": 1794550429.2534862,
+    "ast_hash": "6ca848f0cb3daec9e60abc368971369d",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/texture/sky.js": {
+    "mtime": 1794548787.4914658,
+    "seen": 1794550429.253487,
+    "ast_hash": "e99de60f3748da374a7663ee5f7f19c7",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/texture/tiff.js": {
+    "mtime": 1794548787.4916143,
+    "seen": 1794550429.253487,
+    "ast_hash": "453ab4112d093841069f710efadbb239",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/truck/common.js": {
+    "mtime": 1794548787.4918327,
+    "seen": 1794550429.253488,
+    "ast_hash": "bc2bf9a26d484f1f5840eb1b98d0808c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/truck/cpr-car.js": {
+    "mtime": 1794548787.4919622,
+    "seen": 1794550429.253488,
+    "ast_hash": "0fceacce3725b4cbd2539e226db34994",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/truck/manifest.js": {
+    "mtime": 1794548787.4920967,
+    "seen": 1794550429.2534888,
+    "ast_hash": "862dba94dc8420b6b092d99c4fbbdda0",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/truck/mtm-trk.js": {
+    "mtime": 1794548787.4922318,
+    "seen": 1794550429.2534888,
+    "ast_hash": "51c41909af00ae380ef03d286105335e",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/tv/ani.js": {
+    "mtime": 1794548787.4923792,
+    "seen": 1794550429.25349,
+    "ast_hash": "2c9c27ec80806ed3987ecf23be9a5751",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/tv/coords.js": {
+    "mtime": 1794548787.492509,
+    "seen": 1794550429.25349,
+    "ast_hash": "cbf3ffdc487b13156a75f4005ea4fe31",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/tv/def.js": {
+    "mtime": 1794548787.4927957,
+    "seen": 1794550429.253491,
+    "ast_hash": "e308fa3722c484cb370af374450c788e",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/tv/hb-briefing.js": {
+    "mtime": 1794548787.4929795,
+    "seen": 1794550429.253491,
+    "ast_hash": "bf7b1c87eef77b9be765d8fd63c14526",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/tv/hb-nav.js": {
+    "mtime": 1794548787.4931061,
+    "seen": 1794550429.253491,
+    "ast_hash": "f4945953f7ff36fecc01da8b210748d4",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/tv/hb-qke.js": {
+    "mtime": 1794548787.4933095,
+    "seen": 1794550429.2534919,
+    "ast_hash": "3608e0dde9a433d373bb73e7bfa93bed",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/tv/lvl.js": {
+    "mtime": 1794548787.4934506,
+    "seen": 1794550429.2534919,
+    "ast_hash": "4ae8e10cdcdde1591dc928330ce3d1b8",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/tv/nav.js": {
+    "mtime": 1794548787.4935849,
+    "seen": 1794550429.253493,
+    "ast_hash": "7af844f438b920aba559f40acf705381",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/tv/pup.js": {
+    "mtime": 1794548787.4938018,
+    "seen": 1794550429.253493,
+    "ast_hash": "ce7d3b5500a1442d80ca599e05e23e7b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/tv/tables.js": {
+    "mtime": 1794548787.4939494,
+    "seen": 1794550429.253494,
+    "ast_hash": "ccf7d16832c0304789cfa1a9a3363561",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/tv/tdf.js": {
+    "mtime": 1794548787.4940703,
+    "seen": 1794550429.253494,
+    "ast_hash": "0c8d7169ce0df5dcd38d3c4e2473310b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/tv/tnl.js": {
+    "mtime": 1794548787.494252,
+    "seen": 1794550429.253495,
+    "ast_hash": "c1dc8c31c5f8afa41831b8b3ff664ca1",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex --types/video/smk.js": {
+    "mtime": 1794548787.4945097,
+    "seen": 1794550429.253495,
+    "ast_hash": "2243d2a61763af47bda09849d258263e",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/falls.d.ts": {
+    "mtime": 1795555802.6361778,
+    "seen": 1795557146.8183098,
+    "ast_hash": "4452f4d9161b54a35edf758fa5183be2",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/falls.js": {
+    "mtime": 1795555802.636334,
+    "seen": 1795557146.8183098,
+    "ast_hash": "193b3f8de407870a5a08efddb85db925",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/v6.ts": {
+    "mtime": 1795556358.1685038,
+    "seen": 1795557146.8181,
+    "ast_hash": "8d5281e514baa394077260313873327b",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/world.ts": {
+    "mtime": 1795553642.827743,
+    "seen": 1795554634.048822,
+    "ast_hash": "b1b832e6027bbe7aaf56cc83823210a3",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/png-write.d.ts": {
+    "mtime": 1795555802.653873,
+    "seen": 1795557146.818371,
+    "ast_hash": "e522b75d1449b3b1be0f5a1522db983c",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/texture/png-write.js": {
+    "mtime": 1795555802.6539958,
+    "seen": 1795557146.818372,
+    "ast_hash": "dec9c6a49ea281ca42ff1e24ac262802",
+    "semantic_hash": ""
+  },
+  "tests/v6-terrain.test.ts": {
+    "mtime": 1795554479.3610277,
+    "seen": 1795554634.049144,
+    "ast_hash": "e6fe2fa2523446c0974924e0c64daf74",
+    "semantic_hash": ""
+  },
+  "tests/v6-track.test.ts": {
+    "mtime": 1795556771.2737985,
+    "seen": 1795557146.8184378,
+    "ast_hash": "17194c50f89e289d5a22830464a5729c",
+    "semantic_hash": ""
+  },
+  "tests/v6-view.test.ts": {
+    "mtime": 1795663014.2985218,
+    "seen": 1795663045.81858,
+    "ast_hash": "f2c65d8df248eb07652a6cfc93f7cce9",
+    "semantic_hash": ""
+  },
+  "tests/v6-water-veg.test.ts": {
+    "mtime": 1795556640.1664276,
+    "seen": 1795557146.818439,
+    "ast_hash": "1cb9a400c03a0cb7def32678ce74a895",
+    "semantic_hash": ""
+  },
+  "tests/falls-v6.test.ts": {
+    "mtime": 1795554603.8181086,
+    "seen": 1795554634.0491269,
+    "ast_hash": "ccad2923a3af13a725d14bc23d02d80a",
+    "semantic_hash": ""
+  },
+  "src/core/doc/pod-to-txx.ts": {
+    "mtime": 1795554273.1521847,
+    "seen": 1795554634.0487769,
+    "ast_hash": "9233401e5b14aa2d2c7c99cf46ffbae2",
+    "semantic_hash": ""
+  },
+  "tests/txx-v6.test.ts": {
+    "mtime": 1795556640.1666954,
+    "seen": 1795557146.818437,
+    "ast_hash": "691f2b27da4f51e185d02c4fa5355cd8",
+    "semantic_hash": ""
+  },
+  "src/core/edit/engine-light.ts": {
+    "mtime": 1794801053.6979733,
+    "seen": 1794802194.1361809,
+    "ast_hash": "4d594f6f47d5508a63c17ec9600fbbc1",
+    "semantic_hash": ""
+  },
+  "src/core/image/detail-map.ts": {
+    "mtime": 1794801234.9538517,
+    "seen": 1794802194.136199,
+    "ast_hash": "794852de0b6976b3544361d4be5b848e",
+    "semantic_hash": ""
+  },
+  "src/render/sun-marker.ts": {
+    "mtime": 1794864402.5623548,
+    "seen": 1794864574.0184698,
+    "ast_hash": "2e75265f3767a8336a25f90b7192c59e",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/lighting-dialog.ts": {
+    "mtime": 1794801104.6135647,
+    "seen": 1794802194.1362581,
+    "ast_hash": "c0583dffdbc707b6a588db2b7cb6d4b4",
+    "semantic_hash": ""
+  },
+  "tests/engine-light.test.ts": {
+    "mtime": 1794864378.9733562,
+    "seen": 1794864574.018754,
+    "ast_hash": "d8eee47159145fa8e8961d69eafc6d6e",
+    "semantic_hash": ""
+  },
+  "tests/falls-173.test.ts": {
+    "mtime": 1794864398.5328538,
+    "seen": 1794864574.0187562,
+    "ast_hash": "87c0640b7bcb6821d72dbe2d2eddc2ec",
+    "semantic_hash": ""
+  },
+  "tests/lakes-edge.test.ts": {
+    "mtime": 1794802064.7662616,
+    "seen": 1794802194.136563,
+    "ast_hash": "0b68e5c6db202429a7620b06090c624f",
+    "semantic_hash": ""
+  },
+  "tests/traxx-173-view.test.ts": {
+    "mtime": 1794801653.2374477,
+    "seen": 1794802194.136572,
+    "ast_hash": "6f028592b10d47da25c43989bc97a9ab",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/fall-droplets.d.ts": {
+    "mtime": 1795555802.635546,
+    "seen": 1795557146.818308,
+    "ast_hash": "c5fbfbf890145cbfda168697462b070a",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/fall-droplets.js": {
+    "mtime": 1795555802.6357107,
+    "seen": 1795557146.818308,
+    "ast_hash": "c9eec7cc289214836eb108b8fa2aa76b",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/fall-sheet.d.ts": {
+    "mtime": 1795555802.6358593,
+    "seen": 1795557146.818309,
+    "ast_hash": "0db9a0bff1c10413de1cb49d15925acf",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/sim/cp4/fall-sheet.js": {
+    "mtime": 1795555802.6360197,
+    "seen": 1795557146.818309,
+    "ast_hash": "915237b4ae244f6351fad31e7778915d",
+    "semantic_hash": ""
+  },
+  "src/core/doc/preflight-gather.ts": {
+    "mtime": 1795557042.0766742,
+    "seen": 1795557146.818058,
+    "ast_hash": "e893ff7b130f14cd287db84024821dcb",
+    "semantic_hash": ""
+  },
+  "src/core/edit/engine-glow-cone.ts": {
+    "mtime": 1794864193.978694,
+    "seen": 1794864574.018413,
+    "ast_hash": "bfe3f4151f34414135c9f7a4197c7151",
+    "semantic_hash": ""
+  },
+  "src/core/edit/engine-light-pool.ts": {
+    "mtime": 1794864182.2937067,
+    "seen": 1794864574.018414,
+    "ast_hash": "951f5c5b42a6ab20e9908fc0c0555376",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/fall-mist.ts": {
+    "mtime": 1794864676.8028042,
+    "seen": 1794865287.780226,
+    "ast_hash": "599911e20716a9d9ea3e7d4c2c5fa8ea",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/keyframe.ts": {
+    "mtime": 1794863458.157713,
+    "seen": 1794864574.0184371,
+    "ast_hash": "49b23ecebc225db29ea1a24933177be7",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/light-props.ts": {
+    "mtime": 1794863315.2904363,
+    "seen": 1794864574.0184388,
+    "ast_hash": "60f3760142fdcc79ad7dceafe8cd4114",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/preflight.ts": {
+    "mtime": 1795556863.766854,
+    "seen": 1795557146.818093,
+    "ast_hash": "981d7e97ffc3252e9cc3405d7b773c63",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/veg-trunk.ts": {
+    "mtime": 1794863527.4740133,
+    "seen": 1794864574.01845,
+    "ast_hash": "83055b79fccdcc64bde488684b77f915",
+    "semantic_hash": ""
+  },
+  "src/core/view/engine-detail.ts": {
+    "mtime": 1795555523.5311522,
+    "seen": 1795557146.818107,
+    "ast_hash": "f3eae69461486f49afe25fe427db0e59",
+    "semantic_hash": ""
+  },
+  "src/core/view/engine-fog-noise.ts": {
+    "mtime": 1794863412.0456016,
+    "seen": 1794864574.018455,
+    "ast_hash": "9bb03682350d24edd68a2884e4ad1b8e",
+    "semantic_hash": ""
+  },
+  "src/core/view/engine-fog.ts": {
+    "mtime": 1794864203.7382913,
+    "seen": 1794864574.018456,
+    "ast_hash": "cf5967dfef1bb5ec415695ec54398db9",
+    "semantic_hash": ""
+  },
+  "src/core/view/engine-sky.ts": {
+    "mtime": 1794864378.9709308,
+    "seen": 1794864574.018456,
+    "ast_hash": "945d5bdd163b2f727bd5574eade6d806",
+    "semantic_hash": ""
+  },
+  "src/core/view/game-pods.ts": {
+    "mtime": 1794863562.823359,
+    "seen": 1794864574.0184581,
+    "ast_hash": "d7bc7112841c679b1c74f410c781ab31",
+    "semantic_hash": ""
+  },
+  "src/render/engine-detail-glsl.ts": {
+    "mtime": 1795555559.316479,
+    "seen": 1795557146.81812,
+    "ast_hash": "759cd003196f179c54402bbf098c1602",
+    "semantic_hash": ""
+  },
+  "tests/engine-detail.test.ts": {
+    "mtime": 1794864075.5087485,
+    "seen": 1794864574.018752,
+    "ast_hash": "bcae7820a5f0e19ba4ac152f77b43fbd",
+    "semantic_hash": ""
+  },
+  "tests/engine-fog.test.ts": {
+    "mtime": 1794863694.4109545,
+    "seen": 1794864574.018753,
+    "ast_hash": "f79d6724051ffbfe99cd16a928ee918c",
+    "semantic_hash": ""
+  },
+  "tests/engine-glow-cone.test.ts": {
+    "mtime": 1794863586.683508,
+    "seen": 1794864574.018753,
+    "ast_hash": "834bd619f0a75b5e36853462e587d226",
+    "semantic_hash": ""
+  },
+  "tests/engine-light-pool.test.ts": {
+    "mtime": 1794863536.1971245,
+    "seen": 1794864574.018754,
+    "ast_hash": "e1788a590f8159a6ba2a0ca4b1053fb2",
+    "semantic_hash": ""
+  },
+  "tests/engine-sky.test.ts": {
+    "mtime": 1794863977.2526312,
+    "seen": 1794864574.018755,
+    "ast_hash": "dd204279ae70e2b346d319a9d22eb346",
+    "semantic_hash": ""
+  },
+  "tests/fall-mist.test.ts": {
+    "mtime": 1794863748.727389,
+    "seen": 1794864574.018755,
+    "ast_hash": "0019223e4f56ce3bbf193576e5e89566",
+    "semantic_hash": ""
+  },
+  "tests/falls-180.test.ts": {
+    "mtime": 1794864452.5130742,
+    "seen": 1794864574.0187562,
+    "ast_hash": "56f5e4d63476b4bf8c7a483670549890",
+    "semantic_hash": ""
+  },
+  "tests/traxx-180-formats.test.ts": {
+    "mtime": 1795554479.3607461,
+    "seen": 1795554634.04914,
+    "ast_hash": "be0b4dc3282e03426d14092b9ab81546",
+    "semantic_hash": ""
+  },
+  "tests/traxx-180-models.test.ts": {
+    "mtime": 1794864493.1431725,
+    "seen": 1794864574.0187688,
+    "ast_hash": "fadb04afbb2761c8f4e5276315a78ba6",
+    "semantic_hash": ""
+  },
+  "tests/traxx-180-preflight.test.ts": {
+    "mtime": 1795557126.1030338,
+    "seen": 1795557146.818434,
+    "ast_hash": "5b7e6a2dea5403312ac8ac15b90437a7",
+    "semantic_hash": ""
+  },
+  "src/render/light-glows.ts": {
+    "mtime": 1794864808.562921,
+    "seen": 1794865287.780274,
+    "ast_hash": "c0b5a9f44baf9dda6cffd94b70ecb805",
+    "semantic_hash": ""
+  },
+  "src/render/sky.ts": {
+    "mtime": 1794864943.559831,
+    "seen": 1794865287.780278,
+    "ast_hash": "b9331f8c76ce4e821ff8ced2796c1d48",
+    "semantic_hash": ""
+  },
+  "src/render/terrain-detail.ts": {
+    "mtime": 1795555534.7168505,
+    "seen": 1795557146.818126,
+    "ast_hash": "287d5117936189d9859ee46ac6164e67",
+    "semantic_hash": ""
+  },
+  "tests/traxx-180-view.test.ts": {
+    "mtime": 1795554460.382448,
+    "seen": 1795554634.049141,
+    "ast_hash": "55263ac7e17cdff5a242f70ff6574dcf",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/height-units.ts": {
+    "mtime": 1795553762.1594245,
+    "seen": 1795554634.0488052,
+    "ast_hash": "f88a04dab5151f68a88603905ee1b801",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/race-rules.ts": {
+    "mtime": 1795553948.879333,
+    "seen": 1795554634.048813,
+    "ast_hash": "71f78447b24f4d2081549cd6b2f72517",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/race-types.ts": {
+    "mtime": 1795553084.4776878,
+    "seen": 1795554634.048813,
+    "ast_hash": "00bae812fa7cc0ea266348b3535904d1",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/track-kind.ts": {
+    "mtime": 1795556226.2847488,
+    "seen": 1795557146.8180978,
+    "ast_hash": "3e760e6bd75212dfdbd947c0369b7811",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/walls.ts": {
+    "mtime": 1795553748.5469077,
+    "seen": 1795554634.048821,
+    "ast_hash": "c9f66b973ed264c1026da5460ec54937",
+    "semantic_hash": ""
+  },
+  "src/core/view/mesh-pick.ts": {
+    "mtime": 1794875796.0963683,
+    "seen": 1795554634.04883,
+    "ast_hash": "d474991340da2e38872e37e4d64fe2e3",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/cpx.d.ts": {
+    "mtime": 1795555802.6266687,
+    "seen": 1795557146.818274,
+    "ast_hash": "8e4b232f740f4c23bb8e70198cf9cb52",
+    "semantic_hash": ""
+  },
+  "src/vendor/openphotex/mtm/cpx.js": {
+    "mtime": 1795555802.6267824,
+    "seen": 1795557146.818274,
+    "ast_hash": "aca81c715077f6923d68e368283cc8f1",
+    "semantic_hash": ""
+  },
+  "tests/mesh-pick.test.ts": {
+    "mtime": 1794875854.5625143,
+    "seen": 1795554634.04913,
+    "ast_hash": "3ee46eeb70e8980f569001c5f7c14de5",
+    "semantic_hash": ""
+  },
+  "tests/race-rules.test.ts": {
+    "mtime": 1795555157.076149,
+    "seen": 1795557146.8184252,
+    "ast_hash": "d244519e518a62dfd564153c6504cf03",
+    "semantic_hash": ""
+  },
+  "tests/walls.test.ts": {
+    "mtime": 1795554563.615704,
+    "seen": 1795554634.049149,
+    "ast_hash": "eae317d93d52d205a97a54575a9e8085",
+    "semantic_hash": ""
+  },
+  "docs/CP4-TRACK-CHANGES.md": {
+    "mtime": 1795553284.376308,
+    "seen": 1795554634.049154,
+    "ast_hash": "7692258415261c2fb37cf3a854a810ba",
+    "semantic_hash": ""
+  },
+  "src/core/edit/enlarge-world.ts": {
+    "mtime": 1795556676.0604372,
+    "seen": 1795557146.818063,
+    "ast_hash": "153213ce0d7b8f552824abcabe7dc267",
+    "semantic_hash": ""
+  },
+  "tests/track-kind.test.ts": {
+    "mtime": 1795555043.9351232,
+    "seen": 1795555103.342452,
+    "ast_hash": "b4c835f516a942ba6a09e9507e01cf32",
+    "semantic_hash": ""
+  },
+  "src/core/doc/edit-this-track.ts": {
+    "mtime": 1795556897.0039523,
+    "seen": 1795557146.818052,
+    "ast_hash": "04eb2264c390a8bfb5fc9c65ffe12413",
+    "semantic_hash": ""
+  },
+  "src/core/doc/extract-art.ts": {
+    "mtime": 1795556866.5102115,
+    "seen": 1795557146.818053,
+    "ast_hash": "7a8b2c418ff2458a48888669ae4f8abb",
+    "semantic_hash": ""
+  },
+  "src/core/edit/group-rigid.ts": {
+    "mtime": 1795556075.8180144,
+    "seen": 1795557146.818066,
+    "ast_hash": "ade11ff4adb8fe93b5e1187639f0ec86",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/free-stem.ts": {
+    "mtime": 1795556866.5125115,
+    "seen": 1795557146.818084,
+    "ast_hash": "df442f31d13609683f2724d6ad54b04f",
+    "semantic_hash": ""
+  },
+  "src/core/view/checkpoint-label.ts": {
+    "mtime": 1795555933.5738022,
+    "seen": 1795557146.8181062,
+    "ast_hash": "182624d83417efc34931d301e6bff119",
+    "semantic_hash": ""
+  },
+  "src/core/view/object-pick-hull.ts": {
+    "mtime": 1795556323.5070662,
+    "seen": 1795557146.818114,
+    "ast_hash": "64b971227d146d9c5eda16728a72681d",
+    "semantic_hash": ""
+  },
+  "tests/editor-ui-182.test.ts": {
+    "mtime": 1795557012.307566,
+    "seen": 1795557146.818411,
+    "ast_hash": "2559e32a83bde025316f1866ea45b2c7",
+    "semantic_hash": ""
+  },
+  "tests/engine-detail-boxes.test.ts": {
+    "mtime": 1795555372.947158,
+    "seen": 1795557146.818412,
+    "ast_hash": "5ecd5e3cca813fc266cd6e0c482f50ca",
+    "semantic_hash": ""
+  },
+  "tests/group-rigid.test.ts": {
+    "mtime": 1795556133.377013,
+    "seen": 1795557146.818419,
+    "ast_hash": "87cc7d147e7229e5bd3638699b568bb4",
+    "semantic_hash": ""
+  },
+  "tests/object-pick-hull.test.ts": {
+    "mtime": 1795556323.5096724,
+    "seen": 1795557146.818422,
+    "ast_hash": "35a19fb8606a3880ba5e7ff1f84fc3fc",
+    "semantic_hash": ""
+  },
+  "tests/paste-bitmap-512.test.ts": {
+    "mtime": 1795555861.6130497,
+    "seen": 1795557146.818423,
+    "ast_hash": "eadaa16296cfd2bb889a7a0a2d0672a9",
+    "semantic_hash": ""
+  },
+  "tests/v6-pod-rules.test.ts": {
+    "mtime": 1795557332.816261,
+    "seen": 1795557356.2014132,
+    "ast_hash": "fcbd15ec9b6171ff86c11dc7a78c7acb",
+    "semantic_hash": ""
+  },
+  "src/core/edit/feet-fields.ts": {
+    "mtime": 1795557973.4872365,
+    "seen": 1795558962.042486,
+    "ast_hash": "9b9004548333150224306d8adfbe7cca",
+    "semantic_hash": ""
+  },
+  "src/core/traxx/track-kind-ui.ts": {
+    "mtime": 1795557747.8091261,
+    "seen": 1795558962.042521,
+    "ast_hash": "7eb83b05447e49c3f23c4e2d63a09bd2",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/track-type-dialog.ts": {
+    "mtime": 1795557829.8750842,
+    "seen": 1795558962.0425699,
+    "ast_hash": "d05bbcc3c6bcf5a04aec62bffe8e3c20",
+    "semantic_hash": ""
+  },
+  "tests/editor-ui-v6.test.ts": {
+    "mtime": 1795558789.3320234,
+    "seen": 1795558962.04285,
+    "ast_hash": "f3faae8c8deaa39f6cb83802969e2792",
+    "semantic_hash": ""
+  },
+  "src/app/course-bar.ts": {
+    "mtime": 1795559874.9865463,
+    "seen": 1795559953.620739,
+    "ast_hash": "14e1a34727ab0a6a822c7084ea8f4c0e",
+    "semantic_hash": ""
+  },
+  "src/app/modes/walls-mode.ts": {
+    "mtime": 1795559744.8887036,
+    "seen": 1795559953.620749,
+    "ast_hash": "6d51cc11cc72846ad3dfcdab6797c3e1",
+    "semantic_hash": ""
+  },
+  "src/core/edit/race-edit.ts": {
+    "mtime": 1795559836.579949,
+    "seen": 1795559953.620776,
+    "ast_hash": "5cb287f47b3cfdd93952492fd9396c8a",
+    "semantic_hash": ""
+  },
+  "src/core/edit/wall-edit.ts": {
+    "mtime": 1795559393.3040783,
+    "seen": 1795559953.620781,
+    "ast_hash": "172773bea09a28199d7d616240a65b78",
+    "semantic_hash": ""
+  },
+  "src/core/view/wall-draw.ts": {
+    "mtime": 1795559431.2676997,
+    "seen": 1795559953.6208231,
+    "ast_hash": "61306abf9dfdbb5d00183b29fb0e80c6",
+    "semantic_hash": ""
+  },
+  "src/render/walls.ts": {
+    "mtime": 1795559453.8414497,
+    "seen": 1795559953.620835,
+    "ast_hash": "bc965cb3a2faad1eded8bd7c81a5e7d8",
+    "semantic_hash": ""
+  },
+  "src/ui/dialogs/wall-dialog.ts": {
+    "mtime": 1795559595.6882193,
+    "seen": 1795559953.620853,
+    "ast_hash": "c4987c5493c7a9e8788887b01608d388",
+    "semantic_hash": ""
+  },
+  "tests/walls-ui.test.ts": {
+    "mtime": 1795559821.3482597,
+    "seen": 1795559953.6211572,
+    "ast_hash": "1114d4773eeb5f791bbb7c6f9caf6e6a",
+    "semantic_hash": ""
+  },
+  "tests/race-edit.test.ts": {
+    "mtime": 1795560060.089607,
+    "seen": 1795560163.866186,
+    "ast_hash": "154700910f73788102e2363633a071a4",
+    "semantic_hash": ""
+  }
+}

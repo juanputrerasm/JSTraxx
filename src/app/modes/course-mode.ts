@@ -7,8 +7,13 @@
       floor where the pointer is on one (a JSTraxx addition for tracks built of meshes);
     - right-click: the Course menu on an anchor or open ground, the Truck menu on a truck.
 
-  The course being edited and "Always show main" are the Course Tools bar's.
+  The course being edited and "Always show main" are the Course Tools bar's. Traxx 1.8.2: the bar
+  follows the track (lane texts on a drag or Parallel track, the selected course's lead-in) and its
+  "Lead-in, then:" pick is OnLeadIn here: refused without new-style drag or Parallel (but None),
+  a lane another course led to moves here, and both say so on the status bar.
 */
+import { heightsInFeet } from "../../core/traxx/height-units.ts";
+import { heightLimit } from "../../core/traxx/track-kind.ts";
 import type { ModeHandler, ViewPoint } from "../editor.ts";
 import type { ModeContext } from "./context.ts";
 import { CONTEXT_MENUS } from "../../ui/shell/commands.ts";
@@ -18,6 +23,9 @@ import { COURSE_ANCHOR_LIMIT, TRUCK_LIMIT, nearestOnScreen } from "../../core/vi
 import { speedLimitDialog, truckPropertiesDialog } from "../../ui/dialogs/course-dialogs.ts";
 import { ALTITUDE_SCALE } from "../../core/view/camera.ts";
 import { EDIT_COURSE } from "../../core/settings.ts";
+import { courseLaneTrack, pickLeadIn } from "../../core/edit/race-edit.ts";
+import { getLeadIn } from "../../core/traxx/race-rules.ts";
+import { publishCourseBar, setLeadInHandler } from "../course-bar.ts";
 
 export function courseMode(ctx: ModeContext): ModeHandler {
   const { app, editor, view, registry } = ctx;
@@ -33,7 +41,25 @@ export function courseMode(ctx: ModeContext): ModeHandler {
   const touch = { course: true, trucks: true };
 
   const showTruck = () => { view.selectedTruck = truck; view.rebuildCourse(); };
-  app.on("tools", () => { anchor = -1; truck = -1; if (app.mode === EDIT_COURSE) { showTruck(); editor.selectionChanged(); } });
+
+  /* RefreshCourseBar: the lane texts and the lead-in of the selected course. */
+  const refreshBar = () => {
+    const t = editor.doc?.track;
+    publishCourseBar(app, t ? { open: true, lanes: courseLaneTrack(t.trackType, t.raceRules.mode), leadIn: getLeadIn(t.raceRules, app.tools.course) } : { open: false, lanes: false, leadIn: -1 });
+  };
+  app.on("commands", refreshBar);
+  refreshBar();
+  app.on("tools", () => { anchor = -1; truck = -1; refreshBar(); if (app.mode === EDIT_COURSE) { showTruck(); editor.selectionChanged(); } });
+  /* OnLeadIn: an undoable edit of the track's lead-ins; a refusal or the move is said on the status bar. */
+  setLeadInHandler(app, (course, cur) => {
+    const doc = editor.doc;
+    if (!doc || !editor.canEdit) { refreshBar(); return; }
+    const rec = recordFields(doc.track, ["raceRules"], "Lead-in", { course: true, track: true });
+    const r = pickLeadIn(doc.track.raceRules, course, cur);
+    if (r.status) app.status(r.status);
+    if (r.changed) editor.commit(rec);
+    refreshBar();
+  });
 
   /*
     The ground under a point, as Traxx stores positions: whole ipos and whole steps. Traxx 1.7
@@ -95,7 +121,8 @@ export function courseMode(ctx: ModeContext): ModeHandler {
     if (!t) return;
     let angle = Math.trunc((180 * t.psi) / Math.PI);
     while (angle < 0) angle += 360;
-    const r = await truckPropertiesDialog({ name: t.name, x: t.ipos[0], y: t.ipos[1], z: t.ipos[2], angle, course: t.course });
+    // OnTruckProperties: a v6 track's Z is feet, to the terrain's height limit.
+    const r = await truckPropertiesDialog({ name: t.name, x: t.ipos[0], y: t.ipos[1], z: t.ipos[2], angle, course: t.course }, heightsInFeet(track()) ? heightLimit(track()) : 0);
     if (!r || !editor.canEdit) return;
     edit("Truck Properties", () => {
       t.ipos = [r.x, r.y, r.z];

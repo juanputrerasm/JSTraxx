@@ -18,7 +18,8 @@ import { buildTrackPod } from "../src/core/traxx/pod-writer.ts";
 import { countTracks, loadPodTrack, situationKind } from "../src/core/doc/load-pod.ts";
 import { setMode } from "../src/core/traxx/surface.ts";
 import { TERRAINMODE_CLASSIC16, TERRAINMODE_FINE } from "../src/core/traxx/terrain16.ts";
-import { TRACK_WATER_MAX4, TRACK_WATER_V6_MAX4, isV6Document, pickStepAndBase, trackWaterRange, v6WaterRange } from "../src/core/traxx/v6.ts";
+import { TRACK_WATER_MAX4, pickStepAndBase, trackWaterRange, v6WaterRange } from "../src/core/traxx/v6.ts";
+import { isV6 } from "../src/core/traxx/track-kind.ts";
 import { readTxx } from "../src/core/traxx/txx.ts";
 import { adjustHeights } from "../src/core/edit/terrain.ts";
 import { v6ApplyImport, v6ExportBytes, v6ImportHeights } from "../src/core/edit/heightmap-io.ts";
@@ -67,53 +68,65 @@ test("a 512-cell world saves as .SI3 with formatVersion 6, N x N grids, and load
   assert.equal(doc.track.heights.length, 512 * 512);
   assert.equal(doc.track.clr.length, 512 * 512);
   assert.equal(doc.track.lte!.length, 512 * 512 * 7);
-  assert.equal(isV6Document(doc.track, false), true);
-  doc.track.groundBoxes.push({ x: 400, y: 300, w: 1, h: 1, lower: 100, upper: 110, faces: [1, 2, 3, 4, 5, 6] });
+  assert.equal(doc.track.trackKind, "standard", "512 is version 6 only: Standard V6 unless asked for Tall");
+  assert.equal(isV6(doc.track), true);
+  doc.track.groundBoxes.push({ x: 400, y: 300, w: 1, h: 1, lower: 100 << 8, upper: 110 << 8, faces: [1, 2, 3, 4, 5, 6] });
   const { out, bytes } = podOf(doc);
   assert.equal(out.v6, true);
   assert.ok(entry(out, "WORLD\\TRAXX.SI3"));
   assert.ok(!out.entries.some((e) => /\.SI[T2]$/i.test(e.name)));
-  for (const [ext, per] of [["CLR", 2], ["LTE", 7], ["RA0", 1], ["RA1", 1], ["RA2", 1], ["RA5", 1], ["CL0", 12], ["CL1", 4], ["CL2", 12]] as const) {
+  // Traxx origin/main: .RA0 / .RA1 are always 16-bit on a v6 track (BuildRA01CL0_16).
+  for (const [ext, per] of [["CLR", 2], ["LTE", 7], ["RA0", 2], ["RA1", 2], ["RA2", 1], ["RA5", 1], ["CL0", 12], ["CL1", 4], ["CL2", 12]] as const) {
     assert.equal(entry(out, `DATA\\TRAXX.${ext}`)!.data.length, 512 * 512 * per, ext);
   }
   const v6 = readTxvV6(entry(out, "DATA\\TRAXX.TXV")!.data);
   assert.equal(v6.worldCells, 512);
-  assert.equal(v6.terrainHeightMap, "DATA\\TRAXX.RAW");
+  // The map is always the 16-bit DATA\<stem>_H.PNG, with the 8-bit N*N .RAW mirror before it; no terrainGrid on Classic 16-bit.
+  assert.equal(v6.terrainHeightMap, "DATA\\TRAXX_H.PNG");
   assert.equal(v6.terrainHeightStep, 128);
   assert.equal(v6.terrainHeightBase, 200); // a new track is flat at 200 ft
-  assert.equal(v6.terrainGrid, "classic");
-  assert.equal(entry(out, "DATA\\TRAXX.RAW")!.data.length, 2 * 512 * 512);
+  assert.doesNotMatch(text(entry(out, "DATA\\TRAXX.TXV")!.data), /terrainGrid/);
+  assert.equal(entry(out, "DATA\\TRAXX.RAW")!.data.length, 512 * 512);
+  assert.equal(entry(out, "DATA\\TRAXX.RAW")!.data[0], 100, "the mirror: 200 ft is byte 100");
+  const names = out.entries.map((e) => e.name.toUpperCase());
+  assert.equal(names.indexOf("DATA\\TRAXX.RAW") + 1, names.indexOf("DATA\\TRAXX_H.PNG"));
 
   const back = await loadPodTrack(sourceOf(bytes), 0, "big.pod");
-  assert.equal(back.carry.situationIsSi3, true);
+  assert.equal(back.track.trackKind, "standard", "EndV6Read: nothing above 512 ft, so not tall");
   assert.equal(back.track.worldCells, 512);
   assert.equal(back.track.terrainMode, TERRAINMODE_CLASSIC16);
-  assert.ok(back.track.h16 instanceof Int32Array);
+  assert.ok(back.track.h16 instanceof Uint16Array, "a Standard V6 track keeps the 16-bit store");
   assert.equal(back.track.h16!.length, 512 * 512);
   assert.equal(back.track.h16![1000], 200 * 128);
-  assert.deepEqual(back.track.groundBoxes.map((g) => [g.x, g.y, g.lower, g.upper, g.faces[5]]), [[400, 300, 100, 110, 6]]);
+  assert.deepEqual(back.track.groundBoxes.map((g) => [g.x, g.y, g.lower, g.upper, g.faces[5]]), [[400, 300, 100 << 8, 110 << 8, 6]]);
   // Saved again it stays a .SI3 with the same keys.
   const again = podOf(back).out;
   assert.ok(entry(again, "WORLD\\TRAXX.SI3"));
   assert.equal(readTxvV6(entry(again, "DATA\\TRAXX.TXV")!.data).worldCells, 512);
 });
 
-test("tall or sunken heights make a 256 track a .SI3 with a picked step and base; its .TXX is TRAXXV99", () => {
-  const doc = newTrackDocument();
-  setMode(doc.track, TERRAINMODE_CLASSIC16);
+test("a 256 Tall Heights V6 track is a .SI3 with a picked step and base; its .TXX is TRAXXV24; the kind is never content", () => {
+  // The same heights on a classic track do not make it version 6: its .TXX refuses them (CanSaveBinary).
+  const classic = newTrackDocument();
+  setMode(classic.track, TERRAINMODE_CLASSIC16);
+  classic.track.h16 = new Int32Array(256 * 256).fill(12 * 128);
+  classic.track.h16[5] = 1821 * 128;
+  assert.equal(isV6(classic.track), false);
+  assert.throws(() => writeTxx(classic.track), /The terrain holds a height this track kind cannot store/);
+  const doc = newTrackDocument(256, "tall");
+  assert.equal(doc.track.terrainMode, TERRAINMODE_CLASSIC16, "a v6 track is never Classic 8-bit");
   // Pikes Peak (spec 11): 12 ft to 1,821 ft gives base 12, step 32.
   const h = new Int32Array(256 * 256).fill(12 * 128);
   h[5] = 1821 * 128;
   doc.track.h16 = h;
-  assert.equal(isV6Document(doc.track, false), true);
+  assert.equal(isV6(doc.track), true);
   assert.deepEqual(pickStepAndBase(doc.track), { step: 32, base: 12 });
   const { out } = podOf(doc);
   assert.ok(entry(out, "WORLD\\TRAXX.SI3"));
   const v6 = readTxvV6(entry(out, "DATA\\TRAXX.TXV")!.data);
   assert.deepEqual([v6.worldCells, v6.terrainHeightStep, v6.terrainHeightBase], [256, 32, 12]);
-  // JSTraxx's own .TXX generation for a version 6 track (txx.ts), not a refusal any more.
   const txx = writeTxx(doc.track);
-  assert.equal(new TextDecoder("latin1").decode(txx.subarray(0, 8)), "TRAXXV99");
+  assert.equal(new TextDecoder("latin1").decode(txx.subarray(0, 8)), "TRAXXV24");
 });
 
 test("the .TXV keeps unknown keys and comments and sets the version 6 keys in place", () => {
@@ -130,22 +143,22 @@ test("the .TXV keeps unknown keys and comments and sets the version 6 keys in pl
 });
 
 test("Import Heightmap (Version 6) picks the step and base from the imported range", () => {
-  const doc = newTrackDocument();
-  // A 16-bit RAW read at step 8, base -100: samples 0..15000 are -100 ft .. 1775 ft.
+  const doc = newTrackDocument(256, "tall");
+  // A 16-bit RAW read at step 8, base 100: samples 0..15000 are 100 ft .. 1975 ft.
   const samples = new Uint16Array(256 * 256);
   for (let i = 0; i < samples.length; i++) samples[i] = i % 15001;
-  const res = v6ImportHeights(encodeMtm2HeightRaw16(samples), "peak.raw", doc.track, 8, -100);
+  const res = v6ImportHeights(encodeMtm2HeightRaw16(samples), "peak.raw", doc.track, 8, 100);
   assert.ok(res.ok);
   if (!res.ok) return;
-  assert.equal(res.v.lowFt, -100);
-  assert.equal(res.v.highFt, 1775);
-  assert.deepEqual([res.v.step, res.v.base], [32, -100]);
+  assert.equal(res.v.lowFt, 100);
+  assert.equal(res.v.highFt, 1975);
+  assert.deepEqual([res.v.step, res.v.base], [32, 100]);
   v6ApplyImport(doc.track, res.v);
-  assert.ok(doc.track.h16 instanceof Int32Array);
-  assert.equal(doc.track.h16![1], -100 * 128 + 16);
+  assert.ok(doc.track.h16 instanceof Int32Array, "a tall track keeps the 32-bit store");
+  assert.equal(doc.track.h16![1], 100 * 128 + 16);
   // Export gives the same samples back at the picked step and base.
   const ex = v6ExportBytes(doc.track, "raw");
-  assert.deepEqual([ex.step, ex.base, ex.side], [32, -100, 256]);
+  assert.deepEqual([ex.step, ex.base, ex.side], [32, 100, 256]);
   assert.equal(ex.bytes[2] | (ex.bytes[3] << 8), 4);
   // A CP4 heightmap (step 128, base 0) imports into the 16-bit store unchanged.
   const cp4 = v6ImportHeights(encodeMtm2HeightRaw16(new Uint16Array(256 * 256).fill(1000)), "a.raw", newTrackDocument().track, 128, 0);
@@ -168,7 +181,8 @@ test("a Full Map 512 track writes a 2048 x 2048 height file and reads it back as
   setMode(doc.track, TERRAINMODE_FINE);
   assert.equal(doc.track.fine!.length, 2048 * 2048);
   const { out, bytes } = podOf(doc);
-  assert.equal(entry(out, "DATA\\TRAXX.RAW")!.data.length, 32 * 512 * 512);
+  assert.equal(entry(out, "DATA\\TRAXX.RAW")!.data.length, 512 * 512);
+  assert.ok(entry(out, "DATA\\TRAXX_H.PNG"));
   assert.equal(readTxvV6(entry(out, "DATA\\TRAXX.TXV")!.data).terrainGrid, "fine");
   const back = await loadPodTrack(sourceOf(bytes), 0, "fine.pod");
   assert.equal(back.track.terrainMode, TERRAINMODE_FINE);
@@ -185,10 +199,10 @@ test("CRAZY4X.POD (version 6 test track) loads, saves back as .SI3 and reloads w
   const doc = await loadPodTrack(src, which, "CRAZY4X.POD");
   const t = doc.track;
   assert.equal(t.worldCells, 512);
-  assert.equal(doc.carry.situationIsSi3, true);
+  assert.equal(isV6(t), true);
   const keys = readTxvV6(readPodEntry(bytes, parsePod(bytes).entries.find((e) => e.name.toUpperCase() === "DATA\\CRAZY4X.TXV")!));
   assert.deepEqual([t.heightStep, t.heightBase], [keys.terrainHeightStep, keys.terrainHeightBase]);
-  assert.ok(t.h16 instanceof Int32Array && t.h16.length === 512 * 512);
+  assert.ok(t.h16 && t.h16.length === 512 * 512);
   assert.ok(t.groundBoxes.length > 0, "ground boxes");
   assert.ok(t.lakes.length >= 1, "lakes");
   assert.ok((t.falls?.length ?? 0) >= 1, "waterfalls");
@@ -201,31 +215,32 @@ test("CRAZY4X.POD (version 6 test track) loads, saves back as .SI3 and reloads w
   assert.ok(entry(out, "WORLD\\CRAZY4X.WFL"), `no .WFL: ${out.warnings.join(" | ")}`);
   assert.deepEqual(out.warnings.filter((w) => /lake|waterfall/i.test(w)), [], "the lakes and falls pass Traxx's checks");
   const v6 = readTxvV6(entry(out, "DATA\\CRAZY4X.TXV")!.data);
-  assert.deepEqual([v6.worldCells, v6.terrainHeightStep, v6.terrainGrid], [512, 32, "spline"]);
+  // Re-picked (never the pod's 32 / 150): its 95 ft water counts in the span (TrackHeightSpan), so base 95, step 16.
+  assert.deepEqual([v6.worldCells, v6.terrainHeightStep, v6.terrainHeightBase, v6.terrainGrid], [512, 16, 95, "spline"]);
   const again = await loadPodTrack(sourceOf(writePod1(out.comment, out.entries)), 0, "again.pod");
   assert.equal(again.track.worldCells, 512);
-  assert.deepEqual(Array.from(again.track.h16!.subarray(0, 4096)), Array.from(t.h16.subarray(0, 4096)));
+  // Each height is the floor of its sample at the new step (HeightToSample), 1/16 ft = 8 v.
+  assert.deepEqual(Array.from(again.track.h16!.subarray(0, 4096)), Array.from(t.h16.subarray(0, 4096), (h) => (((h - 95 * 128) >> 3) << 3) + 95 * 128));
   assert.equal(again.track.groundBoxes.length, t.groundBoxes.length);
   assert.equal(again.track.lakes[0]!.height, t.lakes[0]!.height);
 });
 
-test("the track's own water has no 510 ft cap on a version 6 track; Traxx's 0..510 ft stays on any other (10, item 7)", () => {
-  // A 256-cell Traxx track: 0..1020 half feet, as before, and a Traxx .TXX clamps to it.
+test("the track's own water: 0..WaterLevelMax4 of the kind (1020 classic, 1023 Standard, 16384 Tall), never below 0", () => {
+  // A classic track: 0..1020 half feet, as before.
   const plain = newTrackDocument();
-  assert.deepEqual(trackWaterRange(plain.track, false), [0, TRACK_WATER_MAX4]);
+  assert.deepEqual(trackWaterRange(plain.track), [0, TRACK_WATER_MAX4]);
   plain.track.waterLevel4 = 400;
-  assert.equal(isV6Document(plain.track, false), false);
   assert.match(text(entry(podOf(plain).out, "LEVELS\\TRAXX.LVL")!.data), /!waterHeight\r\n400\r\n/);
   const r = adjustHeights(new Uint8Array(65536).fill(100), { scale: false, increment: 200, factor: 1, avoidClip: false }, [], 1000);
   assert.equal(r.water4, TRACK_WATER_MAX4);
+  assert.deepEqual(trackWaterRange(newTrackDocument(512).track), [0, 1023]);
 
-  // A 512-cell world: water at 1,500 ft (3,000 half feet) is kept, written and counted into the .TXV's range.
-  const big = newTrackDocument(512);
+  // A tall 512-cell world: water at 1,500 ft (3,000 half feet) is kept, written and counted into the .TXV's range.
+  const big = newTrackDocument(512, "tall");
   setMode(big.track, TERRAINMODE_CLASSIC16);
   big.track.h16 = new Int32Array(512 * 512).fill(1400 * 128);
   big.track.h16[7] = 1700 * 128;
-  const [lo, hi] = trackWaterRange(big.track, false);
-  assert.ok(lo < 0 && hi === TRACK_WATER_V6_MAX4);
+  assert.deepEqual(trackWaterRange(big.track), [0, 16384]);
   big.track.waterLevel4 = 3000;
   const { step, base } = pickStepAndBase(big.track);
   const [wlo, whi] = v6WaterRange(step, base);
@@ -234,38 +249,33 @@ test("the track's own water has no 510 ft cap on a version 6 track; Traxx's 0..5
   assert.match(text(entry(out, "LEVELS\\TRAXX.LVL")!.data), /!waterHeight\r\n3000\r\n/);
   const v6 = readTxvV6(entry(out, "DATA\\TRAXX.TXV")!.data);
   assert.ok(3000 >= 2 * v6.terrainHeightBase && 3000 <= 2 * (v6.terrainHeightBase + 65536 / v6.terrainHeightStep));
-  // Water below 0 ft is written as it is; under the lowest ground it covers nothing and leaves the step and base.
-  const under = pickStepAndBase({ ...big.track, waterLevel4: 0 });
-  big.track.waterLevel4 = -100;
-  assert.deepEqual(pickStepAndBase(big.track), under);
-  assert.match(text(entry(podOf(big).out, "LEVELS\\TRAXX.LVL")!.data), /!waterHeight\r\n-100\r\n/);
   // Water above every point widens the range to reach it: 4,000 ft over ground of 1,400 to 1,700 ft.
   big.track.waterLevel4 = 8000;
   const tall = pickStepAndBase(big.track);
   assert.ok(8000 <= v6WaterRange(tall.step, tall.base)[1], JSON.stringify(tall));
-  // TRAXXV99 keeps it; Adjust Heights lifts it past 510 ft on a version 6 track.
+  // TRAXXV24 keeps it (the v6 block's water4); Adjust Heights lifts it past 510 ft on a tall track.
   big.track.waterLevel4 = 3001;
   assert.equal(readTxx(writeTxx(big.track)).waterLevel4, 3001);
-  const lifted = adjustHeights(new Uint8Array(512 * 512).fill(100), { scale: false, increment: 200, factor: 1, avoidClip: false }, [], 1000, undefined, undefined, trackWaterRange(big.track, false));
+  const lifted = adjustHeights(new Uint8Array(512 * 512).fill(100), { scale: false, increment: 200, factor: 1, avoidClip: false }, [], 1000, undefined, undefined, trackWaterRange(big.track));
   assert.equal(lifted.water4, 1800);
 
-  // Water outside 0..510 ft makes a 256-cell track a version 6 one, so the .TXV can hold it.
+  // Water outside 0..510 ft does not make a classic track version 6: it is still a .SIT.
   const wet = newTrackDocument();
-  wet.track.waterLevel4 = 1200;
-  assert.equal(isV6Document(wet.track, false), true);
-  assert.ok(entry(podOf(wet).out, "WORLD\\TRAXX.SI3"));
+  wet.track.waterLevel4 = 1020;
+  assert.equal(isV6(wet.track), false);
+  assert.ok(entry(podOf(wet).out, "WORLD\\TRAXX.SIT"));
 });
 
 import { objectLimit } from "../src/core/traxx/v6.ts";
 import { TRAXX_MAX_BOXES, V6_MAX_BOXES, readTraxxSit, traxxBoxDefaults, traxxSitDefaults, writeTraxxSit } from "../src/core/traxx/sit.ts";
 import { insertObject, pasteObject } from "../src/core/edit/objects.ts";
 
-test("objects: 16,384 on a version 6 track (spec 14), Traxx's 4096 on any other", () => {
+test("objects: 16,384 on a version 6 track (MaxBoxes), Traxx's 4096 on a classic one", () => {
   assert.equal(V6_MAX_BOXES, 4 * TRAXX_MAX_BOXES);
   const classic = newTrackDocument(), big = newTrackDocument(512);
-  assert.equal(objectLimit(classic.track, false), 4096);
-  assert.equal(objectLimit(classic.track, true), 16384, "a .SI3 track keeps the version 6 limit");
-  assert.equal(objectLimit(big.track, false), 16384);
+  assert.equal(objectLimit(classic.track), 4096);
+  assert.equal(objectLimit(newTrackDocument(256, "standard").track), 16384, "a 256 Standard V6 track keeps the version 6 limit");
+  assert.equal(objectLimit(big.track), 16384);
   // Insert and paste stop at the limit they are given.
   const t = classic.track;
   t.boxes = Array.from({ length: 4096 }, traxxBoxDefaults);

@@ -38,13 +38,14 @@ export class AppShell {
     const main = new Toolbar(registry, app, "toolbar-main.png",
       ["ID_FILE_NEW", "ID_FILE_OPEN", "ID_VIEW_COMPONENTS", "ID_FILE_SAVE", "ID_FILE_WRITEPOD", "|", "ID_EDIT_COPY", "ID_EDIT_UNDO", "|", "ID_FILE_PRINT"], "Toolbar");
     const modes = new Toolbar(registry, app, "toolbar-editmode.png",
-      ["ID_EDITMODE_TERRAIN", "ID_EDITMODE_TEXTURES", "ID_EDITMODE_COURSE", "ID_EDITMODE_OBJECTS", "ID_EDITMODE_BUILDINGS"], "Edit Mode");
+      ["ID_EDITMODE_TERRAIN", "ID_EDITMODE_TEXTURES", "ID_EDITMODE_COURSE", "ID_EDITMODE_OBJECTS", "ID_EDITMODE_BUILDINGS", "ID_EDITMODE_WALLS"], "Edit Mode");
     const windows = new Toolbar(registry, app, "toolbar-windows.png", ["ID_VIEW_TEXTURES", "ID_VIEW_OBJECTS"], "Windows");
     this.toolbars = [main, modes, windows];
     main.element.classList.add("tb-main");
 
     this.viewControl = new ViewControlBar(app);
-    this.modeBars = [terrainToolsBar(app), textureToolsBar(app), courseToolsBar(app), null, groundBoxToolsBar(app)];
+    // Traxx 1.8.2: Walls (editmode 5) has no control bar of its own either (OnEditmodeWalls).
+    this.modeBars = [terrainToolsBar(app), textureToolsBar(app), courseToolsBar(app), null, groundBoxToolsBar(app), null];
     this.dock = el("aside", { class: "dock-right" }, this.viewControl.element, ...this.modeBars.filter((b): b is HTMLElement => b !== null));
 
     this.viewport = el("div", { class: "viewport", tabindex: "0", "aria-label": "3D view" });
@@ -93,7 +94,7 @@ export class AppShell {
     this.dock.hidden = !b.viewcontrol && (!b.editcontrol || this.modeBars[this.app.mode] === null);
   }
 
-  /* One tool bar at a time, by mode; Objects has none (CTraxxFrame::OnEditmodeObjects). */
+  /* One tool bar at a time, by mode; Objects and Walls have none (CTraxxFrame::OnEditmodeObjects, OnEditmodeWalls). */
   private showModeBar(mode: EditMode): void {
     const on = this.app.settings.bars.editcontrol;
     this.modeBars.forEach((bar, i) => { if (bar) bar.hidden = !on || i !== mode; });

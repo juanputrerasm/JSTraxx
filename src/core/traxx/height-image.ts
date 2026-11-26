@@ -39,25 +39,25 @@ function readBE32(f: Uint8Array, o: number): number {
   return ((f[o]! << 24) | (f[o + 1]! << 16) | (f[o + 2]! << 8) | f[o + 3]!) >>> 0;
 }
 
-/** SizeAllowed: 256 x 256 or 1024 x 1024. */
-function sizeAllowed(w: number, h: number): boolean {
-  return w === h && (w === 256 || w === 1024);
+/** SizeAllowed: the world (cells x cells) or its 8 ft fine grid (4 * cells): 256 or 1024 on a 256 world, 512 or 2048 on a 512 one. */
+function sizeAllowed(w: number, h: number, cells = 256): boolean {
+  return w === h && (w === cells || w === 4 * cells);
 }
 
 /**
   WhySize: the size refusal names the size the image has; a 1025 (or 257) map, what a tool that
   counts vertices instead of cells writes, gets the hint.
 */
-export function whySize(w: number, h: number): string {
-  const hint = w === h && (w === 1025 || w === 257) ? ` (a ${w} map: drop the last row and column)` : "";
-  return `This image is ${w} x ${h}; height maps must be 256 x 256 or 1024 x 1024${hint}.`;
+export function whySize(w: number, h: number, cells = 256): string {
+  const hint = w === h && (w === 4 * cells + 1 || w === cells + 1) ? ` (a ${w} map: drop the last row and column)` : "";
+  return `This image is ${w} x ${h}; height maps must be ${cells} x ${cells} or ${4 * cells} x ${4 * cells}${hint}.`;
 }
 
 /** A decoded height image: v is always 16-bit (an 8-bit sample b is b << 8), rows = Z, top row Z 0. */
 export interface HeightImage {
   ok: true;
   v: Uint16Array;
-  /** 256 or 1024. */
+  /** N or 4N: 256 or 1024 on a 256 world, 512 or 2048 on a 512 one. */
   size: number;
   /** The file's own depth, 8 or 16. */
   srcBits: number;
@@ -70,7 +70,7 @@ export interface HeightImageRefusal {
 // ---- Decoder ----------------------------------------------------------------------------------
 
 /** DecodePng: the IHDR checks, then the samples (one channel; grey + alpha drops the alpha). */
-function decodePng(f: Uint8Array): HeightImage | HeightImageRefusal {
+function decodePng(f: Uint8Array, cells = 256): HeightImage | HeightImageRefusal {
   if (f.length < 33 || readBE32(f, 8) !== 13 || f[12] !== 0x49 || f[13] !== 0x48 || f[14] !== 0x44 || f[15] !== 0x52) return { ok: false, why: WHY_NOT_IMAGE };
   const w = readBE32(f, 16), h = readBE32(f, 20);
   const depth = f[24]!, ctype = f[25]!;
@@ -78,7 +78,7 @@ function decodePng(f: Uint8Array): HeightImage | HeightImageRefusal {
   if (ctype !== 0 && ctype !== 4) return { ok: false, why: WHY_NOT_IMAGE };
   if (depth === 1 || depth === 2 || depth === 4) return { ok: false, why: WHY_BAD_DEPTH };
   if (depth !== 8 && depth !== 16) return { ok: false, why: WHY_NOT_IMAGE };
-  if (!sizeAllowed(w, h)) return { ok: false, why: whySize(w, h) };
+  if (!sizeAllowed(w, h, cells)) return { ok: false, why: whySize(w, h, cells) };
   // Past the checks Traxx asks stb_image for one channel; the samples come from OpenPhotex here.
   // (stb also reads an interlaced PNG; OpenPhotex's reader refuses one, which lands on WHY_DECODE.)
   let img;
@@ -136,7 +136,7 @@ function stbTgaGrey8(f: Uint8Array, w: number, h: number): Uint8Array {
 }
 
 /** DecodeTga: TGA has no signature, so the header must look like a grey one; then stb reads it. */
-function decodeTga(f: Uint8Array): HeightImage | HeightImageRefusal {
+function decodeTga(f: Uint8Array, cells = 256): HeightImage | HeightImageRefusal {
   if (f.length < 18) return { ok: false, why: WHY_NOT_IMAGE };
   const type = f[2]!;
   if (type === 1 || type === 2 || type === 9 || type === 10) return { ok: false, why: WHY_COLOUR_TGA };
@@ -145,7 +145,7 @@ function decodeTga(f: Uint8Array): HeightImage | HeightImageRefusal {
   if (f[16] !== 8) return { ok: false, why: WHY_TGA_BITS };
   if (f[17]! & 0x10) return { ok: false, why: WHY_TGA_RTL };
   const w = f[12]! | (f[13]! << 8), h = f[14]! | (f[15]! << 8);
-  if (!sizeAllowed(w, h)) return { ok: false, why: whySize(w, h) };
+  if (!sizeAllowed(w, h, cells)) return { ok: false, why: whySize(w, h, cells) };
   const b = stbTgaGrey8(f, w, h);
   const out = new Uint16Array(w * h);
   for (let i = 0; i < out.length; i++) out[i] = b[i]! << 8;
@@ -156,10 +156,10 @@ function decodeTga(f: Uint8Array): HeightImage | HeightImageRefusal {
   HeightImageDecode: PNG or TGA, sniffed by signature, into 16-bit heights. A refusal carries the
   static English sentence Traxx shows as it is.
 */
-export function heightImageDecode(file: Uint8Array | null): HeightImage | HeightImageRefusal {
+export function heightImageDecode(file: Uint8Array | null, cells = 256): HeightImage | HeightImageRefusal {
   if (!file || file.length < 18) return { ok: false, why: WHY_NOT_IMAGE };
-  if (isPngSig(file)) return decodePng(file);
-  return decodeTga(file);
+  if (isPngSig(file)) return decodePng(file, cells);
+  return decodeTga(file, cells);
 }
 
 // ---- Import helpers ---------------------------------------------------------------------------

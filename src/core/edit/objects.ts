@@ -9,6 +9,10 @@ import type { TrackDocument } from "../doc/document.ts";
 import type { TxxTrack } from "../traxx/txx.ts";
 import { traxxBoxDefaults, traxxSignedSplit, TRAXX_BOX_CRUSH, TRAXX_BOX_FOG, TRAXX_BOX_LIGHT, TRAXX_BOX_RAMP, TRAXX_MAX_FOGS, type TraxxBox } from "../traxx/sit.ts";
 import { boxHeightPairLoad, boxHeightPairStore, surfaceTrack, type Ground } from "../traxx/box-ground.ts";
+import { heightLimit, tallHeights, type HasTrackKind } from "../traxx/track-kind.ts";
+import { countCheckpointSlots, pasteCheckpoint, renumberCheckpoints } from "./race-edit.ts";
+import { CPX_SPLIT_NONE, RACERULES_NONE } from "../traxx/race-types.ts";
+import { CPX_MAX_SLOTS } from "../traxx/race-rules.ts";
 
 export const MAX_OBJECTS = 4096;
 export const TYPE_TRAIN = 10;
@@ -38,7 +42,7 @@ export function indexToType(index: number): number {
 
 const moves = (t: number) => t === TYPE_TRAIN || t === TYPE_MOVING;
 
-/* The engine's budgets (BoxTypeBudgetGroup / Cap): 20 checkpoints, 100 ramps, 100 top crush, 100 Train + Moving together, 100 lights, 64 fogs (Traxx 1.8.0). */
+/* The engine's budgets (BoxTypeBudgetGroup / Cap): 100 checkpoints (CPX_MAX_SLOTS, Traxx 1.8.2; it was 20), 100 ramps, 100 top crush, 100 Train + Moving together, 100 lights, 64 fogs (Traxx 1.8.0). */
 export function budgetGroup(type: number): number {
   if (type === CHECKPOINT) return 1;
   if (type === TRAXX_BOX_RAMP) return 2;
@@ -51,7 +55,7 @@ export function budgetGroup(type: number): number {
 
 /** A group's cap; `max` the document's object limit (v6.ts objectLimit: 4096, or 16,384 for version 6). */
 export function budgetCap(group: number, max = MAX_OBJECTS): number {
-  return [max, 20, 100, 100, 100, 100, TRAXX_MAX_FOGS][group] ?? max;
+  return [max, CPX_MAX_SLOTS, 100, 100, 100, 100, TRAXX_MAX_FOGS][group] ?? max;
 }
 
 /**
@@ -131,8 +135,18 @@ export function tiltObjects(boxes: TraxxBox[], pitch: number, heading: number): 
   }
 }
 
-/** ObjectRaise: the height above the ground by hundredths of a step, at most 500 steps. */
-export function raiseObjects(boxes: TraxxBox[], ground: Ground, hundredths: number): void {
+/**
+  CTraxxView::ObjectHeightCap (TraxxView.cpp): an object's height above ground tops out at 500
+  steps, or at the terrain's ceiling (GetHeightLimit / 256) on a Tall Heights V6 track.
+*/
+export function objectHeightCap(t: HasTrackKind | Ground): number {
+  if (t instanceof Uint8Array) return 500;
+  const k = t as HasTrackKind;
+  return tallHeights(k) ? Math.trunc(heightLimit(k) / 256) : 500;
+}
+
+/** ObjectRaise: the height above the ground by hundredths of a step, at most ObjectHeightCap steps. */
+export function raiseObjects(boxes: TraxxBox[], ground: Ground, hundredths: number, cap = objectHeightCap(ground)): void {
   const inc = Math.trunc(Math.fround(256 * Math.fround(hundredths / 100)));
   for (const b of boxes) {
     boxHeightPairLoad(ground, b);
@@ -140,7 +154,7 @@ export function raiseObjects(boxes: TraxxBox[], ground: Ground, hundredths: numb
     b.fraction[2] += inc % 256;
     if (b.fraction[2] >= 256) { b.heightAboveGround++; b.fraction[2] -= 256; }
     if (b.fraction[2] < 0) { b.heightAboveGround--; b.fraction[2] += 256; }
-    if (b.heightAboveGround >= 500) { b.heightAboveGround = 500; b.fraction[2] = 0; }
+    if (b.heightAboveGround >= cap) { b.heightAboveGround = cap; b.fraction[2] = 0; }
     boxHeightPairStore(ground, b);
   }
 }
@@ -192,15 +206,20 @@ export function applyTypeIndex(box: TraxxBox, index: number): void {
 
 /*
   SetTypeOfObjects: the type at `index` onto the selected objects (anchor first), within the
-  type's budget; returns how many were refused, and the reordered selection. When checkpoints
-  come or go, the checkpoints are put back in order of their sequence across the checkpoint
-  positions (CompareCheckpoints), new ones after the existing ones in selection order.
+  type's budget; returns how many were refused, and the reordered selection. Traxx 1.8.2: the
+  checkpoint cap is 100, counted in SLOTS with the race rules on (copies share one) and in boxes
+  with them off; a box made a checkpoint takes a slot of its own after every existing one (1000 +
+  its place in the selection, split None, no lane), one leaving type 6 loses its split and lane;
+  when checkpoints come or go they are renumbered (RenumberCheckpoints: one number each with the
+  rules off, copies sharing one with them on).
 */
 export function setTypeOfObjects(track: TxxTrack, selected: readonly number[], index: number): { refused: number; group: number; selection: number[] } {
   const newType = indexToType(index);
   const group = budgetGroup(newType);
+  const mode = track.raceRules?.mode ?? RACERULES_NONE;
   let room = budgetCap(group);
-  if (group) for (const b of track.boxes) if (budgetGroup(b.type) === group) room--;
+  if (group === 1 && mode !== RACERULES_NONE) room -= countCheckpointSlots(track.boxes);
+  else if (group) for (const b of track.boxes) if (budgetGroup(b.type) === group) room--;
   let refused = 0, checkpoints = false;
   const chosen = selected.map((i) => track.boxes[i]);
   chosen.forEach((box, i) => {
@@ -209,14 +228,11 @@ export function setTypeOfObjects(track: TxxTrack, selected: readonly number[], i
       room--;
     }
     if ((box.type === CHECKPOINT) !== (newType === CHECKPOINT)) checkpoints = true;
-    if (newType === CHECKPOINT && box.type !== CHECKPOINT) box.checkpointSeq = 1000 + i;
+    if (box.type === CHECKPOINT && newType !== CHECKPOINT) { box.cpSplit = CPX_SPLIT_NONE; box.cpLane = 0; }
+    if (newType === CHECKPOINT && box.type !== CHECKPOINT) { box.checkpointSeq = 1000 + i; box.cpSplit = CPX_SPLIT_NONE; box.cpLane = 0; }
     applyTypeIndex(box, index);
   });
-  if (checkpoints) {
-    const slots = track.boxes.map((b, i) => (b.type === CHECKPOINT ? i : -1)).filter((i) => i >= 0).slice(0, 20);
-    const sorted = slots.map((i) => track.boxes[i]).sort((a, b) => a.checkpointSeq - b.checkpointSeq);
-    slots.forEach((slot, seq) => { track.boxes[slot] = sorted[seq]; sorted[seq].checkpointSeq = seq; });
-  }
+  if (checkpoints) renumberCheckpoints(track.boxes, mode === RACERULES_NONE);
   return { refused, group, selection: chosen.map((b) => track.boxes.indexOf(b)).filter((i) => i >= 0) };
 }
 
@@ -251,6 +267,9 @@ export function modelBaseZ(upCoordinates: Iterable<number>): number {
   place, and its type dropped to Default if that type's budget is full. Returns the new index
   and a message when the type was refused. Traxx 1.7 (0acc316): on the drive surface the copy's
   height (the clipboard holds the height pair, copyForClipboard) is seated on the ground here.
+  Traxx 1.8.2: a pasted checkpoint is a checkpoint of its own, last, or with race rules and a split
+  another copy of its slot, capped at 100 checkpoints / 8 copies (pasteCheckpoint); the
+  checkpoints are renumbered, so the index returned is where the box ended up.
 */
 export function pasteObject(track: TxxTrack, copy: TraxxBox, at: [number, number, number], fraction: readonly [number, number, number] = [0, 0, 0], max = MAX_OBJECTS): { index: number | null; refusal: string | null } {
   const index = insertObject(track, at, fraction, max);
@@ -272,7 +291,8 @@ export function pasteObject(track: TxxTrack, copy: TraxxBox, at: [number, number
   else if (copy.type === TRAXX_BOX_LIGHT && count((t) => t === TRAXX_BOX_LIGHT) > 100) refusal = "Max. 100 Lights!";
   else if (copy.type === TRAXX_BOX_FOG && count((t) => t === TRAXX_BOX_FOG) > TRAXX_MAX_FOGS) refusal = `Max. ${TRAXX_MAX_FOGS} Fog objects!`;
   if (refusal) box.type = 0;
-  return { index, refusal };
+  if (box.type === CHECKPOINT) refusal = pasteCheckpoint(track.boxes, track.raceRules?.mode ?? RACERULES_NONE, box);
+  return { index: track.boxes.indexOf(box), refusal };
 }
 
 /*

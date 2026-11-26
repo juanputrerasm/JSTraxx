@@ -3,6 +3,8 @@
   sides (south, north, east, west), 4 the top, 5 the bottom, each a CLR-style word.
 */
 import type { TxxGroundBox } from "../traxx/txx.ts";
+import { heightLimit, isV6, type HasTrackKind } from "../traxx/track-kind.ts";
+import { clampBoxBottom, clampBoxTop } from "../traxx/height-units.ts";
 
 export const MAX_GROUND_BOXES = 2048;
 
@@ -11,7 +13,7 @@ export function boxAt(boxes: readonly TxxGroundBox[], x: number, y: number): num
 }
 
 /*
-  OnBuildingInsert: a box on an empty cell, from Bottom to Top, every face the texture picked
+  OnBuildingInsert: a box on an empty cell, from Bottom to Top (v, 1/128 ft), every face the texture picked
   in the Textures window (or texture 0). Returns its index, or null when the cell has one or
   the track is full.
 */
@@ -55,20 +57,20 @@ export function pasteGroundBox(boxes: TxxGroundBox[], clip: GroundBoxClip, x: nu
 }
 
 /*
-  The Top and Bottom spins (CTraxxFrame::OnBuildingTop, OnBuildingBottom): Top stays above
-  Bottom, at most 255; Bottom below Top, at least 0. On a track format version 6 track (`wide`)
-  a box may sit anywhere in the terrain's range and be stored 16-bit (spec section 8.3), so only
-  Top above Bottom holds.
+  The Top and Bottom spins (CTraxxFrame::OnBuildingTop, OnBuildingBottom), in v (1/128 ft, as the boxes hold their
+  heights). A classic track keeps whole 2 ft steps: Top stays above Bottom, at most 255 steps (65280); Bottom below
+  Top, at least 0. A v6 track (Traxx origin/main HeightUnits.cpp ClampBoxTop / ClampBoxBottom) keeps the top in
+  (bottom, the kind's ceiling] and the bottom in [0, top), 1/128 ft apart.
 */
-export function clampTop(top: number, bottom: number, wide = false): number {
-  return top <= bottom ? bottom + 1 : wide ? top : Math.min(255, top);
+export function clampTop(top: number, bottom: number, t: HasTrackKind = {}): number {
+  if (isV6(t)) return clampBoxTop(top, bottom, heightLimit(t));
+  return top <= bottom ? bottom + 256 : Math.min(65280, top);
 }
 
-export function clampBottom(bottom: number, top: number, wide = false): number {
-  return !wide && bottom < 0 ? 0 : bottom >= top ? top - 1 : bottom;
+export function clampBottom(bottom: number, top: number, t: HasTrackKind = {}): number {
+  if (isV6(t)) return clampBoxBottom(bottom, top);
+  return bottom < 0 ? 0 : bottom >= top ? top - 256 : bottom;
 }
 
-/** Whether a track's ground boxes follow version 6's range (a 512 world or 32-bit heights). */
-export function groundBoxesWide(t: { worldCells?: number; h16: unknown; fine: unknown }): boolean {
-  return (t.worldCells ?? 256) !== 256 || t.h16 instanceof Int32Array || t.fine instanceof Int32Array;
-}
+/** The step one press of the Top / Bottom keys moves a box by: 2 ft (256 v). */
+export const BOX_KEY_STEP = 256;

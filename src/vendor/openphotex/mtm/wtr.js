@@ -137,13 +137,29 @@ export function wtrHeightRange(major, step = 128, base = 0) {
     return major === 2 ? [2 * base + 1, 2 * (base + 65536 / step)] : [1, 4096];
 }
 /**
+ * Whether a version 1 lake height (half-feet) is one a reader takes: 1..4096, or, with `heightWindow`
+ * (a 256-cell .SI3), also 2 * base + 1 .. 2 * (base + 65536 / step).
+ */
+export function wtrV1HeightOk(height, heightWindow) {
+    if (!Number.isInteger(height))
+        return false;
+    if (height >= 1 && height <= 4096)
+        return true;
+    if (!heightWindow)
+        return false;
+    const [lo, hi] = wtrHeightRange(2, heightWindow.step, heightWindow.base);
+    return height >= lo && height <= hi;
+}
+/**
  * Write a .WTR as Traxx 1.7 lays one out. Lake i gets id i + 1, which tileMap must use. The tile
  * map is N * N bytes, and N picks the version (9.1): 256 x 256 writes version 1 (heights 1..4096,
  * the CP4 file; a lake outside that throws), 512 x 512 version 2. `version`, when given, must agree.
+ * `heightWindow` (a 256-cell .SI3's step and base) also lets a version 1 lake take the track's height
+ * window, as the engine does (wtrV1HeightOk).
  * `edgeRule` marks a file filled with the edge rule as Traxx 1.7.3 does (minor 1, header flags bit 0);
  * without it the header is Traxx 1.7.0's (minor 0, flags 0).
  */
-export function writeWtr(lakes, tileMap, { version, edgeRule = false } = {}) {
+export function writeWtr(lakes, tileMap, { version, edgeRule = false, heightWindow } = {}) {
     const cells = Math.round(Math.sqrt(tileMap.length));
     if (cells * cells !== tileMap.length || (cells !== 256 && cells !== 512))
         throw new RangeError("WTR: tile map must be 256 x 256 or 512 x 512 bytes");
@@ -152,8 +168,10 @@ export function writeWtr(lakes, tileMap, { version, edgeRule = false } = {}) {
     const major = cells === 512 ? 2 : 1;
     if (version !== undefined && version !== major)
         throw new RangeError(`WTR: a ${cells} x ${cells} map is version ${major}, not ${version}`);
-    if (major === 1 && !lakes.every((k) => Number.isInteger(k.height) && k.height >= 1 && k.height <= 4096)) {
-        throw new RangeError("WTR: a 256-cell world's lakes (version 1) are 1..4096 half-feet high (0.5 to 2,048 ft)");
+    if (major === 1 && !lakes.every((k) => wtrV1HeightOk(k.height, heightWindow))) {
+        throw new RangeError(heightWindow
+            ? `WTR: a 256-cell version 6 world's lakes (version 1) are 1..4096 half-feet high, or ${wtrHeightRange(2, heightWindow.step, heightWindow.base).join("..")} (its height range)`
+            : "WTR: a 256-cell world's lakes (version 1) are 1..4096 half-feet high (0.5 to 2,048 ft)");
     }
     const tiles = cells * cells;
     const bodySize = 8 + lakes.length * WTR_STRIDE;

@@ -6,8 +6,8 @@
     const { txx } = await podToTxx(readFileSync("CRAZY4X.POD"), "CRAZY4X");
     writeFileSync("CRAZY4X.txx", txx);
 
-  A track format version 6 track (a .SI3, a 512-cell world, ...) is written as JSTraxx's TRAXXV99
-  (txx.ts); any other as Traxx 1.7.1 writes it. Like Traxx's .TXX it names its art and models
+  A version 6 track (a .SI3: Standard V6 or Tall Heights V6) is written as TRAXXV24 (txx.ts); any
+  other as Traxx writes it. Like Traxx's .TXX it names its art and models
   only: to open it in JSTraxx with its art, their ART\ and MODELS\ entries must be in the
   project's ART and MODELS folders (Import extracts them; `assets` lists them for a script).
 */
@@ -43,7 +43,7 @@ export async function podToTxx(podBytes: Uint8Array, track: string | number = 0,
   const doc = await loadPodTrack(source, which, fileName);
   markCustomPalette(doc.track);
   doc.viewOnly = false;
-  const txx = writeTxx(doc.track, { fromSi3: doc.carry.situationIsSi3 });
+  const txx = writeTxx(doc.track);
   const assets = archive.entries
     .filter((e) => /^(ART|MODELS)\\/i.test(e.name))
     .map((e) => ({ name: e.name, data: readPodEntry(podBytes, e) }));

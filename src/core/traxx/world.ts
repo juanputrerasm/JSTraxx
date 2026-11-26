@@ -11,11 +11,12 @@
     fine (8 ft) grid  4N a side, & (4N - 1)
     world side        W = 32 N ft, 64 N ipos (an ipos is half a foot), 16384 N in 1/256 ipos
 
-  Heights stay in v units, 1/128 ft (1/256 of Traxx's 2 ft step), as Traxx 1.7 keeps them. A
-  track whose heights fit CP4 (0 <= v <= 65535) keeps them in a Uint16Array, exactly as Traxx
-  does; a version 6 track keeps them in an Int32Array (the spec's RECOMMENDED 32-bit store at
-  1/128 ft, section 7.3), so negative heights and tall tracks survive. A tool clamps to the
-  range of the store it writes (heightLimits).
+  Heights stay in v units, 1/128 ft (1/256 of Traxx's 2 ft step), as Traxx keeps every terrain
+  and ground box height (Include/TrackPODTerrain.h TerrainHeight). No height is ever below 0. A
+  Classic or Standard V6 track holds 0..TERRAIN_H_CLASSIC_MAX (65535, 511.99 ft) and keeps its
+  grid in a Uint16Array; a Tall Heights V6 track holds 0..TERRAIN_H_TALL_MAX (1,048,576, 8,192 ft)
+  and keeps it in an Int32Array (track-kind.ts storeForKind). A tool clamps to the range of the
+  store it writes (heightLimits), which is the track kind's ceiling.
 */
 
 /** Cells a side of the retail world, and of every track that is not version 6. */
@@ -27,9 +28,9 @@ export type WorldCells = (typeof WORLD_CELLS_CHOICES)[number];
 /** A height grid in v units (1/128 ft): Uint16Array for a CP4-range track, Int32Array for version 6. */
 export type HeightGrid = Uint16Array | Int32Array;
 
-/** The lowest and highest v an Int32Array store holds: base -32768 ft, base 32767 + 65535 ft at step 1. */
-export const V6_V_MIN = -32768 * 128;
-export const V6_V_MAX = (32767 + 65535) * 128;
+/** TERRAIN_H_CLASSIC_MAX and TERRAIN_H_TALL_MAX (Include/TrackPODTerrain.h): the ceilings of a not tall and a tall track, v. */
+export const TERRAIN_H_CLASSIC_MAX = 65535;
+export const TERRAIN_H_TALL_MAX = 8192 * 128;
 
 /** Anything that knows its world size; absent means the retail 256. */
 export interface HasWorld {
@@ -72,14 +73,14 @@ export function heightGridLike(g: HeightGrid, length = g.length, wide = g instan
   return newHeightGrid(length, wide);
 }
 
-/** Whether a grid is the version 6 32-bit store. */
+/** Whether a grid is the 32-bit store of a Tall Heights V6 track. */
 export function isWideGrid(g: HeightGrid | null | undefined): g is Int32Array {
   return g instanceof Int32Array;
 }
 
-/** The v range a store holds: 0..65535 for Uint16Array (CP4), the version 6 range for Int32Array. */
+/** The v range a store holds: 0..65535 for Uint16Array, 0..TERRAIN_H_TALL_MAX for the Int32Array of a tall track. */
 export function heightLimits(g: HeightGrid | null | undefined): [number, number] {
-  return g instanceof Int32Array ? [V6_V_MIN, V6_V_MAX] : [0, 65535];
+  return g instanceof Int32Array ? [0, TERRAIN_H_TALL_MAX] : [0, TERRAIN_H_CLASSIC_MAX];
 }
 
 /** `v` clamped to what `g` holds, truncated as Traxx's (int) casts do. */

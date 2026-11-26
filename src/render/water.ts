@@ -21,7 +21,7 @@
   without the depth test.
 */
 import * as THREE from "three";
-import { ENGDET_GLSL_WATER_SHADE, engineDetailGlslDefines } from "./engine-detail-glsl.ts";
+import { ENGDET_GLSL_WATER_SHADE, ENGDET_GLSL_WATER_WASH, engineDetailGlslDefines } from "./engine-detail-glsl.ts";
 import { ALTITUDE_SCALE } from "../core/view/camera.ts";
 import { SURFACE_WRAP_BORDER_CELLS, WRAP_BORDER_TINT, WRAP_BORDER_TINT_WEIGHT } from "../core/view/surface-tiles.ts";
 import { sideOf } from "../core/traxx/world.ts";
@@ -45,15 +45,21 @@ function inBorder(i: number, j: number, n = 256): boolean {
 
 /* The water detail uniforms (off until setDetail gives the track's _WDTL / _WMSK). */
 function detailUniforms(): Record<string, THREE.IUniform> {
-  return { detailOn: { value: false }, uWDet: { value: null }, uWMask: { value: null }, uMapFt: { value: 8192 } };
+  return { detailOn: { value: false }, uWDet: { value: null }, uWMask: { value: null }, uMapFt: { value: 8192 }, uLook: { value: 0 }, uWash: { value: 0 } };
 }
 /** The engine-detail defines for Traxx's 256-tile map (MAP_TILES is not read by the water shade). */
 const ENGDET_DEFINES = engineDetailGlslDefines();
 
-/** The still body shade on a material (null: off). */
-export function setWaterDetail(m: THREE.RawShaderMaterial, d: { det: THREE.Texture; mask: THREE.Texture } | null, mapFt: number): void {
+/**
+  The water detail program on a material (GLDetailBeginWater): look = the still body shade (View >
+  Show Detail Maps), wash = Traxx 1.8.1's per-texel water strength wash (View > Show Water
+  Strength). null, or neither: off (no _WMSK, no water detail: the mask is the switch).
+*/
+export function setWaterDetail(m: THREE.RawShaderMaterial, d: { det: THREE.Texture; mask: THREE.Texture } | null, mapFt: number, look = true, wash = false): void {
   const u = m.uniforms;
-  u.detailOn!.value = Boolean(d);
+  u.detailOn!.value = Boolean(d) && (look || wash);
+  u.uLook!.value = look ? 1 : 0;
+  u.uWash!.value = wash ? 1 : 0;
   u.uWDet!.value = d?.det ?? null;
   u.uWMask!.value = d?.mask ?? null;
   u.uMapFt!.value = mapFt;
@@ -80,11 +86,15 @@ const fragmentShader = /* glsl */ `
   uniform sampler2D uWDet;
   uniform sampler2D uWMask;
   uniform float uMapFt;
+  uniform float uLook;
+  uniform float uWash;
   in vec2 vWorldFt;
-${ENGDET_DEFINES}${ENGDET_GLSL_WATER_SHADE}  void main() {
+${ENGDET_DEFINES}${ENGDET_GLSL_WATER_SHADE}${ENGDET_GLSL_WATER_WASH}  void main() {
     if (vCell.x < window.x || vCell.y < window.y || vCell.x >= window.z || vCell.y >= window.w) discard;
     float shade = detailOn ? waterShade(vWorldFt) : 1.0;
-    vec3 c = colour * shade;
+    vec3 c = colour * (uLook > 0.5 ? shade : 1.0);
+    // Traxx 1.8.1 View > Show Water Strength (g_EngDetWaterFS uWash): per texel, toward orange.
+    if (detailOn && uWash > 0.5) c = waterWash(c, vWorldFt);
     c = vCell.z > 0.5 ? mix(c, ${BORDER_GLSL}, ${BORDER_WEIGHT_GLSL}) : c;
     outColor = vec4(c, opacity);
   }
@@ -119,7 +129,7 @@ export class WaterLayer {
     const z = (ALTITUDE_SCALE * level4) / 4;
     const lp: number[] = [], lc: number[] = [], fp: number[] = [], fc: number[] = [];
     const n = gridSide(heights.length), m = n - 1, hi = bandHi(n);
-    // 0 is no water; a version 6 track's may be below 0 ft (Traxx's never is, so this is its "> 0").
+    // 0 is no water; no track's water is below 0 ft, so this is Traxx's "> 0".
     if (level4 !== 0) {
       for (let j = BAND_LO; j < hi; j++) {
         for (let i = BAND_LO; i < hi; i++) {
@@ -158,8 +168,8 @@ export class WaterLayer {
 
   /** Line colour: palette entry 252 with the gamma; fill opacity in percent; no fill over a wire frame. */
   /** Traxx 1.8.0 Show Detail Maps: the fill's still body shade from _WDTL / _WMSK, or null for none. */
-  setDetail(d: { det: THREE.Texture; mask: THREE.Texture } | null, mapFt: number): void {
-    setWaterDetail(this.fillMaterial, d, mapFt);
+  setDetail(d: { det: THREE.Texture; mask: THREE.Texture } | null, mapFt: number, look = true, wash = false): void {
+    setWaterDetail(this.fillMaterial, d, mapFt, look, wash);
   }
 
   setLook(lineRgb: [number, number, number], opacity: number, fill: boolean): void {
@@ -202,11 +212,15 @@ const lakeFragment = /* glsl */ `
   uniform sampler2D uWDet;
   uniform sampler2D uWMask;
   uniform float uMapFt;
+  uniform float uLook;
+  uniform float uWash;
   in vec2 vWorldFt;
-${ENGDET_DEFINES}${ENGDET_GLSL_WATER_SHADE}  void main() {
+${ENGDET_DEFINES}${ENGDET_GLSL_WATER_SHADE}${ENGDET_GLSL_WATER_WASH}  void main() {
     if (vCell.x < window.x || vCell.y < window.y || vCell.x >= window.z || vCell.y >= window.w) discard;
     float shade = detailOn ? waterShade(vWorldFt) : 1.0;
-    vec3 c = vTint * shade;
+    vec3 c = vTint * (uLook > 0.5 ? shade : 1.0);
+    // Traxx 1.8.1 View > Show Water Strength on the lakes (DrawLakes, GLDetailBeginWater's wash).
+    if (detailOn && uWash > 0.5) c = waterWash(c, vWorldFt);
     c = vCell.z > 0.5 ? mix(c, ${BORDER_GLSL}, ${BORDER_WEIGHT_GLSL}) : c;
     outColor = vec4(c, opacity);
   }
@@ -453,9 +467,9 @@ export class LakesLayer {
     this.markMaterial.uniforms.window.value.copy(w);
   }
 
-  /** Traxx 1.8.0 Show Detail Maps: the lakes' still body shade (not the walls or marks), or null for none. */
-  setDetail(d: { det: THREE.Texture; mask: THREE.Texture } | null, mapFt: number): void {
-    setWaterDetail(this.material, d, mapFt);
+  /** Traxx 1.8.0 Show Detail Maps: the lakes' still body shade (not the walls or marks), and 1.8.1's Show Water Strength wash; null for none. */
+  setDetail(d: { det: THREE.Texture; mask: THREE.Texture } | null, mapFt: number, look = true, wash = false): void {
+    setWaterDetail(this.material, d, mapFt, look, wash);
   }
 
   setOpacity(percent: number): void {

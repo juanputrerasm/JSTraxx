@@ -2,7 +2,9 @@
   Track Components (CTraxxView::OnViewComponents): what the dialog shows of a track, and what
   OK writes back.
 
-  The track type list is Circuit, Rally, Rumble, Drag; the palette list is the sixteen stock
+  The track type list is Circuit, Rally, Rumble, Drag and (Traxx 1.8.2) Parallel, with the
+  New-style drag, Split checkpoints and Looped course tickboxes (race-edit.ts applyTrackRules for
+  OK); the palette list is the sixteen stock
   palettes and, only when the track already has one, Custom (16). A new stock palette brings its
   fog map (the default one for palette 0), as CTraxxDoc::SelectMTM2Palette does.
 */
@@ -15,9 +17,11 @@ import { stemFromText } from "../traxx/terrain.ts";
 import { TRACKTYPE_CIRCUIT, TRACKTYPE_DRAG, TRACKTYPE_RALLY, TRACKTYPE_RUMBLE } from "./new-track.ts";
 import type { Touch } from "../edit/history.ts";
 import { musicKind } from "../traxx/pod-writer.ts";
+import { applyTrackRules, trackRulesChoiceOf } from "../edit/race-edit.ts";
 
-/** The Type radio buttons, in order. */
+/** The Type radio buttons, in order; the fifth, Parallel (typeIndex 4), is a Circuit with the Parallel race rules. */
 export const TRACK_TYPES = [TRACKTYPE_CIRCUIT, TRACKTYPE_RALLY, TRACKTYPE_RUMBLE, TRACKTYPE_DRAG];
+export const TRACK_TYPE_NAMES = ["Circuit", "Rally", "Rumble", "Drag", "Parallel"];
 /** IDC_AMBIENTSOUND's list. */
 export const SOUND_THEMES = ["Default", "Voodoo", "Excavation", "Farm Road", "Scrapyard", "Heights", "Sidewinder Canyon", "Tinhorn Junction", "Tumbleweed", "Breakneck Ridge", "Arena Rumble", "Pyramid Rumble", "Hypercube Rumble", "Graveyard", "Tweety birds (C98)", "15"];
 /** IDC_COLORPALETTE's list. */
@@ -41,7 +45,12 @@ export interface Components {
   stem: string;
   stemAuto: boolean;
   comment: string;
+  /** 0 Circuit, 1 Rally, 2 Rumble, 3 Drag, 4 Parallel (m_tracktype). */
   typeIndex: number;
+  /** Traxx 1.8.2: "New-style drag (race rules)", "Split checkpoints (new builds only)", "Looped course". */
+  newDrag: boolean;
+  splitCp: boolean;
+  looped: boolean;
   water4: number;
   ambient: number;
   paletteIndex: number;
@@ -77,7 +86,7 @@ export function componentsOf(doc: TrackDocument): Components {
     stem: t.prefix,
     stemAuto: doc.prefixAuto,
     comment: t.comment,
-    typeIndex: Math.max(0, TRACK_TYPES.indexOf(t.trackType)),
+    ...trackRulesChoiceOf(t.trackType, t.raceRules),
     water4: t.waterLevel4,
     ambient: t.ambientSound,
     paletteIndex: paletteIndexFromFogMap(t.fogMap),
@@ -102,8 +111,18 @@ export function cleanStem(text: string): string {
   return stemFromText(text);
 }
 
-/** OK: everything onto the document. Returns what the view has to redraw. */
-export function applyComponents(doc: TrackDocument, c: Components): Touch {
+/** What OK's race-rules block leaves for the caller (OnViewComponents). */
+export interface ComponentsRaceResult {
+  /** The over-100 checkpoints note, shown after OK; null for none. */
+  note: string | null;
+  /** The rules are no longer new-style drag or Parallel: an open Wall window closes (as OK). */
+  wallsGo: boolean;
+  /** The rules went off (ResetRaceRulesOfBoxes ran; Traxx clears the multi selection). */
+  rulesOff: boolean;
+}
+
+/** OK: everything onto the document. Returns what the view has to redraw; `race` gets the race-rules block's outcome. */
+export function applyComponents(doc: TrackDocument, c: Components, race?: ComponentsRaceResult): Touch {
   const t = doc.track;
   const touch: Touch = { track: true };
   t.comment = c.comment;
@@ -117,7 +136,11 @@ export function applyComponents(doc: TrackDocument, c: Components): Touch {
     doc.prefixAuto = false;
     t.prefix = c.stem;
   }
-  t.trackType = TRACK_TYPES[c.typeIndex] ?? TRACKTYPE_CIRCUIT;
+  // The Type and the race rules together (Traxx 1.8.2): SetRaceRules / SetTrackType and the boxes' clean-up.
+  const typeBefore = t.trackType, modeBefore = t.raceRules.mode;
+  const r = applyTrackRules(t, t.raceRules, { typeIndex: c.typeIndex, newDrag: c.newDrag, splitCp: c.splitCp, looped: c.looped });
+  if (race) Object.assign(race, r);
+  if (t.trackType !== typeBefore || t.raceRules.mode !== modeBefore) { touch.objects = true; touch.course = true; }
   if (t.waterLevel4 !== c.water4) { t.waterLevel4 = c.water4; touch.water = true; }
   t.ambientSound = c.ambient;
   [t.logoBmp, t.mapBmp, t.infoBmp] = c.bitmaps;

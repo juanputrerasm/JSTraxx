@@ -10,7 +10,9 @@
     - uLight: the baked intensities from the .LTE (engineDetailLightTexture): per vertex on Classic
       8-bit and 16-bit, the engine's 8 ft relight on Spline and Full Map (unshadowed: the engine's
       box-system shadow trace is not available); NEAREST, REPEAT. Rebuilt when the lighting, the
-      terrain mode or the heights change (engineDetailLightKey).
+      terrain mode or the heights change (engineDetailLightKey). Traxx 1.8.1: two channels, red the
+      intensity and green the .LTE shadow bit (EnsureLightTex's luminance-alpha pair), for the
+      ground boxes' walls and bottoms.
     - Water: _WDTL (else engineDetailGenerate(false)) and _WMSK red.
     - The water mask tint's cell table: the _WMSK's stb grey (req_comp 1: (77 r + 150 g + 29 b) >> 8)
       at pixel (gi w / N, gj h / N), N x N.
@@ -23,7 +25,7 @@ import type { TrackDocument } from "../core/doc/document.ts";
 import { tryDecodeImage } from "../shared/image-decode.ts";
 import {
   ENGDET_TERRDETAIL_DEFAULT, engineDetailGenerate, engineDetailLightKey, engineDetailLightTexture, engineDetailMaskRed, engineDetailStrength,
-  engineDetailSunUniform, ENGDET_GEN_SIZE,
+  engineDetailSunUniform, ENGDET_GEN_SIZE, ENGDET_BOX_BACK, ENGDET_BOX_BOTTOM, ENGDET_BOX_FRONT, ENGDET_BOX_LEFT, ENGDET_BOX_RIGHT, engineDetailBoxFaceI,
 } from "../core/view/engine-detail.ts";
 import { engineY0, fillLteFlat, trackLighting } from "../core/edit/lighting.ts";
 import { getSurface } from "../core/traxx/surface.ts";
@@ -76,7 +78,11 @@ export function waterMaskCells(grey: Uint8Array, w: number, h: number, n: number
   return cells;
 }
 
-export interface TerrainDetailTextures { det: THREE.Texture; mask: THREE.Texture; light: THREE.Texture; lightN: number; sun: [number, number, number]; strength: number }
+export interface TerrainDetailTextures {
+  det: THREE.Texture; mask: THREE.Texture; light: THREE.Texture; lightN: number; sun: [number, number, number]; strength: number;
+  /** Traxx 1.8.1 GLDetailBeginBox: the ground boxes' face lights FRONT, BACK, RIGHT, LEFT (uBoxSideI) and BOTTOM (uBoxBottomI). */
+  boxSideI: [number, number, number, number]; boxBottomI: number;
+}
 export interface WaterDetailTextures { det: THREE.Texture; mask: THREE.Texture }
 
 export class TerrainDetail {
@@ -171,11 +177,13 @@ export class TerrainDetail {
         lte: t.lte ?? fillLteFlat(n * n), sun, ambient, n,
         surface: smooth ? getSurface(t) : null, y0: smooth ? engineY0(t) : null,
       });
-      this.light = { key, lte: t.lte, tex: tex(lt.data, lt.n, lt.n, THREE.RedFormat, false, true), n: lt.n };
+      this.light = { key, lte: t.lte, tex: tex(lt.rg, lt.n, lt.n, THREE.RGFormat, false, true), n: lt.n };
     }
     return {
       det: this.terrainMaps.det, mask: this.terrainMaps.mask, light: this.light.tex, lightN: this.light.n,
       sun: engineDetailSunUniform(sun), strength: engineDetailStrength(ENGDET_TERRDETAIL_DEFAULT, 100, false),
+      boxSideI: [ENGDET_BOX_FRONT, ENGDET_BOX_BACK, ENGDET_BOX_RIGHT, ENGDET_BOX_LEFT].map((f) => engineDetailBoxFaceI(f, sun, ambient)) as [number, number, number, number],
+      boxBottomI: engineDetailBoxFaceI(ENGDET_BOX_BOTTOM, sun, ambient),
     };
   }
 

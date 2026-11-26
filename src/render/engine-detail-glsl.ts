@@ -41,13 +41,13 @@
 
   Uniforms (terrain): uTex (the tile's own texture, unit 0 in Traxx), uDet (_DTL or the generated
   map), uMask (_MASK, red), uLight (the baked intensities), uDetStr, uDetRepFt, uMapFt, uSun, uLook,
-  uWash, uLightN, uFtPerUnit, uGridFt. Uniforms (water): uWDet, uWMask, uMapFt, uFtPerUnit, uGridFt.
+  uWash, uLightN, uFtPerUnit, uGridFt. Uniforms (water): uWDet, uWMask, uMapFt, uLook, uWash, uFtPerUnit, uGridFt.
 */
 import {
   ENGDET_AO_K, ENGDET_BORDER_B, ENGDET_BORDER_G, ENGDET_BORDER_R, ENGDET_BORDER_W, ENGDET_DIAG, ENGDET_DLIT_CLAMP, ENGDET_MAP_TILES,
   ENGDET_MASK_SPAN, ENGDET_SUNH_EPS, ENGDET_SUNH_FLOOR, ENGDET_TILE_FT, ENGDET_WASH_B, ENGDET_WASH_G, ENGDET_WASH_R, ENGDET_WATER_AMP,
   ENGDET_WATER_LOD_HI, ENGDET_WATER_LOD_LO, ENGDET_WATER_SCALE_A, ENGDET_WATER_SCALE_B, ENGDET_WATER_SHADE_DX, ENGDET_WATER_SHADE_DY,
-  ENGDET_WATER_SHADE_HI, ENGDET_WATER_SHADE_K, ENGDET_WATER_SHADE_LO,
+  ENGDET_WATER_SHADE_HI, ENGDET_WATER_SHADE_K, ENGDET_WATER_SHADE_LO, ENGDET_UNTEX_S, ENGDET_WWASH_B, ENGDET_WWASH_G, ENGDET_WWASH_K, ENGDET_WWASH_R,
 } from "../core/view/engine-detail.ts";
 
 /** A GLSL float literal: always with a decimal point (translation change 3). */
@@ -66,6 +66,8 @@ export function engineDetailGlslDefines(mapTiles = ENGDET_MAP_TILES): string {
     ["WATER_SHADE_DX", ENGDET_WATER_SHADE_DX], ["WATER_SHADE_DY", ENGDET_WATER_SHADE_DY], ["WATER_SHADE_LO", ENGDET_WATER_SHADE_LO],
     ["WATER_SHADE_HI", ENGDET_WATER_SHADE_HI], ["WASH_R", ENGDET_WASH_R], ["WASH_G", ENGDET_WASH_G], ["WASH_B", ENGDET_WASH_B],
     ["BORDER_R", ENGDET_BORDER_R], ["BORDER_G", ENGDET_BORDER_G], ["BORDER_B", ENGDET_BORDER_B], ["BORDER_W", ENGDET_BORDER_W],
+    // Traxx 1.8.1 (EngineDetail.h ENGDET_GLSL_DEFINES): the untextured mark and the water strength wash.
+    ["UNTEX_S", ENGDET_UNTEX_S], ["WWASH_R", ENGDET_WWASH_R], ["WWASH_G", ENGDET_WWASH_G], ["WWASH_B", ENGDET_WWASH_B], ["WWASH_K", ENGDET_WWASH_K],
   ];
   return defs.map(([n, v]) => `#define ${n} ${glslFloat(v)}\n`).join("");
 }
@@ -137,6 +139,54 @@ export const ENGDET_GLSL_WATER_SHADE = `float waterShade(vec2 wFt)
     vec2 sDet = -(nA + nB) * (WATER_AMP * (1.0 + MASK_SPAN * mk) * lod);
     return clamp(1.0 + WATER_SHADE_K * dot(sDet, vec2(WATER_SHADE_DX, WATER_SHADE_DY)),
         WATER_SHADE_LO, WATER_SHADE_HI);
+}
+`;
+
+/**
+  Traxx 1.8.1 (EngineDetailGLSL.h boxI, EngineDetail.cpp EngineDetailBoxI): a ground box's baked
+  light at world feet wFt on face `face` (ENGDET_BOX_*: 0 FRONT -Z, 1 BACK +Z, 2 RIGHT +X, 3 LEFT
+  -X, 4 TOP, 5 BOTTOM) of the box on tile `cell`. The corners' .LTE i (.r) and shadow bit (.g) at
+  the box's tile; on smooth terrain the corner is the 8 ft vertex at (4x, 4z), as the engine's
+  groundArray l0 is. Needs uniform sampler2D uLight, float uLightN, vec4 uBoxSideI, float uBoxBottomI.
+  TRANSLATION CHANGE: Traxx finds the face from the derivative normal of (world X, Z, height) and
+  tells top from bottom by the model height against uBoxZMid; the JSTraxx box mesh carries each
+  face's number as an attribute (core/view/ground-box-geometry.ts faceOf), so it is passed in.
+*/
+export const ENGDET_GLSL_BOX_I = `float boxSide(vec4 l, float facei) { return (l.g > 0.5) ? l.r : facei; }
+float boxI(vec2 wFt, vec2 cell, float face)
+{
+    vec2 f = clamp(wFt / TILE_FT - cell, 0.0, 1.0);
+    float k = uLightN / MAP_TILES;
+    float s = 1.0 / uLightN;
+    vec2 t0 = (cell * k + 0.5) * s;
+    vec4 l0 = texture(uLight, t0);
+    vec4 l1 = texture(uLight, t0 + vec2(k * s, 0.0));
+    vec4 l2 = texture(uLight, t0 + vec2(k * s, k * s));
+    vec4 l3 = texture(uLight, t0 + vec2(0.0, k * s));
+    if (face > 3.5) {
+        float c0, c1, c2, c3;
+        if (face < 4.5) { c0 = l0.r; c1 = l1.r; c2 = l2.r; c3 = l3.r; }
+        else { c0 = boxSide(l0, uBoxBottomI); c1 = boxSide(l1, uBoxBottomI);
+               c2 = boxSide(l2, uBoxBottomI); c3 = boxSide(l3, uBoxBottomI); }
+        if (f.y > f.x) return c0 + f.x * (c2 - c3) + f.y * (c3 - c0);
+        return c0 + f.x * (c1 - c0) + f.y * (c2 - c1);
+    }
+    if (face < 0.5) return mix(boxSide(l0, uBoxSideI.x), boxSide(l1, uBoxSideI.x), f.x);
+    if (face < 1.5) return mix(boxSide(l3, uBoxSideI.y), boxSide(l2, uBoxSideI.y), f.x);
+    if (face < 2.5) return mix(boxSide(l1, uBoxSideI.z), boxSide(l2, uBoxSideI.z), f.y);
+    return mix(boxSide(l0, uBoxSideI.w), boxSide(l3, uBoxSideI.w), f.y);
+}
+`;
+
+/**
+  Traxx 1.8.1 View > Show Water Strength on the water (g_EngDetWaterFS's uWash branch,
+  EngineDetailWaterWash): rgb toward orange by WWASH_K * (1 + 4 mk) / 5, mk the _WMSK red at wFt.
+  Needs uniform sampler2D uWMask and uniform float uMapFt.
+*/
+export const ENGDET_GLSL_WATER_WASH = `vec3 waterWash(vec3 rgb, vec2 wFt)
+{
+    float mk = texture(uWMask, wFt / max(uMapFt, 1.0)).r;
+    return mix(rgb, vec3(WWASH_R, WWASH_G, WWASH_B), WWASH_K * (1.0 + MASK_SPAN * mk) / (1.0 + MASK_SPAN));
 }
 `;
 
@@ -213,16 +263,21 @@ ${ENGDET_GLSL_BAKED_I}${ENGDET_GLSL_TERR_DETAIL_I}${ENGDET_GLSL_BORDER}void main
 `;
 
   // g_EngDetWaterFS: the still-preview body shade (t = 0, no waves, watt = 1) times the water's own colour, alpha kept.
+  // Traxx 1.8.1: uLook = the still body shade (Show Detail Maps), uWash = the water strength wash (Show Water Strength).
   const waterFs = `${defines}uniform sampler2D uWDet;
 uniform sampler2D uWMask;
 uniform float uMapFt;
+uniform float uLook;
+uniform float uWash;
 varying vec2 vWorldFt;
 varying vec4 vCol;
-${ENGDET_GLSL_WATER_SHADE}${ENGDET_GLSL_BORDER}void main()
+${ENGDET_GLSL_WATER_SHADE}${ENGDET_GLSL_WATER_WASH}${ENGDET_GLSL_BORDER}void main()
 {
     // uv, not the engine's uv wrapped to 256 tiles: both layers repeat a whole number of times over
     // the world (128 and 69), so the sample is the same, and unwrapped uv keeps the derivatives seamless.
-    vec3 rgb = vCol.rgb * waterShade(vWorldFt);
+    float shade = waterShade(vWorldFt);
+    vec3 rgb = vCol.rgb * ((uLook > 0.5) ? shade : 1.0);
+    if (uWash > 0.5) rgb = waterWash(rgb, vWorldFt);
     rgb = borderTint(rgb, vWorldFt);
     gl_FragColor = vec4(rgb, vCol.a);
 }
@@ -240,4 +295,4 @@ export const ENGDET_WATER_FS = traxx.waterFs;
 
 /** Every uniform GLDetailMaps.cpp sets on each program (detailtest's "every uniform is active" list, after translation change 4). */
 export const ENGDET_TERRAIN_UNIFORMS = ["uFtPerUnit", "uGridFt", "uTex", "uDet", "uMask", "uLight", "uDetStr", "uDetRepFt", "uMapFt", "uSun", "uLook", "uWash", "uLightN"] as const;
-export const ENGDET_WATER_UNIFORMS = ["uFtPerUnit", "uGridFt", "uWDet", "uWMask", "uMapFt"] as const;
+export const ENGDET_WATER_UNIFORMS = ["uFtPerUnit", "uGridFt", "uWDet", "uWMask", "uMapFt", "uLook", "uWash"] as const;

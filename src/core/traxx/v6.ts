@@ -1,254 +1,435 @@
 /*
-  MTM2 track format version 6 in JSTraxx: what makes a track a version 6 (.SI3) track, the height
-  step and base Write POD picks, and the version 6 height, ground box and .TXV writing
-  (openmtm2.github.io/proposals/track-format-v6.md; Traxx 1.7.1 has none of this).
+  MTM2 track format version 6 in JSTraxx: the height step and base Write POD picks, and the version 6
+  height, ground box and .TXV writing, as Traxx origin/main does them (Include/TrackPODHeightScale.h and
+  TrackPOD/TrackPODHeightScale.cpp: PickHeightStepBase, TrackHeightSpan, V6PickWriteScale, HeightToSample,
+  V6EncodeSamples, V6EncodeBoxTop; TrackPOD/TrackPOD.cpp BuildRA01CL0_16; TrackPOD/TrackPODFile.cpp Save and
+  EncodeV6SamplesPng).
 
-  The formats are OpenPhotex's (readTxvV6, setTxvValues, writeTxv, decodeMtm2V6Heights,
-  mtm2V6StepAndBase, mtm2V6SamplesFromFt, encodeMtm2HeightRaw16, encodeGreyPng, checkMtm2GridSize,
-  mtm2GroundBoxDepth, mtm2GroundBoxHeightFt, emptyGroundBoxGrids). What is decided here is the
-  editor's side: when a document must be written as a .SI3, which store it keeps, and which step
-  and base go into its .TXV.
+  Whether a track is a version 6 (.SI3) track is its kind (track-kind.ts, Traxx origin/main IsV6), never its
+  content: Standard V6 and Tall Heights V6 are written as a .SI3, Classic exactly as Traxx writes it.
 
-  The rule (spec 5.1): a track that uses any key of section 6 other than formatVersion is a .SI3.
-  A document is written as one when it has a 512-cell world, heights below 0 ft or at or above
-  512 ft (outside what CP4's 16-bit 1/128 ft file holds, so the step or base would not be 128 / 0),
-  ground boxes that need 16-bit heights, its own water below 0 ft or above 510 ft, or when it was opened from a
-  .SI3 (a .SIT or .SI2 is a different track, spec 5.1, so JSTraxx never turns one into the other).
-  Any other document is written exactly as Traxx 1.7.1 writes it.
+  The step and base are re-picked on every Write POD (never kept from the pod the track was opened from): base the
+  whole feet under the lowest point, which may not be below 0 ft (the engine takes no negative base), and the
+  largest step of 128..1 samples a foot that holds the span in 16 bits. Every height is written as the floor of
+  its sample, clamped to 0..65535; a ground box's top is never written as 0 (the engine's "no box").
 */
-import { parseTxv, setTxvValues, writeTxv } from "../../vendor/openphotex/mtm/txv.js";
-import { encodeMtm2HeightRaw16, mtm2V6SamplesFromFt, mtm2V6StepAndBase } from "../../vendor/openphotex/mtm/heights.js";
 import { encodeGreyPng } from "../../vendor/openphotex/texture/png-write.js";
 import { emptyGroundBoxGrids } from "../../vendor/openphotex/mtm/write.js";
-import type { TxxGroundBox, TxxTrack } from "./txx.ts";
-import { TERRAINMODE_CLASSIC8, TERRAINMODE_FINE, TERRAINMODE_SPLINE, syncFromRaw } from "./terrain16.ts";
-import { V6_V_MAX, V6_V_MIN, cellsOf, heightRange, isWideGrid, type HeightGrid } from "./world.ts";
-import { FALL_WORLD_CLASSIC, type FallWorld } from "./falls.ts";
-import { TRAXX_MAX_BOXES, V6_MAX_BOXES } from "./sit.ts";
-
-/** The v range CP4 holds: 0 to 65535 (0 to just under 512 ft at 1/128 ft). */
-const CP4_V_MAX = 65535;
+import type { TxxTrack } from "./txx.ts";
+import { TERRAINMODE_CLASSIC16, TERRAINMODE_FINE, TERRAINMODE_SPLINE, syncFromRaw } from "./terrain16.ts";
+import { cellsOf, heightRange, type HeightGrid } from "./world.ts";
+import { FALL_MAX_FALLS, FALL_WORLD_CLASSIC, fallEffectiveHeight, type FallWorld } from "./falls.ts";
+import { fallMaxHeight, isV6, maxBoxes, waterLevelMax4, WATER_MAX4_CLASSIC } from "./track-kind.ts";
+import { formatFeet } from "./height-units.ts";
 
 /*
-  The track's own water (the .LVL !waterHeight, waterLevel4, in half feet; 0 is no water). Traxx keeps it in 0..1020
-  (0 to 510 ft, its 2 ft steps 0..255 in quarters). A version 6 track has no 510 ft cap (spec section 10, item 7): its
-  water spans the terrain's range, 2 * terrainHeightBase to 2 * (terrainHeightBase + 65536 / terrainHeightStep). The
-  step and base are picked at Write POD from the heights and a water above them (pickStepAndBase), so the editor
-  offers the widest range the 32-bit height store holds, as it does a version 6 lake (lake-ground.ts
-  LAKE_V6_MIN_HEIGHT).
+  The track's own water (the .LVL !waterHeight, waterLevel4, in half feet; 0 is no water): 0..WaterLevelMax4 of its
+  kind (Traxx origin/main TrackPOD.cpp): 0..1020 on a classic track, 0..1023 Standard V6, 0..16384 Tall Heights V6.
+  Never below 0.
 */
-/** Traxx's highest track water, half feet (510 ft). */
-export const TRACK_WATER_MAX4 = 4 * 255;
-/** A version 6 document's lowest and highest track water, half feet: the 32-bit height store's range. */
-export const TRACK_WATER_V6_MIN4 = V6_V_MIN / 64;
-export const TRACK_WATER_V6_MAX4 = V6_V_MAX / 64;
+/** Traxx's highest classic track water, half feet (510 ft). */
+export const TRACK_WATER_MAX4 = WATER_MAX4_CLASSIC;
 
-/** The track water a document may have, half feet: Traxx's 0..1020, or a version 6 document's own range. */
-export function trackWaterRange(t: TxxTrack, fromSi3: boolean): [number, number] {
-  return isV6Document(t, fromSi3) ? [TRACK_WATER_V6_MIN4, TRACK_WATER_V6_MAX4] : [0, TRACK_WATER_MAX4];
+/** LAKE_MAX_LAKES (Include/TrackPODLakes.h). */
+const LAKE_MAX_LAKES = 255;
+
+/** The track water a track may have, half feet: 0..WaterLevelMax4. */
+export function trackWaterRange(t: Pick<TxxTrack, "trackKind">): [number, number] {
+  return [0, waterLevelMax4(t)];
 }
 
-/** The track water a version 6 .TXV's step and base allow, half feet (spec section 10, item 7). */
+/** V6WaterMax (TrackPODHeightScale.cpp): the highest !waterHeight a .SI3 with this step and base takes, half-feet. */
+export function v6WaterMax(step: number, base: number): number {
+  return 2 * (base + Math.trunc(65536 / (step > 0 ? step : 128)));
+}
+
+/** The track water a version 6 .TXV's step and base allow, half feet: 0 .. V6WaterMax. */
 export function v6WaterRange(step: number, base: number): [number, number] {
-  return [2 * base, 2 * (base + 65536 / step)];
+  return [0, v6WaterMax(step, base)];
 }
 
-/** The grid Write POD takes the heights from: the Full Map, else h16, else null (Classic 8-bit's raw). */
-function heightSource(t: Pick<TxxTrack, "terrainMode" | "h16" | "fine">): HeightGrid | null {
-  if (t.terrainMode === TERRAINMODE_CLASSIC8) return null;
-  return t.fine ?? t.h16;
+/** Whether a track is written as a version 6 (.SI3) track: its kind (IsV6). */
+export function isV6Track(t: Pick<TxxTrack, "trackKind">): boolean {
+  return isV6(t);
 }
 
-/** The lowest and highest height of a track, in v (1/128 ft). Classic 8-bit: raw << 8. */
-export function trackHeightRangeV(t: Pick<TxxTrack, "terrainMode" | "h16" | "fine" | "heights">): [number, number] {
-  const g = heightSource(t);
-  if (g) return heightRange(g);
-  const [lo, hi] = heightRange(t.heights);
-  return [lo * 256, hi * 256];
+/** The most placed objects a track may hold: MaxBoxes (16,384 on a v6 track, 4,096 otherwise). */
+export function objectLimit(t: Pick<TxxTrack, "trackKind">): number {
+  return maxBoxes(t);
 }
 
-/** Whether a ground box's heights (2 ft units, Traxx's lower / upper) fit Traxx's bytes. */
-function boxFitsByte(g: TxxGroundBox): boolean {
-  return Number.isInteger(g.lower) && Number.isInteger(g.upper) && g.lower >= 0 && g.lower <= 255 && g.upper >= 1 && g.upper <= 255;
+// ---- TrackPODHeightScale.h ----
+
+/** HeightScaleShift: step 128 -> 0, step 1 -> 7. */
+export function heightScaleShift(step: number): number {
+  let s = 0;
+  while (s < 7 && (128 >> s) !== step) s++;
+  return s;
 }
 
-/** What a version 6 document needs, for the author and for the tests. */
-export interface V6Features {
-  /** worldCells is 512. */
-  world512: boolean;
-  /** A height is below 0 ft or at or above 512 ft, or the heights are in the 32-bit store. */
-  tallHeights: boolean;
-  /** A ground box needs 16-bit heights. */
-  wideBoxes: boolean;
-  /** The track's own water is outside Traxx's 0..510 ft (spec section 10, item 7). */
-  tallWater: boolean;
-  /** The document was opened from a .SI3. */
-  fromSi3: boolean;
+/** HeightToSample: (h - base*128) >> (7 - log2 step), the floor (an arithmetic shift of a C int). */
+export function heightToSample(h: number, step: number, base: number): number {
+  return (h - base * 128) >> heightScaleShift(step);
 }
 
-/*
-  The version 6 features a document uses (spec 5.1, 8.3). A lake or waterfall never makes a track
-  version 6: the world's size picks the .WTR and .WFL version (9.1, 9.3), so on a 256-cell track
-  one above 2,048 ft is an error (lakes.ts LAKEERR_HEIGHT, falls.ts FALLERR_HEIGHT).
-*/
-export function v6Features(t: TxxTrack, fromSi3: boolean): V6Features {
-  const [lo, hi] = trackHeightRangeV(t);
-  return {
-    world512: cellsOf(t) !== 256,
-    tallHeights: lo < 0 || hi > CP4_V_MAX || isWideGrid(t.h16) || isWideGrid(t.fine),
-    wideBoxes: t.groundBoxes.some((g) => !boxFitsByte(g)),
-    tallWater: t.waterLevel4 < 0 || t.waterLevel4 > TRACK_WATER_MAX4,
-    fromSi3,
-  };
+/** SampleToHeight: (sample << (7 - log2 step)) + base*128. */
+export function sampleToHeight(sample: number, step: number, base: number): number {
+  return (sample << heightScaleShift(step)) + base * 128;
 }
 
-/** Whether a document must be written as a .SI3 with formatVersion 6. */
-export function isV6Document(t: TxxTrack, fromSi3: boolean): boolean {
-  const f = v6Features(t, fromSi3);
-  return f.world512 || f.tallHeights || f.wideBoxes || f.tallWater || f.fromSi3;
+/** V6EncodeSamples: out[i] = HeightToSample(v[i]), clamped to 0..65535. */
+export function v6EncodeSamples(v: ArrayLike<number>, step: number, base: number, out: Uint16Array = new Uint16Array(v.length)): Uint16Array {
+  for (let i = 0; i < v.length; i++) {
+    const s = heightToSample(v[i]!, step, base);
+    out[i] = s < 0 ? 0 : s > 65535 ? 65535 : s;
+  }
+  return out;
+}
+
+/** V6EncodeBoxTop: 0 when upper is 0 (no box), else at least 1 (the engine reads a top of 0 as "no box"). */
+export function v6EncodeBoxTop(upper: number, step: number, base: number): number {
+  if (upper === 0) return 0;
+  const s = v6EncodeSamples([upper], step, base)[0]!;
+  return s < 1 ? 1 : s;
 }
 
 /**
-  The most placed objects a document may hold: V6_MAX_BOXES (16,384, spec 14) for a version 6
-  document, else Traxx's MAXNPODBOXES (4096).
+  PickHeightStepBase: base = floor(lowest / 128) (whole feet), the largest step in {128, 64, ... 1} with
+  (highest - base*128) * step <= 65535*128. Null when base < 0 or no step fits.
 */
-export function objectLimit(t: TxxTrack, fromSi3: boolean): number {
-  return isV6Document(t, fromSi3) ? V6_MAX_BOXES : TRAXX_MAX_BOXES;
+export function pickHeightStepBase(lowest: number, highest: number): { step: number; base: number } | null {
+  const b = Math.floor(lowest / 128);
+  if (b < 0) return null;
+  let span = highest - b * 128;
+  if (span < 0) span = 0;
+  for (let s = 128; s >= 1; s >>= 1) if (span * s <= 65535 * 128) return { step: s, base: b };
+  return null;
+}
+
+/** The active grid TrackHeightSpan reads: FINE the fine grid, CLASSIC16 and SPLINE h16, CLASSIC8 null (raw << 8). */
+function activeGrid(t: Pick<TxxTrack, "terrainMode" | "h16" | "fine">): HeightGrid | null {
+  if (t.terrainMode === TERRAINMODE_FINE) return t.fine;
+  if (t.terrainMode === TERRAINMODE_CLASSIC16 || t.terrainMode === TERRAINMODE_SPLINE) return t.h16;
+  return null;
 }
 
 /**
-  The world the waterfalls of a document are judged and written in (spec 9.3): N and the step and
-  base Write POD picks (pickStepAndBase) for a version 6 document, else FALL_WORLD_CLASSIC, so a
-  track that is not version 6 keeps Traxx's 256 world and 1..4096 crest heights.
+  TrackHeightSpan: the lowest and highest of the active grid's samples (CLASSIC8 raw << 8) and of the ground boxes (a
+  box's lower counts for the bottom, its upper for the top; a box whose upper is 0 is "no box" and skipped). On a v6
+  track the water (when above 0), every lake and every fall's effective height (when above 0) count too, half-feet x
+  64 = 1/128 ft: the engine takes them up to the track's own window.
 */
-export function fallWorldOf(t: TxxTrack, fromSi3: boolean): FallWorld {
-  if (!isV6Document(t, fromSi3)) return FALL_WORLD_CLASSIC;
-  return { cells: cellsOf(t), terrain: pickStepAndBase(t) };
+export function trackHeightSpan(t: TxxTrack): [number, number] {
+  let lo = Infinity, hi = -Infinity, n = 0;
+  const span = (v: number) => { if (v < lo) lo = v; if (v > hi) hi = v; n++; };
+  const g = activeGrid(t);
+  if (g) {
+    const [a, b] = heightRange(g);
+    if (g.length) { lo = a; hi = b; n += g.length; }
+  } else {
+    for (let i = 0; i < t.heights.length; i++) span(t.heights[i]! << 8);
+  }
+  for (const b of t.groundBoxes) {
+    if (b.upper === 0) continue;
+    if (b.lower < lo) lo = b.lower;
+    if (b.upper > hi) hi = b.upper;
+    n++;
+  }
+  if (isV6(t)) {
+    if (t.waterLevel4 > 0) span(t.waterLevel4 * 64);
+    for (let i = 0; i < t.lakes.length && i < LAKE_MAX_LAKES; i++) span(t.lakes[i]!.height * 64);
+    const falls = t.falls ?? [];
+    for (let i = 0; i < falls.length && i < FALL_MAX_FALLS; i++) {
+      const w = fallEffectiveHeight(falls, i, t.lakes);
+      if (w > 0) span(w * 64);
+    }
+  }
+  if (n === 0) lo = hi = 0;
+  return [lo, hi];
 }
 
-/*
-  The step and base (spec section 11): base = floor(lowest ft), step the largest power of two up
-  to 128 with (highest - base) * step <= 65535. The ones the track was opened or imported with are
-  kept when they still hold every height exactly (nothing would change), else new ones are picked.
+/** V6PickWriteScale's verdicts. */
+export const V6W_OK = 0;
+export const V6W_BELOW_ZERO = 1;
+export const V6W_TOO_TALL = 2;
+
+export interface V6WriteScale {
+  verdict: typeof V6W_OK | typeof V6W_BELOW_ZERO | typeof V6W_TOO_TALL;
+  step: number;
+  base: number;
+  /** The lowest height, 1/128 ft (how low, for V6W_BELOW_ZERO). */
+  lowest: number;
+}
+
+/**
+  V6PickWriteScale: PickHeightStepBase over TrackHeightSpan, after SyncFromRaw (so the 8-bit edits are in). Traxx
+  refreshes its spline scale first; JSTraxx's spline surface has no separate scale.
+*/
+export function v6PickWriteScale(t: TxxTrack): V6WriteScale {
+  syncFromRaw(t);
+  const [lo, hi] = trackHeightSpan(t);
+  if (lo < 0) return { verdict: V6W_BELOW_ZERO, step: 128, base: 0, lowest: lo };
+  const p = pickHeightStepBase(lo, hi);
+  if (!p) return { verdict: V6W_TOO_TALL, step: 128, base: 0, lowest: lo };
+  return { verdict: V6W_OK, step: p.step, base: p.base, lowest: lo };
+}
+
+/** OnFileWritePOD's refusal of a track the scale cannot hold (Traxx/TraxxDoc.cpp), shown with the caption "Write POD". */
+export function v6WriteScaleRefusal(s: V6WriteScale): string | null {
+  if (s.verdict === V6W_BELOW_ZERO) {
+    return `Write POD can't write this track: its lowest point is ${formatFeet(s.lowest)} ft, and version 6 tracks can't go below 0 ft. Raise the terrain or ground boxes below 0 ft (Adjust Heights) and try again.`;
+  }
+  if (s.verdict !== V6W_OK) return "Write POD can't write this track: from its lowest to its highest point it spans more than 65,535 ft.";
+  return null;
+}
+
+/**
+  The step and base Write POD would pick (V6PickWriteScale). A track the scale refuses (below 0 ft, or a span no 16-bit
+  sample holds) gets step 1 and the base at 0 or above, for the callers that only need a world to judge falls in; Write
+  POD itself refuses that track (v6WriteScaleRefusal).
 */
 export function pickStepAndBase(t: TxxTrack): { step: number; base: number } {
-  let [lo, hi] = trackHeightRangeV(t);
-  // The ground boxes are heights by the same rule (spec 8.3), so they count as points of the track.
-  for (const g of t.groundBoxes) {
-    lo = Math.min(lo, g.lower * 256, g.upper * 256);
-    hi = Math.max(hi, g.lower * 256, g.upper * 256);
-  }
-  /*
-    The track's own water (64 v a half foot) counts too when it stands above every point, so the .TXV's range reaches
-    it (spec section 10, item 7: a version 6 track's water has no 510 ft cap). Water under the lowest point covers
-    nothing and does not move the base (CRAZY4X's 95 ft water under its 150 ft ground keeps its step and base).
-  */
-  const water = t.waterLevel4 !== 0 && t.waterLevel4 * 64 > hi ? t.waterLevel4 : 0;
-  if (water !== 0) hi = water * 64;
-  const step0 = t.heightStep, base0 = t.heightBase;
-  const boxesFit = (step: number, base: number) => t.groundBoxes.every((g) => 2 * Math.min(g.lower, g.upper) >= base && (2 * Math.max(g.lower, g.upper) - base) * step <= 65535);
-  const waterFits = (step: number, base: number) => water === 0 || water <= v6WaterRange(step, base)[1];
-  if (step0 !== null && base0 !== null && fitsExactly(t, step0, base0) && boxesFit(step0, base0) && waterFits(step0, base0)) return { step: step0, base: base0 };
-  return mtm2V6StepAndBase(lo / 128, hi / 128);
+  const s = v6PickWriteScale(t);
+  if (s.verdict === V6W_OK) return { step: s.step, base: s.base };
+  return { step: 1, base: Math.max(0, Math.floor(s.lowest / 128)) };
 }
 
-/** Every height of the track is a whole sample at this step and base, in 0..65535. */
-function fitsExactly(t: TxxTrack, step: number, base: number): boolean {
-  const g = heightSource(t);
-  const per = 128 / step;
-  const check = (v: number) => {
-    const s = (v - base * 128) / per;
-    return Number.isInteger(s) && s >= 0 && s <= 65535;
-  };
-  if (g) { for (let i = 0; i < g.length; i++) if (!check(g[i]!)) return false; return true; }
-  for (let i = 0; i < t.heights.length; i++) if (!check(t.heights[i]! * 256)) return false;
-  return true;
+/**
+  The world the waterfalls of a track are judged and written in (spec 9.3): N, the step and base Write POD picks
+  (pickStepAndBase) and the kind's crest ceiling (FallMaxHeight) for a version 6 track, else FALL_WORLD_CLASSIC,
+  so a classic track keeps Traxx's 256 world and 1..4096 crest heights.
+*/
+export function fallWorldOf(t: TxxTrack): FallWorld {
+  if (!isV6(t)) return FALL_WORLD_CLASSIC;
+  return { cells: cellsOf(t), terrain: pickStepAndBase(t), maxHeight: fallMaxHeight(t) };
 }
 
-/** The samples of the heights at a step and base, N or 4N square, row by row. */
+/**
+  The samples of the heights at a step and base (V6EncodeSamples of the fine grid, else h16), N or 4N square, row by
+  row. A CLASSIC8 grid (never on a v6 track: SetTrackKind widens it) is encoded from raw << 8.
+*/
 export function v6HeightSamples(t: TxxTrack, step: number, base: number): { samples: Uint16Array; side: number } {
   syncFromRaw(t);
   const n = cellsOf(t);
-  const g = heightSource(t);
-  const feet = new Float64Array(g ? g.length : t.heights.length);
-  if (g) for (let i = 0; i < g.length; i++) feet[i] = g[i]! / 128;
-  else for (let i = 0; i < t.heights.length; i++) feet[i] = t.heights[i]! * 2;
-  const side = g && t.terrainMode === TERRAINMODE_FINE ? 4 * n : n;
-  return { samples: mtm2V6SamplesFromFt(feet, step, base), side };
+  if (t.fine) return { samples: v6EncodeSamples(t.fine, step, base), side: 4 * n };
+  if (t.h16) return { samples: v6EncodeSamples(t.h16, step, base), side: n };
+  const v = new Int32Array(t.heights.length);
+  for (let i = 0; i < v.length; i++) v[i] = t.heights[i]! << 8;
+  return { samples: v6EncodeSamples(v, step, base), side: n };
 }
 
-/** terrainGrid for a version 6 track: classic (Classic 8-bit and 16-bit), spline or fine (spec 7.2). */
-export function v6TerrainGrid(t: Pick<TxxTrack, "terrainMode">): "classic" | "spline" | "fine" {
+/** The terrainGrid key of a v6 track: spline or fine; a Classic 16-bit grid writes none (WriteTXVFile). */
+export function v6TerrainGrid(t: Pick<TxxTrack, "terrainMode">): "spline" | "fine" | null {
   if (t.terrainMode === TERRAINMODE_FINE) return "fine";
   if (t.terrainMode === TERRAINMODE_SPLINE) return "spline";
-  return "classic";
+  return null;
 }
 
 /**
-  The height file of a version 6 track (terrainHeightMap): with "Store heights as PNG" a greyscale
-  PNG DATA\<stem>_H.PNG (8-bit for Classic 8-bit at step 128 and base 0, where the 8-bit sample b
-  means b << 8 exactly as the raw byte does; 16-bit otherwise), else a u16 DATA\<stem>.RAW, which is
-  the name the .LVL gives.
+  EncodeV6SamplesPng: the height map of a version 6 track, always DATA\<stem>_H.PNG, 16-bit grey, N x N (CLASSIC16 and
+  SPLINE) or 4N x 4N (FINE), the samples at the step and base ("Store heights as PNG" plays no part on a v6 track).
 */
 export function v6HeightsEntry(t: TxxTrack, prefix: string, step: number, base: number): { name: string; bytes: Uint8Array } {
   const { samples, side } = v6HeightSamples(t, step, base);
-  if (!t.pngHeights) return { name: `DATA\\${prefix}.RAW`, bytes: encodeMtm2HeightRaw16(samples) };
-  const eight = t.terrainMode === TERRAINMODE_CLASSIC8 && step === 128 && base === 0;
-  if (eight) {
-    const bytes = new Uint8Array(samples.length);
-    for (let i = 0; i < samples.length; i++) bytes[i] = samples[i]! >> 8;
-    return { name: `DATA\\${prefix}_H.PNG`, bytes: encodeGreyPng(bytes, side, side, 8) };
-  }
   return { name: `DATA\\${prefix}_H.PNG`, bytes: encodeGreyPng(samples, side, side, 16) };
 }
 
 /**
-  The ground box grids of a version 6 track (spec 8.3): BuildRA01CL0 at N x N, 8-bit when every box
-  is a whole number of 2 ft steps above the base in 1..255 (height = base + 2 * byte), else 16-bit
-  (height = base + value / step). RA2..RA5, CL1 and CL2 are written empty at N x N, as Traxx does.
+  The classic 8-bit N*N DATA\<stem>.RAW a v6 pod always carries before its map (Save): the raw mirror (MirrorOf of
+  every coarse height, the 0..255 grid), which the .LVL names and the engine ignores while a height map is set.
 */
-export function v6GroundBoxGrids(t: TxxTrack, step: number, base: number): { depth: 8 | 16; grids: Record<"RA0" | "RA1" | "RA2" | "RA3" | "RA4" | "RA5" | "CL0" | "CL1" | "CL2", Uint8Array> } {
+export function v6RawMirror(t: TxxTrack): Uint8Array {
+  syncFromRaw(t);
   const n = cellsOf(t);
-  const byteOf = (u2: number) => (2 * u2 - base) / 2;
-  const eight = t.groundBoxes.every((g) => {
-    const lo = byteOf(g.lower), hi = byteOf(g.upper);
-    return Number.isInteger(lo) && Number.isInteger(hi) && lo >= 0 && lo <= 255 && hi >= 1 && hi <= 255;
-  });
-  const depth: 8 | 16 = eight ? 8 : 16;
+  return t.heights.slice(0, n * n);
+}
+
+/**
+  BuildRA01CL0_16 and the other ground box grids of a version 6 track (Save): .RA0 / .RA1 always 16-bit, 2*N*N bytes
+  each (a box with upper 0 writes 0 and 0; its bottom V6EncodeSamples, its top V6EncodeBoxTop), .CL0 the six face
+  words of every box, 12*N*N, and .RA2..RA5 (N*N), .CL1 (4*N*N) and .CL2 (12*N*N) empty. A box outside 0..N-1 is
+  skipped.
+*/
+export function v6GroundBoxGrids(t: TxxTrack, step: number, base: number): Record<"RA0" | "RA1" | "RA2" | "RA3" | "RA4" | "RA5" | "CL0" | "CL1" | "CL2", Uint8Array> {
+  const n = cellsOf(t);
   const grids = emptyGroundBoxGrids(n, 8);
-  const ra0 = depth === 8 ? grids.RA0 : new Uint8Array(2 * n * n);
-  const ra1 = depth === 8 ? grids.RA1 : new Uint8Array(2 * n * n);
+  const ra0 = new Uint8Array(2 * n * n), ra1 = new Uint8Array(2 * n * n);
   const v0 = new DataView(ra0.buffer), v1 = new DataView(ra1.buffer), cv = new DataView(grids.CL0.buffer);
-  const value16 = (u2: number, min: number) => {
-    const s = Math.round((2 * u2 - base) * step);
-    return s < min ? min : s > 65535 ? 65535 : s;
-  };
   for (const g of t.groundBoxes) {
-    const at = (g.x & (n - 1)) + (g.y & (n - 1)) * n;
-    if (depth === 8) { ra0[at] = byteOf(g.lower); ra1[at] = byteOf(g.upper); }
-    else { v0.setUint16(2 * at, value16(g.lower, 0), true); v1.setUint16(2 * at, value16(g.upper, 1), true); }
+    if (g.x < 0 || g.x >= n || g.y < 0 || g.y >= n) continue;
+    const at = g.x + g.y * n;
+    if (g.upper !== 0) {
+      v0.setUint16(2 * at, v6EncodeSamples([g.lower], step, base)[0]!, true);
+      v1.setUint16(2 * at, v6EncodeBoxTop(g.upper, step, base), true);
+    }
     for (let f = 0; f < 6; f++) cv.setUint16(at * 12 + f * 2, (g.faces[f] ?? 0) & 0xffff, true);
   }
   grids.RA0 = ra0;
   grids.RA1 = ra1;
-  return { depth, grids };
+  return grids;
+}
+
+// ---- Reading a v6 pod (.SI3): the engine's refusals, one rule and one sentence for Open POD and Clone ----
+
+/**
+  TxvKeyValue (TrackPODHeightScale.cpp): the value of `key` in a .TXV's text, the LAST such line winning as in the
+  engine, trimmed; null when there is none. Keys compare without case; blanks around the key and the value go; '#'
+  lines are comments.
+*/
+export function txvKeyValue(txv: string, key: string): string | null {
+  let found: string | null = null;
+  const k = key.toLowerCase();
+  for (const raw of txv.split(/[\r\n]+/)) {
+    const s = raw.replace(/^[ \t]+/, "");
+    if (!s || s[0] === "#") continue;
+    const eq = s.indexOf("=");
+    if (eq < 0) continue;
+    if (s.slice(0, eq).replace(/[ \t]+$/, "").toLowerCase() !== k) continue;
+    found = s.slice(eq + 1).replace(/^[ \t]+/, "").replace(/[ \t]+$/, "").slice(0, 255);
+  }
+  return found;
+}
+
+/** TxvWholeInt: an optional sign, digits, nothing else, within +-1,000,000; null otherwise. */
+function txvWholeInt(s: string): number | null {
+  if (!/^[+-]?[0-9]+$/.test(s)) return null;
+  const v = parseInt(s, 10);
+  return v < -1000000 || v > 1000000 ? null : v;
+}
+
+export interface V6Txv {
+  /** The text holds at least one of the four v6 keys. */
+  any: boolean;
+  cells: number;
+  step: number;
+  base: number;
+  /** terrainHeightMap's value, "" for none. */
+  mapName: string;
+  /** The first key whose value the engine refuses, "" for none (its value is left at the default). */
+  badKey: string;
 }
 
 /**
-  The .TXV of a version 6 track: Traxx's record (WriteTXVFile's text, unknown keys carried over),
-  with the section 6 keys set in place by setTxvValues (unknown keys and comments kept) and checked
-  by writeTxv for a .SI3. CP4's terrainHeights is dropped: the heights are named by terrainHeightMap.
+  V6ParseTXV: the four v6 keys of a .TXV as the engine reads them. Defaults: 256 cells, step 128, base 0, no map.
+  worldCells must be 256 or 512, the step a power of two in 1..128 and the base 0..32767, else that key is named in
+  badKey (the first such one).
 */
-export function v6Txv(traxxText: Uint8Array, situation: string, keys: { worldCells: number; terrainHeightMap: string; step: number; base: number; terrainGrid: string }): Uint8Array {
-  const lines = parseTxv(traxxText);
-  const set = setTxvValues(lines, {
-    formatVersion: 6,
-    worldCells: keys.worldCells,
-    terrainHeightMap: keys.terrainHeightMap,
-    terrainHeightStep: keys.step,
-    terrainHeightBase: keys.base,
-    terrainGrid: keys.terrainGrid,
-    terrainHeights: null,
-  });
-  return writeTxv(set, { situation });
+export function v6ParseTxv(txv: string | null): V6Txv {
+  const out: V6Txv = { any: false, cells: 256, step: 128, base: 0, mapName: "", badKey: "" };
+  if (txv === null) return out;
+  const bad = (k: string) => { if (!out.badKey) out.badKey = k; };
+  let v = txvKeyValue(txv, "worldCells");
+  if (v !== null) {
+    out.any = true;
+    const n = txvWholeInt(v);
+    if (n === 256 || n === 512) out.cells = n; else bad("worldCells");
+  }
+  v = txvKeyValue(txv, "terrainHeightMap");
+  if (v !== null) { out.any = true; out.mapName = v; }
+  v = txvKeyValue(txv, "terrainHeightStep");
+  if (v !== null) {
+    out.any = true;
+    const n = txvWholeInt(v);
+    if (n !== null && n >= 1 && n <= 128 && (n & (n - 1)) === 0) out.step = n; else bad("terrainHeightStep");
+  }
+  v = txvKeyValue(txv, "terrainHeightBase");
+  if (v !== null) {
+    out.any = true;
+    const n = txvWholeInt(v);
+    if (n !== null && n >= 0 && n <= 32767) out.base = n; else bad("terrainHeightBase");
+  }
+  return out;
+}
+
+/** C atoi: leading blanks, a sign, digits; 0 for none. */
+function cAtoi(s: string): number {
+  const m = /^[ \t\n\v\f\r]*([+-]?[0-9]+)/.exec(s);
+  return m ? parseInt(m[1]!, 10) | 0 : 0;
+}
+
+/** V6TxvFormatVersion: 0 with no text at all; a text with no usable formatVersion (or one <= 0) reads as 1. */
+export function v6TxvFormatVersion(txv: string | null): number {
+  if (txv === null) return 0;
+  const v = txvKeyValue(txv, "formatVersion");
+  const fmt = v !== null ? cAtoi(v) : 0;
+  return fmt <= 0 ? 1 : fmt;
+}
+
+/**
+  V6TxvLevelRefusal: the sentence for a .SI3 whose .TXV says formatVersion under 6, and for a .SIT / .SI2 whose OWN
+  .TXV carries a v6-only key (worldCells, terrainHeightMap, terrainHeightStep, terrainHeightBase); null otherwise.
+  formatVersion=6 alone is not v6-only (race rules and more than 20 checkpoints write it on classic tracks).
+*/
+export function v6TxvLevelRefusal(isSi3: boolean, txv: string | null): string | null {
+  if (isSi3) {
+    const fmt = v6TxvFormatVersion(txv);
+    return fmt >= 6 ? null : `This track cannot be opened: a .SI3 needs formatVersion=6 in its .TXV (this one has ${fmt}).`;
+  }
+  if (txv === null) return null;
+  for (const k of ["worldCells", "terrainHeightMap", "terrainHeightStep", "terrainHeightBase"]) {
+    if (txvKeyValue(txv, k) !== null) return `This track cannot be opened: this level is a version 6 level (its .TXV has ${k}), but its situation file is not a .SI3.`;
+  }
+  return null;
+}
+
+/** V6MsgMissingFile: `what` is "colour file" or "ground box texture file". */
+export function v6MsgMissingFile(what: string, name: string): string {
+  return `This track's ${what} ${name} is missing.`;
+}
+export function v6MsgBoxNoPartner(n0: string, n1: string): string {
+  return `This track's ground box file ${n0} has no partner ${n1}.`;
+}
+/** V6MsgBoxPairSize: the engine's wording (Ground.cpp), the pair the same size, N (8-bit) or 2N (16-bit); `cells` is N*N. */
+export function v6MsgBoxPairSize(n0: string, l0: number, n1: string, l1: number, cells: number): string {
+  return `This track's ground box files ${n0} (${l0} bytes) and ${n1} (${l1} bytes) must be the same size, ${cells} (8-bit) or ${2 * cells} (16-bit).`;
+}
+export function v6MsgNoHeights(rawName: string): string {
+  return `This track has no height map and its ${rawName} is missing.`;
+}
+export function v6MsgGridSize(name: string, have: number, want: number, cells: number): string {
+  return `The grid file ${name} is ${have} bytes; a ${cells}-cell world needs exactly ${want}.`;
+}
+/** ReadV6BoxLayers / LoadGroundBoxes: the .CL0 of the wrong size. */
+export function v6MsgCl0Size(name: string, have: number, cells: number): string {
+  return `The ground box texture file ${name} is ${have} bytes; a ${cells}-cell world needs exactly ${12 * cells * cells}.`;
+}
+/** V6WaterRefusal: a .SI3's !waterHeight outside 0 .. V6WaterMax, or null. */
+export function v6WaterRefusal(level: number, step: number, base: number): string | null {
+  const hi = v6WaterMax(step, base);
+  if (level >= 0 && level <= hi) return null;
+  return `This track's !waterHeight is ${level}; a track with this height range allows 0 to ${hi}.`;
+}
+/** Load's refusals around the .TXV of a .SI3 ("opened") and Clone's ("cloned"). */
+export function v6BadKeyRefusal(key: string, verb: "opened" | "cloned"): string {
+  return `This track's .TXV has an invalid ${key} value; it cannot be ${verb}.`;
+}
+export function v6NoMap512Refusal(verb: "opened" | "cloned"): string {
+  return `This 512-cell track's .TXV names no terrainHeightMap; a 512-cell world needs one, so it cannot be ${verb}.`;
+}
+/** ApplyV6HeightMap's clamp warning (heightswarning), shown with the caption "Terrain heights". */
+export const V6_HEIGHTS_CLAMPED = "Some of this track's heights are above 8192 ft, which Traxx cannot hold: they were lowered to it.";
+
+/**
+  ApplyV6HeightMap's decode (TrackPODFile.cpp): the samples of a terrainHeightMap entry, by its NAME: a .png name must
+  be a PNG by content (len >= 33 and the signature) and decode as HeightImageDecode does at N or 4N (an 8-bit sample b
+  is b << 8); any other name is an unsigned 16-bit little-endian RAW of 2*N*N or 2*(4N)*(4N) bytes. `why` is the
+  reason when it cannot be used (the sentence goes after "cannot be used: ").
+*/
+export function v6DecodeHeightMap(name: string, file: Uint8Array | null, cells: number, decodePng: (file: Uint8Array, cells: number) => { ok: true; v: Uint16Array; size: number } | { ok: false; why: string }): { ok: true; samples: Uint16Array; dim: number } | { ok: false; why: string } {
+  if (!file || file.length <= 0) return { ok: false, why: "file not found" };
+  if (/\.png$/i.test(name)) {
+    const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    if (file.length < 33 || sig.some((b, i) => file[i] !== b)) return { ok: false, why: "not a PNG file" };
+    const d = decodePng(file, cells);
+    if (!d.ok) return { ok: false, why: d.why || "PNG decode failed" };
+    return { ok: true, samples: d.v, dim: d.size };
+  }
+  const fdim = 4 * cells;
+  let dim: number;
+  if (file.length === 2 * cells * cells) dim = cells;
+  else if (file.length === 2 * fdim * fdim) dim = fdim;
+  else return { ok: false, why: `RAW size ${file.length} bytes is not ${2 * cells * cells} (${cells}x${cells}) or ${2 * fdim * fdim} (${fdim}x${fdim}) 16-bit samples` };
+  const s = new Uint16Array(dim * dim);
+  for (let i = 0; i < s.length; i++) s[i] = file[2 * i]! | (file[2 * i + 1]! << 8);
+  return { ok: true, samples: s, dim };
 }

@@ -6,8 +6,8 @@
   tiles, spill, box, errors) is derived by recompute() from the ground and body 0, whenever the
   terrain or a lake changes. Units: H in water units (0.5 ft, the same as waterLevel4). On a
   Classic 8-bit track a corner is 4 * raw; the drive surface compares u = v >> 1 with 32 * H.
-  Containment is strict: ground exactly at H does not hold water. Body 0 is there when it is not 0: a version 6 track's
-  may be below 0 ft (v6.ts trackWaterRange), Traxx's never is, so "not 0" is Traxx's "> 0".
+  Containment is strict: ground exactly at H does not hold water. Body 0 is there when it is not 0: no track's water
+  is below 0 ft (v6.ts trackWaterRange), so "not 0" is Traxx's "> 0".
 
   Traxx 1.7.1 (423373b, 56cd559): SPILLWAY NOTCHES (water-bodies handover 4.1a). A waterfall whose
   source is a lake cuts one opening in that lake's wall; the notches come from the falls alone
@@ -33,7 +33,7 @@
   or of the tile map; at N = 256 everything below is exactly Traxx's code.
 */
 import { writeWtr, parseWtr, isWtr, wtrHeightRange } from "../../vendor/openphotex/mtm/wtr.js";
-import type { TxxLake } from "./txx.ts";
+import type { StoredLakeMap, TxxLake } from "./txx.ts";
 import { buildLakeGround, type LakeGround } from "./surface.ts";
 import type { Terrain16 } from "./terrain16.ts";
 import {
@@ -948,7 +948,6 @@ export function recomputeLakes(g: LakeGround | null, lakesIn: readonly TxxLake[]
     }
     if (body0 !== 0 && lakes[j]!.height <= body0) st[j]!.errors |= LAKEERR_BELOW_BODY0;
     if (toomany || ns > LAKE_MAX_SEEDS || ns < 1) st[j]!.errors |= LAKEERR_TOO_MANY;
-    if (N === 256 && groundSurfaceRange(g).wide && (lakes[j]!.height < WTR_V1_LO || lakes[j]!.height > WTR_V1_HI)) st[j]!.errors |= LAKEERR_HEIGHT;
   }
 
   // 4/5. The tile checks, the count and the box columns.
@@ -1034,45 +1033,52 @@ function wrapBoxes(st: LakeState[], occ: Uint8Array, N: number): void {
   }
 }
 
-/**
-  JSTraxx's own, not Traxx's: a pod's .WTR as it was read, kept while the track's lakes, their rule
-  and its waterfalls (whose notches cut the fill) are what they were when it was read. Lakes a
-  converter made by its own rules rather than Traxx's seed fill keep their tile map, and Write POD
-  writes the file back unchanged; once a lake, the rule or a fall changes, the lakes are Traxx's
-  fill again (and an undo back to the pod's lakes brings the stored map back). Not saved in the .TXX.
+/*
+  THE STORED LAKE MAP (Traxx origin/main CTrackPODLakes stored / storedshown / storedlakes, TrackPODFile.cpp
+  ApplyStoredLakes, TraxxDoc.cpp AskStoredLakes, TrackPODLakes.cpp StoredDiffers, StoredWritable, BuildWTRStored):
+  a pod's own .WTR tile map, kept when it differs from Traxx's fill (lakes another tool made by its own rules). The
+  track holds it as TxxTrack.storedLakeMap (saved in a V24 .TXX); the view and the falls read it while it is shown
+  (ShowStored), and Write POD asks whether to write it or Traxx's fill (AskStoredLakes).
+
+  JSTraxx's lakes state is derived, not kept, so Traxx's "a Recompute un-shows the stored map" is the signature of
+  the lakes, their rule and the falls taken when the map was shown (`sig`): an edit of any of them shows the fill,
+  and an undo back shows the stored map again. A map for another lake count names other lakes and is never shown.
 */
-export interface StoredLakes {
-  /** lakesSignature of the track when the file was read. */
-  sig: string;
-  /** The file's tile map, N x N (0 dry, else lake index + 1). */
-  tmap: Uint8Array;
-  /** The .WTR as it was read. */
-  wtr: Uint8Array;
-}
+type StoredLakesTrack = { lakes: readonly TxxLake[]; lakeRule?: number; falls?: readonly TraxxFall[]; storedLakeMap?: StoredLakeMap | null };
 
-type StoredLakesTrack = { lakes: readonly TxxLake[]; lakeRule?: number; falls?: readonly TraxxFall[]; storedLakes?: StoredLakes | null };
-
-/** What the stored map depends on: the lakes, their rule and the waterfalls. */
-export function lakesSignature(t: StoredLakesTrack): string {
+/** What the shown stored map depends on: the lakes, their rule and the waterfalls. */
+export function lakesSignature(t: Pick<StoredLakesTrack, "lakes" | "lakeRule" | "falls">): string {
   return JSON.stringify([t.lakes, t.lakeRule ?? null, t.falls ?? []]);
 }
 
-/** The track's stored .WTR while its lakes are still the pod's, else null. */
-export function storedLakesOf(t: StoredLakesTrack): StoredLakes | null {
-  const kept = t.storedLakes;
-  return kept && kept.sig === lakesSignature(t) ? kept : null;
+/** ShowStored: the stored map becomes what the view shows, for the lakes as they are now. */
+export function showStoredLakes(t: StoredLakesTrack): void {
+  const s = t.storedLakeMap;
+  if (s) t.storedLakeMap = { ...s, shown: true, sig: lakesSignature(t) };
 }
 
-/**
-  `st` over the track's stored tile map when it has one (storedLakesOf): the map, each lake's tile
-  count and wrapping box from it, and no errors, since the map is the file's and not a fill. The
-  spill (what the Lake window's capacity reads) stays Traxx's. Otherwise `st` itself.
-*/
-export function withStoredLakes(t: StoredLakesTrack, st: LakesState): LakesState {
-  const kept = storedLakesOf(t);
-  if (!kept) return st;
-  const tmap = kept.tmap, N = sideOf(tmap.length), SH = cellShiftOf(N), M = N - 1;
-  const lakes = st.lakes.map((l) => ({ ...l, errors: 0, escape: -1, atcount: 0, atx: [], atz: [], tilecount: 0 }));
+/** UseComputed: the fill is shown; the stored map is kept. */
+export function useComputedLakes(t: StoredLakesTrack): void {
+  const s = t.storedLakeMap;
+  if (s) t.storedLakeMap = { ...s, shown: false };
+}
+
+/** HasStored, for the lakes the track has now (a map stored for another lake count is dropped by Recompute). */
+export function storedLakeMapOf(t: StoredLakesTrack): StoredLakeMap | null {
+  const s = t.storedLakeMap;
+  return s && t.lakes.length > 0 && s.lakes === t.lakes.length ? s : null;
+}
+
+/** The stored map while it is what the view shows (StoredShown), else null. */
+export function storedLakeMapShown(t: StoredLakesTrack): StoredLakeMap | null {
+  const s = storedLakeMapOf(t);
+  return s && s.shown && (s.sig === undefined || s.sig === lakesSignature(t)) ? s : null;
+}
+
+/** Each lake's tile count and wrapping box over `tmap` (BuildWTRStored's MapOccupancy and WrapBox). */
+function overMap(st: LakesState, tmap: Uint8Array): LakesState {
+  const N = sideOf(tmap.length), SH = cellShiftOf(N), M = N - 1;
+  const lakes = st.lakes.map((l) => ({ ...l, tilecount: 0 }));
   const occ = new Uint8Array(lakes.length * 2 * N);
   for (let t2 = 0; t2 < tmap.length; t2++) {
     const j = tmap[t2]! - 1;
@@ -1086,11 +1092,117 @@ export function withStoredLakes(t: StoredLakesTrack, st: LakesState): LakesState
 }
 
 /**
+  `st` over the track's stored map while it is shown (storedLakeMapShown): the map, each lake's tile count and
+  wrapping box from it, and no flood errors (the map is the file's, judged by the engine's own checks at Write POD:
+  storedLakesWritable). The spill (what the Lake window's capacity reads) stays Traxx's. Otherwise `st` itself.
+*/
+export function withStoredLakes(t: StoredLakesTrack, st: LakesState): LakesState {
+  const s = storedLakeMapShown(t);
+  if (!s || s.tmap.length !== st.tmap.length) return st;
+  const over = overMap(st, s.tmap);
+  return { ...over, lakes: over.lakes.map((l) => ({ ...l, errors: 0, escape: -1, atcount: 0, atx: [], atz: [] })) };
+}
+
+/** `st` with the stored map in its tile map (ShowStored for Write POD's falls), whatever the view shows. */
+export function overStoredLakes(t: StoredLakesTrack, st: LakesState): LakesState {
+  const s = storedLakeMapOf(t);
+  return s && s.tmap.length === st.tmap.length ? overMap(st, s.tmap) : st;
+}
+
+/**
+  StoredDiffers: the tiles where the stored map and a fresh fill (`fill`, Recompute under the track's rule) disagree;
+  0 when there is no stored map, so there is nothing to ask (AskStoredLakes asks only when it is above 0).
+*/
+export function storedLakesDiffer(t: StoredLakesTrack, fill: LakesState | null): number {
+  const s = storedLakeMapOf(t);
+  if (!s || !fill || s.tmap.length !== fill.tmap.length) return 0;
+  let d = 0;
+  for (let i = 0; i < s.tmap.length; i++) if (s.tmap[i] !== fill.tmap[i]) d++;
+  return d;
+}
+
+/**
+  AskStoredLakes' text (TraxxDoc.cpp), the caption "Write POD" (forPod) or "Save", Yes / No / Cancel with Yes the
+  default. `fitsTxx` is StoredLakesFitTXX (a V24 .TXX holds the map), read only for the .TXX question.
+*/
+export function askStoredLakesText(ndiff: number, forPod: boolean, fitsTxx = true): string {
+  let text = `This track's lake map came from another tool and differs from Traxx's own filling by ${ndiff} tiles (for example, tiles kept dry where roads run under the water).\n\n`;
+  if (!forPod && !fitsTxx) text += "Yes: keep the stored lake map (what the game shows now). A classic .TXX can't hold it, so it is kept only until Traxx closes, or until you Write POD.\n";
+  else text += "Yes: keep the stored lake map (what the game shows now).\n";
+  text += "No: recompute the lakes from their seeds (floods those tiles).\nCancel: don't save.";
+  return text;
+}
+
+/** LakeHeightWindow (Include/TrackPODLakes.h): a height in [lo1, hi1] or [lo2, hi2] passes; an unused range has lo > hi. */
+export interface LakeHeightWindow { lo1: number; hi1: number; lo2: number; hi2: number }
+
+/**
+  CTrackPOD::LakeHeightWindowFor (Include/TrackPOD.h): classic 1..4096; a 256 .SI3 that OR its own window
+  2 * base + 1 .. 2 * (base + 65536 / step); a 512 track only the window.
+*/
+export function lakeHeightWindowFor(v6: boolean, cells: number, step: number, base: number): LakeHeightWindow {
+  const w = { lo1: 1, hi1: 4096, lo2: 1, hi2: 0 };
+  if (v6) {
+    const lo = 2 * base + 1, hi = 2 * (base + Math.trunc(65536 / (step > 0 ? step : 1)));
+    if (cells === 512) { w.lo1 = lo; w.hi1 = hi; } else { w.lo2 = lo; w.hi2 = hi; }
+  }
+  return w;
+}
+
+/**
+  StoredWritable: the stored map judged by the ENGINE's per-lake checks (WaterBodies.cpp), not by Traxx's flood
+  errors: every lake has 1..8 seeds, at least one tile in the map, a height in the window (1..the ground's ceiling
+  without one), above body 0, and no tile of it already wet under body 0. -1 when it passes; the index of the first
+  lake that fails; LAKE_MAX_LAKES when there is no stored map or no usable ground.
+*/
+export function storedLakesWritable(t: StoredLakesTrack, g: LakeGround | null, body0: number, hw: LakeHeightWindow | null = null): number {
+  const s = storedLakeMapOf(t);
+  const nl = t.lakes.length;
+  if (!s || nl <= 0 || nl > LAKE_MAX_LAKES || !hasGround(g) || s.tmap.length !== groundCells(g) ** 2) return LAKE_MAX_LAKES;
+  const { M, SH } = dims(groundCells(g));
+  const count = new Int32Array(256);
+  const touch = new Uint8Array(LAKE_MAX_LAKES + 1);
+  for (let tt = 0; tt < s.tmap.length; tt++) {
+    const id = s.tmap[tt]!;
+    if (id === 0) continue;
+    count[id]++;
+    if (body0 > 0 && tileLow(g, tt & M, tt >> SH) <= levelOf(g, body0)) touch[id] = 1;
+  }
+  const cap = lakeMaxHeightFor(g);
+  for (let j = 0; j < nl; j++) {
+    const k = t.lakes[j]!;
+    const h = k.height, ns = k.seeds.length;
+    const heightok = hw ? (h >= hw.lo1 && h <= hw.hi1) || (h >= hw.lo2 && h <= hw.hi2) : h >= 1 && h <= cap;
+    const bad = ns < 1 || ns > LAKE_MAX_SEEDS || count[j + 1] === 0 || !heightok || (body0 > 0 && h <= body0) || touch[j + 1] !== 0;
+    if (bad) return j;
+  }
+  return -1;
+}
+
+/** Write POD's refusal of a stored map that fails StoredWritable (OnFileWritePOD), caption "Lakes need fixing". */
+export function storedLakesNotWritableText(badlake: number): string {
+  return `The stored lake map can't be written: lake ${badlake + 1} does not pass the game's own checks (a height out of range, no tiles, or water at or below the main water).\n\nRecompute the lakes at the prompt, or fix the lake.\n\nNothing was written.`;
+}
+
+/** The same refusal with no ground to judge on. */
+export const STORED_LAKES_NO_MEMORY = "There was not enough memory to check the stored lake map against the terrain.\n\nNothing was written.";
+
+/**
+  BuildWTRStored: the .WTR with exactly the stored TMAP bytes and each lake's tile count and box derived from that
+  map, under the fill's rule (`st.rule`), or null when StoredWritable fails. `heightWindow` as buildWtr.
+*/
+export function buildWtrStored(t: StoredLakesTrack, st: LakesState, g: LakeGround | null, body0: number, hw: LakeHeightWindow | null, heightWindow?: { step: number; base: number }): Uint8Array | null {
+  if (storedLakesWritable(t, g, body0, hw) !== -1) return null;
+  const over = overStoredLakes(t, st);
+  return writeWtrImage(t.lakes, over, heightWindow);
+}
+
+/**
   RecomputeLakes (CTraxxView::RecomputeLakes): the derived state of a track's lakes as the track
   is now, under its rule, with the notches its falls cut (UpdateLakeNotches, right before every Recompute).
 */
-export function trackLakes(t: Terrain16 & { lakes: readonly TxxLake[]; waterLevel4: number; falls?: readonly TraxxFall[]; lakeRule?: number; storedLakes?: StoredLakes | null }): LakesState {
-  // JSTraxx: over the pod's own tile map while the lakes are the pod's (withStoredLakes).
+export function trackLakes(t: Terrain16 & { lakes: readonly TxxLake[]; waterLevel4: number; falls?: readonly TraxxFall[]; lakeRule?: number; storedLakeMap?: StoredLakeMap | null }): LakesState {
+  // Over the stored map while it is shown (ShowStored, withStoredLakes).
   return withStoredLakes(t, recomputeLakes(t.lakes.length ? buildLakeGround(t) : null, t.lakes, t.waterLevel4, trackNotches(t), cellsOf(t)));
 }
 
@@ -1101,17 +1213,24 @@ export function lakeNotchEdgesOf(s: LakesState): LakeNotchEdge[] {
 
 /**
   BuildWTR: the .WTR image, or null when there are no lakes or one is in error. Written with the
-  rule the lakes were filled under (header flags bit 0 and minor 1 for EDGE).
+  rule the lakes were filled under (header flags bit 0 and minor 1 for EDGE). `heightWindow`, a 256-cell
+  .SI3's step and base, lets a version 1 lake take the track's height window as the engine does.
 */
-export function buildWtr(lakes: readonly TxxLake[], s: LakesState): Uint8Array | null {
+export function buildWtr(lakes: readonly TxxLake[], s: LakesState, heightWindow?: { step: number; base: number }): Uint8Array | null {
   if (!lakes.length || anyLakeErrors(s) !== 0) return null;
-  // writeWtr refuses what the file cannot hold (a version 1 height outside 1..4096): no item then.
+  return writeWtrImage(lakes, s, heightWindow);
+}
+
+/** BuildWTRImage: the header, BODY and TMAP of `s` (each lake's tile count and box from it). */
+function writeWtrImage(lakes: readonly TxxLake[], s: LakesState, heightWindow?: { step: number; base: number }): Uint8Array | null {
+  if (!lakes.length) return null;
+  // writeWtr refuses what the file cannot hold (a version 1 height outside 1..4096 or the window): no item then.
   try {
     return writeWtr(lakes.map((l, i) => ({
       flags: l.flags, height: l.height, seeds: l.seeds.map(([x, z]) => ({ x, z })),
       box: { minX: s.lakes[i]!.minx, minZ: s.lakes[i]!.minz, maxX: s.lakes[i]!.maxx, maxZ: s.lakes[i]!.maxz },
       tileCount: s.lakes[i]!.tilecount,
-    })), s.tmap, { edgeRule: s.rule === LAKE_RULE_EDGE });
+    })), s.tmap, { edgeRule: s.rule === LAKE_RULE_EDGE, ...(heightWindow ? { heightWindow } : {}) });
   } catch (e) {
     if (e instanceof RangeError) return null;
     throw e;
@@ -1144,16 +1263,13 @@ export function parseWtrLakes(bytes: Uint8Array, cells?: number): { lakes: TxxLa
 }
 
 /**
-  The .WTR of a track format version 6 (.SI3) track: BuildWTR's lakes and the N x N tile map
-  through OpenPhotex writeWtr, whose version is the world's (9.1): version 1 for a 256 x 256 map,
-  version 2 for 512 x 512. A 256-cell track's lake outside version 1's 1..4096 half-feet is
-  LAKEERR_HEIGHT, never a version 2 file. Null when there are no lakes or one is in error, as BuildWTR.
+  The .WTR of a track format version 6 (.SI3) track: BuildWTR's lakes and the N x N tile map through OpenPhotex
+  writeWtr, whose version is the world's (9.1): version 1 for a 256 x 256 map, version 2 for 512 x 512. A 256-cell
+  track's version 1 lakes take the engine's window of its step and base too (LakeHeightWindowFor).
 */
-export function buildWtrV6(lakes: readonly TxxLake[], s: LakesState): Uint8Array | null {
-  return buildWtr(lakes, s);
+export function buildWtrV6(lakes: readonly TxxLake[], s: LakesState, step: number, base: number): Uint8Array | null {
+  return buildWtr(lakes, s, s.tmap.length === 65536 ? { step, base } : undefined);
 }
 
-/** The message when a pod's stored tile map differs from the one Traxx computes (JSTraxx keeps the stored one, StoredLakes). */
-export const LAKES_MISMATCH = "The lakes in this pod were not filled the way Traxx fills them (they were made by another tool). JSTraxx keeps the pod's own lake map, and Write POD writes it back unchanged, until a lake or a waterfall is edited; from then on the lakes are filled as Traxx fills them.";
 /** Write POD's report when the lakes cannot be packed. */
 export const LAKES_NOT_SAVED = "The lakes could not be written into the pod (the name does not fit a pod entry, or a lake is in error).\n\nThe pod was saved WITHOUT its lakes. Fix them and save again.";

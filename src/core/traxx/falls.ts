@@ -66,6 +66,11 @@ export const FALL_WORLD_FT = 8192;
 export interface FallWorld {
   cells: number;
   terrain: { step: number; base: number } | null;
+  /**
+    The track kind's crest ceiling, half-feet (Traxx origin/main TrackPOD.cpp FallMaxHeight: FALL_MAX_HEIGHT on a
+    classic track, the lake cap, the terrain ceiling / 64, on a v6 one); absent: the .WFL version's own range.
+  */
+  maxHeight?: number;
 }
 /** The world of every track that is not version 6: 256 cells, Traxx's 1..4096 crest heights. */
 export const FALL_WORLD_CLASSIC: FallWorld = { cells: 256, terrain: null };
@@ -227,6 +232,7 @@ export function fallLakesCells(l: FallLakes): number {
   without them reads 128 and 0).
 */
 export function fallHeightBounds(w: FallWorld | undefined): { min: number; max: number } {
+  if (w?.maxHeight !== undefined) return { min: 1, max: w.maxHeight };
   if (!w || w.cells === 256) return fallHeightRange(1);
   return fallHeightRange(2, w.terrain ?? { step: 128, base: 0 });
 }
@@ -1057,7 +1063,7 @@ export function fallGroundFor(t: Terrain16 & { waterLevel4: number; lakes: reado
         const l = tmap[tx + (tz << SH)]!;
         if (l !== 0 && l !== source && l <= nlakes) return Math.fround(t.lakes[l - 1]!.height * 0.5);
       }
-      // 0 is no water; below 0 ft only on a version 6 track (Traxx's never is, so this is its "> 0").
+      // 0 is no water; no track's water is below 0 ft, so this is Traxx's "> 0".
       if (water4 !== 0) return Math.fround(water4 * 0.5);
       return null;
     },
@@ -1278,6 +1284,8 @@ export function fallErrorText(bit: number, world: FallWorld | null = null, edge 
       case FALLERR_LIP_LOW: return "A lip point is below the lake's height: the water's edge would show as a floating face - raise it to the lake's height";
     }
   }
+  // ErrorText(bit, edge, maxheight): the kind's own ceiling (FallMaxHeight).
+  if (bit === FALLERR_HEIGHT && world?.maxHeight !== undefined) return `The crest height is outside 1..${world.maxHeight}`;
   if (bit === FALLERR_HEIGHT && world && world.terrain) {
     if (world.cells === 256) return "The crest height is outside 1..4096 (0.5 to 2,048 ft): a 256-cell track's waterfalls (.WFL version 1) hold no other height - lower it, or use a 512-cell world";
     const r = fallHeightBounds(world);
@@ -2704,7 +2712,9 @@ export const FALL_SHAPE_ERRORS = FALLERR_POINTS | FALLERR_TURN | FALLERR_WIDTH |
 export function buildWfl(falls: readonly TraxxFall[], lakes: FallLakes, namecheck: FallNameCheck = null): Uint8Array | null {
   if (!falls.length || falls.length > FALL_MAX_FALLS) return null;
   for (let i = 0; i < falls.length; i++) if (fallErrors(falls, i, lakes, namecheck) !== 0) return null;
-  const w6 = lakes.world && lakes.world.cells === 512 ? { cells: 512 } : undefined;
+  // A 512 world writes version 2; a 256 v6 world version 1, its falls in the engine's window of its step and base too
+  // (OpenPhotex heightWindow, Traxx origin/main LakeHeightWindowFor).
+  const w6 = lakes.world && lakes.world.cells === 512 ? { cells: 512 } : lakes.world?.terrain ? { cells: 256, heightWindow: lakes.world.terrain } : undefined;
   try {
     return writeWflOf(falls, lakes, w6);
   } catch (e) {
@@ -2714,7 +2724,7 @@ export function buildWfl(falls: readonly TraxxFall[], lakes: FallLakes, namechec
   }
 }
 
-function writeWflOf(falls: readonly TraxxFall[], lakes: FallLakes, w6: { cells: number } | undefined): Uint8Array {
+function writeWflOf(falls: readonly TraxxFall[], lakes: FallLakes, w6: { cells: number; heightWindow?: { step: number; base: number } } | undefined): Uint8Array {
   return writeWfl(falls.map((w, i) => ({
     // flags: bits 0..2 only, the rest 0 (handover 6.1); roughFrom makes the record v1.1 when not 0.
     source: w.source, flags: w.flags & 7, speed: w.speed, height: fallEffectiveHeight(falls, i, lakes.lakes),

@@ -35,7 +35,7 @@
   it do nothing (core/view/pick.ts).
 */
 import * as THREE from "three";
-import { ENGDET_GLSL_BAKED_I, ENGDET_GLSL_TERR_DETAIL_I, engineDetailGlslDefines } from "./engine-detail-glsl.ts";
+import { ENGDET_GLSL_BAKED_I, ENGDET_GLSL_BOX_I, ENGDET_GLSL_TERR_DETAIL_I, engineDetailGlslDefines } from "./engine-detail-glsl.ts";
 import type { TileSet } from "../core/view/tiles.ts";
 import { cornerUv } from "../core/view/tiles.ts";
 import { ALTITUDE_SCALE } from "../core/view/camera.ts";
@@ -53,11 +53,13 @@ const vertexShader = /* glsl */ `
   in vec2 tile;
   in vec3 cell;
   in vec2 local;
+  in float boxFace;      // ground boxes only (render/ground-boxes.ts): the ENGDET_BOX_* face, -1 drawn plain
   uniform mat4 modelViewMatrix;
   uniform mat4 projectionMatrix;
   out vec2 vUv;
   flat out vec2 vTile;
   flat out vec3 vCell;
+  flat out float vBoxFace;
   out vec2 vLocal;
   out vec2 vWorldFt;
   void main() {
@@ -67,6 +69,7 @@ const vertexShader = /* glsl */ `
     vTile = tile;
     vCell = cell;
     vLocal = local;
+    vBoxFace = boxFace;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
@@ -76,7 +79,7 @@ const fragmentShaderFor = (cells: number) => /* glsl */ `
   precision highp sampler2DArray;
 ${engineDetailGlslDefines(cells)}
   // Traxx 1.8.0 (b6d56f2) View > Show Detail Maps / Show Detail Strength: the engine's terrain detail
-  // term (render/engine-detail-glsl.ts), and (2e8a268) View > Show Water Mask's orange tint.
+  // term (render/engine-detail-glsl.ts), and (2e8a268) View > Show Water Mask's orange tint (Show Water Strength since 1.8.1).
   uniform bool detailOn;      // the track has its own _MASK and the maps are uploaded
   uniform sampler2D uDet;
   uniform sampler2D uMask;
@@ -88,10 +91,16 @@ ${engineDetailGlslDefines(cells)}
   uniform float uLook;
   uniform float uWash;
   uniform float uLightN;
+  // Traxx 1.8.1 (GLDetailBeginBox): the ground boxes through the same program, their faces' light.
+  uniform bool isBox;
+  uniform vec4 uBoxSideI;
+  uniform float uBoxBottomI;
+  flat in float vBoxFace;
   uniform bool wmaskOn;
   uniform sampler2D wmaskCells;
+  uniform float wmaskDiv;
   in vec2 vWorldFt;
-${ENGDET_GLSL_BAKED_I}${ENGDET_GLSL_TERR_DETAIL_I}
+${ENGDET_GLSL_BAKED_I}${ENGDET_GLSL_BOX_I}${ENGDET_GLSL_TERR_DETAIL_I}
   uniform sampler2DArray smallTiles;
   uniform sampler2DArray largeTiles;
   uniform vec4 window;        // min x, min y, max x, max y, in cells (exclusive max)
@@ -127,13 +136,15 @@ ${ENGDET_GLSL_BAKED_I}${ENGDET_GLSL_TERR_DETAIL_I}
     // The painted detail mask, washed over the ground (COpenGLTerrainRenderer::MaskWash): the
     // fallback when the detail shader is not running.
     if (maskOn) colour *= texture(maskWash, (vCell.xy + 0.5) / worldCells).rgb;
-    if (detailOn) {
-      // g_EngDetTerrainFS: both samples outside any branch; textured = a tile, not the fallback colour.
+    // Traxx 1.8.1 DrawGroundBoxPolyobj: a box over more than one tile, or of zero height, is drawn plain.
+    if (detailOn && !(isBox && vBoxFace < -0.5)) {
+      // g_EngDetTerrainFS: both samples outside any branch; textured = a tile, not the fallback colour
+      // (a box's untextured face, Traxx's ENGDET_UNTEX_S mark, is a fallback tile here too).
       vec4 dt = texture(uDet, vWorldFt / uDetRepFt);
       float mk = (uMapFt > 0.0) ? texture(uMask, vWorldFt / max(uMapFt, 1.0)).r : 0.0;
       bool textured = vTile.x > -0.5;
       if (textured && uLook > 0.5) {
-        float i = terrDetailI(bakedI(vWorldFt), dt, mk);
+        float i = terrDetailI(isBox ? boxI(vWorldFt, vCell.xy, vBoxFace) : bakedI(vWorldFt), dt, mk);
         colour = (i <= 1.0) ? colour * i : mix(colour, vec3(1.0), clamp(i - 1.0, 0.0, 1.0));
       }
       if (textured && uWash > 0.5 && uMapFt > 0.0) {
@@ -141,10 +152,12 @@ ${ENGDET_GLSL_BAKED_I}${ENGDET_GLSL_TERR_DETAIL_I}
         colour *= vec3(1.0) - vec3(WASH_R, WASH_G, WASH_B) * t;
       }
     }
-    // The water mask tint (DrawWaterMaskWash): per cell, orange, alpha (38 + 115 v / 255) / 255; 0 draws nothing.
+    // The water mask tint (DrawWaterMaskWash, WashCellColour): per cell, orange, alpha
+    // (38 + 115 v / 255) / div / 255; 0 draws nothing. Traxx 1.8.1: div is 3 (WMASK_FAINT_DIV) while
+    // the water carries the exact per-texel wash, else 1.
     if (wmaskOn) {
       float v = floor(texture(wmaskCells, (vCell.xy + 0.5) / worldCells).r * 255.0 + 0.5);
-      if (v > 0.0) colour = mix(colour, vec3(1.0, 140.0 / 255.0, 0.0), floor(38.0 + floor(115.0 * v / 255.0)) / 255.0);
+      if (v > 0.0) colour = mix(colour, vec3(1.0, 140.0 / 255.0, 0.0), floor(floor(38.0 + floor(115.0 * v / 255.0)) / wmaskDiv) / 255.0);
     }
     if (wireMode != 0 && wireCells) {
       // Distance to the nearest grid line of the drawn mesh (8 ft on an 8 ft tile, 32 ft
@@ -237,8 +250,12 @@ export class TerrainMesh {
         uLook: { value: 0 },
         uWash: { value: 0 },
         uLightN: { value: CELLS },
+        isBox: { value: false },
+        uBoxSideI: { value: new THREE.Vector4(0, 0, 0, 0) },
+        uBoxBottomI: { value: 0 },
         wmaskOn: { value: false },
         wmaskCells: { value: null },
+        wmaskDiv: { value: 1 },
         smallTiles: { value: null },
         largeTiles: { value: null },
         window: { value: new THREE.Vector4(0, 0, CELLS, CELLS) },
@@ -504,7 +521,8 @@ export class TerrainMesh {
     const u = this.material.uniforms;
     return new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader, fragmentShader: this.fragmentShader, side: THREE.DoubleSide,
-      uniforms: { ...u, maskOn: { value: false }, detailOn: { value: false }, wmaskOn: { value: false }, wireCells: { value: false }, shift: { value: new THREE.Vector2(0, 0) }, border: { value: false } },
+      // Traxx 1.8.1: the ground boxes follow the ground's detail program (detailboxesok = detailbound), so detailOn is shared.
+      uniforms: { ...u, maskOn: { value: false }, isBox: { value: true }, wmaskOn: { value: false }, wireCells: { value: false }, shift: { value: new THREE.Vector2(0, 0) }, border: { value: false } },
     });
   }
 
@@ -516,7 +534,7 @@ export class TerrainMesh {
     Traxx 1.8.0 detail maps (GLDetailBeginTerrain): the textures (render/terrain-detail.ts builds
     them) and the two switches; null turns the shader off (no _MASK: no detail, as the engine).
   */
-  setDetail(d: { det: THREE.Texture; mask: THREE.Texture; light: THREE.Texture; lightN: number; sun: readonly number[]; strength: number; look: boolean; wash: boolean } | null): void {
+  setDetail(d: { det: THREE.Texture; mask: THREE.Texture; light: THREE.Texture; lightN: number; sun: readonly number[]; strength: number; look: boolean; wash: boolean; boxSideI: readonly number[]; boxBottomI: number } | null): void {
     const u = this.material.uniforms;
     u.detailOn.value = Boolean(d && (d.look || d.wash));
     if (!d) return;
@@ -530,10 +548,18 @@ export class TerrainMesh {
     u.uMapFt.value = this.cells * 32;
     u.uLook.value = d.look ? 1 : 0;
     u.uWash.value = d.wash ? 1 : 0;
+    (u.uBoxSideI.value as THREE.Vector4).set(d.boxSideI[0]!, d.boxSideI[1]!, d.boxSideI[2]!, d.boxSideI[3]!);
+    u.uBoxBottomI.value = d.boxBottomI;
   }
 
-  /** View > Show Water Mask (2e8a268): the _WMSK cell table (N x N red values, row 0 = z 0), or null for none. */
-  setWaterMask(cells: Uint8Array | null): void {
+  /**
+    View > Show Water Strength (2e8a268, renamed in Traxx 1.8.1): the _WMSK cell table (N x N red
+    values, row 0 = z 0), or null for none. faint: the water draws the exact wash this frame
+    (DrawWaterMaskWash: fast draw, water shown, opacity > 0, GLDetailWaterReady), so the ground's
+    goes to a third of its alpha (WMASK_FAINT_DIV).
+  */
+  setWaterMask(cells: Uint8Array | null, faint = false): void {
+    this.material.uniforms.wmaskDiv.value = faint ? 3 : 1;
     if (cells === this.shownWaterMask) return;
     this.shownWaterMask = cells;
     const u = this.material.uniforms;

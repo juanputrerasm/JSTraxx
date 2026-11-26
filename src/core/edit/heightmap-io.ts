@@ -31,6 +31,7 @@ import {
   TERRAINMODE_CLASSIC16, TERRAINMODE_CLASSIC8, TERRAINMODE_FINE, type Terrain16,
 } from "../traxx/terrain16.ts";
 import { asU16, cellsOf, fitsCp4, type HeightGrid } from "../traxx/world.ts";
+import { storeForKind } from "../traxx/track-kind.ts";
 import { decodeMtm2V6Heights, mtm2V6HeightsH128, mtm2V6StepAndBase, encodeMtm2HeightRaw16 } from "../../vendor/openphotex/mtm/heights.js";
 import { encodeGreyPng } from "../../vendor/openphotex/texture/png-write.js";
 import { heightsChanged } from "../traxx/surface.ts";
@@ -320,6 +321,8 @@ export function v6ApplyImport(t: TxxTrack, im: V6HeightmapImport): void {
   refreshRaw(t);
   t.heightStep = im.step;
   t.heightBase = im.base;
+  // The store follows the track's kind (track-kind.ts storeForKind); values are kept as imported.
+  storeForKind(t);
   heightsChanged(t);
 }
 
